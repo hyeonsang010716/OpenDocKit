@@ -50,13 +50,14 @@ class TestReference:
         assert "## Article 13" not in written
 
     def test_the_start_of_an_article_is_cut_between_two_letters(self):
-        """A text without spaces is one 'word': it is cut after thirty characters, and not between a letter and the mark
-        set on it."""
+        """A text without spaces is one 'word': it is cut after twenty-four characters, and not between a letter and the
+        mark set on it."""
         assert _start("All human beings are born free and equal") == "All human beings are"
-        assert _start("人" * 50) == "人" * 30
-        marked = "ก" * 29 + "กิ" + "ก" * 10
+        assert _start("人" * 50) == "人" * 24
+        marked = "ก" * 23 + "กิ" + "ก" * 10
 
-        assert _start(marked) == "ก" * 29 + "กิ"
+        assert _start(marked) == "ก" * 23 + "กิ"
+        assert _start("ক" * 23 + "ক" + chr(0x200C) + "ক" * 5) == "ক" * 24
 
     def test_the_texts_are_read_at_one_revision(self):
         """The list is the same on every run only when the revision is: a branch name would follow the project."""

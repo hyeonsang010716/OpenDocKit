@@ -149,6 +149,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: tables without rules in Hindi, Japanese, Chinese, Khmer, Thai and other scripts.** The number that opens a row
+  is set in a Latin font and stands at another height than the cells beside it; the rows were put together across that
+  step only for Hangul and Han, so the numbers were rows of their own and no table was found. A cell in a script
+  without spaces is seen to end where its text does, its lines are joined without a space (`皮 膚の色` is `皮膚の色`),
+  and a header such as `제 1 조` is words of one letter.
 - **PDF: the first column of an Arabic or Hebrew table is the one on the right.** The columns of such a table came out
   last to first. A table on a page that runs from right to left is now written from its right column, and the tags of
   a tagged PDF are believed for a table whose rows run from the right.

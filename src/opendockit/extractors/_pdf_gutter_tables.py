@@ -8,8 +8,17 @@ import re
 from statistics import median
 
 from opendockit.extractors._pdf_aligned_tables import _is_formula, _table_columns
-from opendockit.extractors._pdf_banded_tables import _FILLED_MIN, _GUTTER_MIN, _columns, _joined, _pieces
-from opendockit.extractors._pdf_model import _Line, _original_lines_of, _Page, _Table, _visual_rows
+from opendockit.extractors._pdf_banded_tables import _FILLED_MIN, _GUTTER_MIN, _columns, _pieces
+from opendockit.extractors._pdf_model import (
+    _BREAKS_ANYWHERE,
+    _UNSPACED,
+    _Line,
+    _original_lines_of,
+    _Page,
+    _runs_on,
+    _Table,
+    _visual_rows,
+)
 from opendockit.markdown import render_table
 
 
@@ -38,7 +47,11 @@ _ROW_LINES_MAX = 0.7
 # only this many rows further down are tried as its start.
 _PAGE_LINES_MAX = 1500
 _STARTS_TRIED = 3
-_WORD = re.compile(r"[^\W\d_]{2}")
+# A word of a script written without spaces (`_pdf_model._UNSPACED`) is taken to be this many letters at most (`_wrapped`)
+_UNSPACED_WORD = 6
+# A word of a header cell: two letters, or one of a script that writes a word with one (Hangul, Han, kana) — '제 1 조'
+# holds two words and no two letters side by side
+_WORD = re.compile(r"[^\W\d_]{2}|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]")
 
 
 def _extract_gutter_tables(page: _Page) -> None:
@@ -65,7 +78,9 @@ def _extract_gutter_tables(page: _Page) -> None:
     """
     if page.simple or not _MIN_LINES * 2 <= len(page.lines) <= _PAGE_LINES_MAX:
         return
-    rows = _visual_rows(page.lines)
+    # With the cells set in the font of another script at the height of the number beside them (`_visual_rows`): a number
+    # that opens a row was a row of its own, and a table whose rows start in one column is none
+    rows = _visual_rows(page.lines, staggered=True)
     page_columns = _table_columns(page)
     used: set[int] = set()
     start = tried = 0
@@ -141,8 +156,12 @@ def _wrapped(above: tuple[float, float, str], below: tuple[float, float, str], w
     that line. A line is broken only where the next word does not fit, so a value under a value ('4' over '5', '7.41%'
     over '11.52%') is a cell of the next row, and 'Program' under 'Eco-Ecole' in a column that narrow is the same cell."""
     word = below[2].split(" ", 1)[0]
+    # What had no room is a word. A script written without spaces between words breaks a line elsewhere: Han and kana
+    # after any character, Thai, Lao, Khmer and Burmese after a word of a few letters — taken for one word, a whole line
+    # of them never had room, and no cell of such a table was seen to end
+    letters = 1 if _BREAKS_ANYWHERE.match(word) else min(len(word), _UNSPACED_WORD) if _UNSPACED.match(word) else len(word)
     per_character = (below[1] - below[0]) / max(len(below[2]), 1)
-    return (above[1] - above[0]) + per_character * (len(word) + 1) > width * _FIT_TOLERANCE
+    return (above[1] - above[0]) + per_character * (letters + 1) > width * _FIT_TOLERANCE
 
 
 def _ended(above: tuple[float, float, str], below: tuple[float, float, str], width: float) -> bool:
@@ -194,15 +213,31 @@ def _gutter_table(block: list[list[_Line]]) -> _Table | None:
     # every column but one at most, with most cells filled, every row starting in two columns or more, and no formula
     if all(len(row) == 1 for row in grid) or _is_formula(block):
         return None
-    header = _joined(grid[0], " ")
+    header = _cells(grid[0])
     if sum(1 for cell in header if _WORD.search(cell)) < len(columns) - 1 or any(len(start) < 2 for start in starts):
         return None
-    if sum(1 for row in grid for cell in _joined(row, " ") if cell) < len(grid) * len(columns) * _FILLED_MIN:
+    if sum(1 for row in grid for cell in _cells(row) if cell) < len(grid) * len(columns) * _FILLED_MIN:
         return None
     # The lines of a cell are one text broken where it did not fit, so they are joined by a space, not kept as lines
-    drawn = [_joined(row, " ") for row in grid]
+    drawn = [_cells(row) for row in grid]
     return _Table(top=min(line.top for line in lines), text=render_table(drawn), bottom=max(line.bottom for line in lines),
                   x0=min(line.x0 for line in lines), x1=max(line.x1 for line in lines), rows=drawn, spans=tuple(columns))
+
+
+def _cells(lines: list[list[str]]) -> list[str]:
+    """The cells of a row from the lines it was drawn in: the lines of a cell are one text broken where it did not fit,
+    so they are joined by a space, not kept as lines — and by nothing where the line is broken inside running text, in a
+    script written without spaces between words ('すべて人は、人種、皮' and '膚の色' are one clause; with a space it
+    read '皮 膚の色')."""
+    cells = []
+    for column in zip(*lines, strict=True):
+        text = ""
+        for part in column:
+            if not part:
+                continue
+            text += ("" if not text or _runs_on(text, part) else " ") + part
+        cells.append(text)
+    return cells
 
 
 def _is_tabular(lines: list[_Line], columns: list[tuple[float, float]], line_count: int, longest_row: int) -> bool:

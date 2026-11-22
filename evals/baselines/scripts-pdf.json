@@ -1,46 +1,46 @@
 {
  "means": {
   "overall": {
-   "mean": 0.9499,
+   "mean": 0.9768,
    "documents": 19
   },
   "nid": {
-   "mean": 0.9846,
+   "mean": 0.9921,
    "documents": 19
   },
   "nid_s": {
-   "mean": 0.9858,
+   "mean": 0.993,
    "documents": 19
   },
   "teds": {
-   "mean": 0.8856,
+   "mean": 0.9482,
    "documents": 19
   },
   "teds_s": {
-   "mean": 0.9015,
+   "mean": 0.9527,
    "documents": 19
   },
   "mhs": {
-   "mean": 0.9796,
+   "mean": 0.9901,
    "documents": 19
   },
   "mhs_s": {
-   "mean": 0.9947,
+   "mean": 0.9982,
    "documents": 19
   },
   "words": {
-   "mean": 0.956,
+   "mean": 0.9727,
    "documents": 19
   }
  },
  "documents": {
   "amh": {
-   "overall": 0.9902,
-   "nid": 0.9921,
+   "overall": 0.9925,
+   "nid": 0.9933,
    "nid_s": 0.9934,
-   "teds": 0.985,
+   "teds": 0.9904,
    "teds_s": 1.0,
-   "mhs": 0.9936,
+   "mhs": 0.9939,
    "mhs_s": 1.0,
    "words": 1.0
   },
@@ -65,14 +65,14 @@
    "words": 1.0
   },
   "cmn_hans": {
-   "overall": 0.9471,
-   "nid": 0.9635,
-   "nid_s": 0.9567,
-   "teds": 0.9581,
-   "teds_s": 1.0,
-   "mhs": 0.9198,
+   "overall": 0.9517,
+   "nid": 0.9778,
+   "nid_s": 0.9819,
+   "teds": 0.8846,
+   "teds_s": 0.8846,
+   "mhs": 0.9925,
    "mhs_s": 1.0,
-   "words": 0.7099
+   "words": 0.8434
   },
   "ell_monotonic": {
    "overall": 1.0,
@@ -115,34 +115,34 @@
    "words": 0.9946
   },
   "jpn": {
-   "overall": 0.5735,
-   "nid": 0.8811,
-   "nid_s": 0.8923,
-   "teds": 0.0,
-   "teds_s": 0.0,
-   "mhs": 0.8393,
-   "mhs_s": 0.9333,
-   "words": 0.6093
+   "overall": 0.9836,
+   "nid": 0.9926,
+   "nid_s": 0.9912,
+   "teds": 0.9984,
+   "teds_s": 1.0,
+   "mhs": 0.9598,
+   "mhs_s": 1.0,
+   "words": 0.7813
   },
   "kat": {
-   "overall": 0.8046,
-   "nid": 0.9684,
-   "nid_s": 0.9781,
-   "teds": 0.4623,
-   "teds_s": 0.68,
-   "mhs": 0.983,
+   "overall": 0.8954,
+   "nid": 0.9829,
+   "nid_s": 0.9898,
+   "teds": 0.7144,
+   "teds_s": 0.7667,
+   "mhs": 0.9889,
    "mhs_s": 1.0,
-   "words": 0.9945
+   "words": 0.9953
   },
   "khm": {
-   "overall": 0.9957,
-   "nid": 0.9965,
+   "overall": 0.9981,
+   "nid": 0.9969,
    "nid_s": 0.9966,
-   "teds": 0.9936,
+   "teds": 1.0,
    "teds_s": 1.0,
-   "mhs": 0.9971,
+   "mhs": 0.9973,
    "mhs_s": 1.0,
-   "words": 0.9801
+   "words": 0.9824
   },
   "kor": {
    "overall": 1.0,
@@ -155,14 +155,14 @@
    "words": 1.0
   },
   "mya": {
-   "overall": 0.8997,
+   "overall": 0.8979,
    "nid": 0.9368,
-   "nid_s": 0.9353,
-   "teds": 0.8696,
+   "nid_s": 0.9357,
+   "teds": 0.8642,
    "teds_s": 0.8846,
-   "mhs": 0.8927,
+   "mhs": 0.8926,
    "mhs_s": 0.9655,
-   "words": 0.9374
+   "words": 0.937
   },
   "pes_1": {
    "overall": 0.9422,
@@ -195,14 +195,14 @@
    "words": 1.0
   },
   "tha": {
-   "overall": 0.9948,
-   "nid": 0.9956,
+   "overall": 0.9977,
+   "nid": 0.9962,
    "nid_s": 0.9958,
-   "teds": 0.9923,
+   "teds": 1.0,
    "teds_s": 1.0,
-   "mhs": 0.9966,
+   "mhs": 0.9969,
    "mhs_s": 1.0,
-   "words": 0.9467
+   "words": 0.9545
   },
   "urd": {
    "overall": 0.9426,
@@ -226,23 +226,23 @@
   }
  },
  "texts": {
-  "amh": "e5a421053021",
+  "amh": "7a2ca154ee67",
   "arb": "5e78f1c54e2a",
-  "ben": "2fd05e71eb24",
-  "cmn_hans": "1e9aed657dd4",
-  "ell_monotonic": "94d474d9cad8",
+  "ben": "19408012a934",
+  "cmn_hans": "49cd6e5eaabb",
+  "ell_monotonic": "47a255d9f936",
   "heb": "b5b308878861",
-  "hin": "027d15692ba0",
-  "hye": "3f55f2d36f04",
-  "jpn": "d71112d4e076",
-  "kat": "4be19e4d4a03",
-  "khm": "a82a9cc6e70e",
-  "kor": "722bb4625337",
-  "mya": "5cea101f78d5",
+  "hin": "cdce91949ee7",
+  "hye": "7cff8fec4dd3",
+  "jpn": "d9c38a8ac92d",
+  "kat": "1a9b0d16dff3",
+  "khm": "988ec0ad6192",
+  "kor": "6c4dfc3a9297",
+  "mya": "d212fb678c75",
   "pes_1": "96b6fbcec457",
-  "rus": "413eb9c33b11",
-  "tam": "a16aa9e49b40",
-  "tha": "e16e78635efd",
+  "rus": "b844c229a24f",
+  "tam": "c58241cf8b32",
+  "tha": "df39c424b416",
   "urd": "722cc3551fc2",
   "vie": "a5edcee95236"
  }

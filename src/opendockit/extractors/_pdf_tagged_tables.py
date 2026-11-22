@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pdfminer.pdftypes import PDFObjRef, resolve1
 
 from opendockit.extractors._pdf_chars import _text_from_chars
-from opendockit.extractors._pdf_model import _TABLE_ROW_TOLERANCE, _original_lines_of, _Page, _Table
+from opendockit.extractors._pdf_model import _TABLE_ROW_TOLERANCE, _original_lines_of, _Page, _runs_on, _Table
 from opendockit.markdown import render_table
 
 
@@ -290,7 +290,7 @@ def _page_tagged_tables(tables: list[list[list[_TaggedCell]]], chars: list[dict]
                     for index, line in enumerate(lines):
                         part = _text_from_chars(line)
                         if text and part:
-                            text += "" if spaced and _breaks_a_word(lines[index - 1], right) else " "
+                            text += "" if _runs_on(text, part) or (spaced and _breaks_a_word(lines[index - 1], right)) else " "
                         text += part
                     if text:
                         texts.append(text)
