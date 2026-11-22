@@ -451,7 +451,7 @@ class TestHwpxCheckBullets:
 
     def test_check_character_in_the_private_use_area_is_left_out(self):
         """Private use area characters of the Hancom symbol font are removed anyway, so only '- ' is left (the former output)."""
-        heads = self._HEADS.replace('char="☐" checkedChar="☑"', 'char="" checkedChar=""')
+        heads = self._HEADS.replace('char="☐" checkedChar="☑"', 'char="\ue000" checkedChar="\ue001"')
 
         text = self._convert((1, "안전모 착용 확인"), (2, "소화기 위치 확인"), heads=heads)
 

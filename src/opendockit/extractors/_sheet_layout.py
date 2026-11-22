@@ -37,7 +37,7 @@ _EMPTY_ROW_STOP = 5_000
 
 # Leading whitespace of the first text cell of a row (used as indentation). A full-width space counts as two.
 _LEADING_SPACES = re.compile(r"[ \t\xa0\u3000]*")
-# A label with spaced-out letters ('합   계', '구 분', '총　계' — "total", "category", "grand total"): each character is separated by
+# A label with spaced-out letters ('합   계', '구 분', '총\u3000계' — "total", "category", "grand total"): each character is separated by
 # spaces. Deliberate: labels with wide gaps between words ('  매출  원가') are not considered — the leading spaces of sub-accounts
 # would be discarded too.
 _SPACED_LABEL = re.compile(r"\S(?:[ \t\xa0\u3000]+\S)+")

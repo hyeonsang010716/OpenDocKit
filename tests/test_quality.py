@@ -13,7 +13,7 @@ from tests.pdf_modules import replace_everywhere
 def test_symbol_font_bullets_become_unicode_bullets():
     """Bullets in Word and LibreOffice PDFs are private-use-area characters (U+F0B7 etc.) of the Symbol and Wingdings fonts.
     Removing them made the list markers disappear."""
-    text = " 항목\n 네모\n 화살표\n 체크\n 모르는 기호"
+    text = "\uf0b7 항목\n\uf0a7 네모\n\uf0d8 화살표\n\uf0fc 체크\n\ue123 모르는 기호"
 
     result = clean_text(text)
 

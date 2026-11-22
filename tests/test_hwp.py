@@ -1340,7 +1340,7 @@ class TestListLevelsInsideTableCells:
     def test_hwp(self, monkeypatch):
         record = builder.hwp_record
         docinfo = (record(TAG_NUMBERING, 0, _numbering(("^1.", 0), ("^2.", 8)))
-                   + record(TAG_BULLET, 0, _bullet(""))
+                   + record(TAG_BULLET, 0, _bullet("\uf0a7"))
                    + b"".join(record(TAG_PARA_SHAPE, 0, shape) for shape in (
                        _para_shape(), _para_shape(3, 0, 1), _para_shape(3, 1, 1), _para_shape(3, 2, 1), _para_shape(2, 1, 1))))
         items = [_cell_paragraph("추천 유형", 1), _cell_paragraph("지식 기반", 2), _cell_paragraph("관심 분야", 3),

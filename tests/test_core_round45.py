@@ -140,11 +140,11 @@ class TestLimitOnBrokenHtml:
     result was 'exceeded' although the limit equaled the full character count."""
 
     @pytest.mark.parametrize("page", [
-        "<table><pre></summary><tr colspan=0># <ul rowspan=-1>​<details rowspan=-1>",
+        "<table><pre></summary><tr colspan=0># <ul rowspan=-1>\u200b<details rowspan=-1>",
         "<table>1,234<h1 rowspan=-1><hr aria-hidden=true>가나다</li><td colspan=2><select hidden><aside rowspan=3>☑\n\n"
         "<table colspan=2>1,234é",
         "1. 1,234가나다<math open>- </label><col class='x'><span type=checkbox checked>",
-        "<body>123</table><math colspan=0>☑​`x`|</select><dt src='data:image/png;base64,iVBORw0KGgo='></dl><mark start=5>",
+        "<body>123</table><math colspan=0>☑\u200b`x`|</select><dt src='data:image/png;base64,iVBORw0KGgo='></dl><mark start=5>",
     ])
     def test_limit_equal_to_the_full_length_is_not_exceeded(self, page):
         full = convert(page.encode(), "a.html", ConvertOptions(max_chars=None))

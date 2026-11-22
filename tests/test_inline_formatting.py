@@ -359,7 +359,7 @@ class TestDocxEmphasis:
         assert _docx_text(body) == "# 1장 개요\n\n본문 **강조**"
 
     def test_runs_with_the_same_formatting_are_one_span(self):
-        """Word splits a sentence into runs at every spelling mark and revision. `**매**​**출**` for one bold word is noise, and
+        """Word splits a sentence into runs at every spelling mark and revision. `**매**\u200b**출**` for one bold word is noise, and
         the space run between two bold words is usually not bold itself."""
         body = _paragraph(_bold("매"), _bold("출 "), _run(" "), _bold("증가"), _run(" 그리고 "), _italic("주의"), _run(" "), _italic("필요"))
 
@@ -1045,12 +1045,12 @@ class TestInvisibleCharacters:
     _BOLD, _ITALIC, _STRIKE = "<w:b/>", "<w:i/>", "<w:strike/>"
 
     @pytest.mark.parametrize(("runs", "expected"), [
-        ((("x ", ""), ("​", _BOLD), (" y", "")), "x y"),
-        ((("­", _ITALIC), ("z", "")), "z"),
-        ((("a", _BOLD), ("​", ""), ("b", _BOLD), (" tail", "")), "**ab** tail"),
-        ((("x ", ""), ("​", _STRIKE), (" y", "")), "x y"),
-        ((("a", _STRIKE), ("​", ""), ("b", _STRIKE), (" tail", "")), "~~ab~~ tail"),
-        ((("x", ""), ("​", '<w:vertAlign w:val="superscript"/>'), (" y", "")), "x y"),
+        ((("x ", ""), ("\u200b", _BOLD), (" y", "")), "x y"),
+        ((("\xad", _ITALIC), ("z", "")), "z"),
+        ((("a", _BOLD), ("\u200b", ""), ("b", _BOLD), (" tail", "")), "**ab** tail"),
+        ((("x ", ""), ("\u200b", _STRIKE), (" y", "")), "x y"),
+        ((("a", _STRIKE), ("\u200b", ""), ("b", _STRIKE), (" tail", "")), "~~ab~~ tail"),
+        ((("x", ""), ("\u200b", '<w:vertAlign w:val="superscript"/>'), (" y", "")), "x y"),
     ])
     def test_docx(self, runs, expected):
         assert _docx_text(_paragraph(*(_run(text, properties) for text, properties in runs))) == expected

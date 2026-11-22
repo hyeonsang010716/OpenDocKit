@@ -31,7 +31,7 @@ class TestSpacedLabels:
 
     def test_tab_or_ideographic_space_keeps_a_label_apart_from_its_value(self):
         body = ('<hp:p><hp:run><hp:t>기   관   명<hp:tab/>서울시청</hp:t></hp:run></hp:p>'
-                '<hp:p><hp:run><hp:t>대   표   자　홍  길  동</hp:t></hp:run></hp:p>')
+                '<hp:p><hp:run><hp:t>대   표   자\u3000홍  길  동</hp:t></hp:run></hp:p>')
 
         # (the shared cleaning writes the tab and the ideographic space as a space)
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text.split("\n\n") == ["기관명 서울시청", "대표자 홍길동"]

@@ -23,7 +23,7 @@ import unicodedata
 
 def normalize(text: str) -> str:
     text = unicodedata.normalize("NFC", html.unescape(text))
-    text = text.replace("\\", "").replace("*", "").replace(" ", " ").replace("−", "-").replace("–", "-").replace("—", "-")
+    text = text.replace("\\", "").replace("*", "").replace("\xa0", " ").replace("−", "-").replace("–", "-").replace("—", "-")
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
