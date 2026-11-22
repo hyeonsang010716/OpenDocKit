@@ -149,6 +149,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: a title set in corner brackets is a heading.** `『世界人権宣言』` at the head of a Japanese document, or the name
+  of a law in `「 」`, was taken for a quotation, which is no heading. Corner brackets mark a title; only a line in
+  quotation marks is a saying.
 - **PDF: Hindi, Thai and other scripts whose glyphs are not their characters.** A browser and LibreOffice write, around
   the glyphs of such a script, the characters they stand for (`ActualText`); that text is now read. Before, the vowel
   sign Hindi draws before its consonant was lost, the vowels and tone marks of Thai stood apart from their letters or

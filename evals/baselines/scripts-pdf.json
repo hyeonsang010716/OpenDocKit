@@ -1,15 +1,15 @@
 {
  "means": {
   "overall": {
-   "mean": 0.9913,
+   "mean": 0.9923,
    "documents": 19
   },
   "nid": {
-   "mean": 0.994,
+   "mean": 0.9943,
    "documents": 19
   },
   "nid_s": {
-   "mean": 0.994,
+   "mean": 0.9943,
    "documents": 19
   },
   "teds": {
@@ -21,11 +21,11 @@
    "documents": 0
   },
   "mhs": {
-   "mean": 0.9885,
+   "mean": 0.9904,
    "documents": 19
   },
   "mhs_s": {
-   "mean": 0.9963,
+   "mean": 0.9982,
    "documents": 19
   },
   "words": {
@@ -115,13 +115,13 @@
    "words": 1.0
   },
   "jpn": {
-   "overall": 0.9526,
-   "nid": 0.9849,
-   "nid_s": 0.9849,
+   "overall": 0.9726,
+   "nid": 0.9891,
+   "nid_s": 0.9891,
    "teds": null,
    "teds_s": null,
-   "mhs": 0.9204,
-   "mhs_s": 0.9643,
+   "mhs": 0.9561,
+   "mhs_s": 1.0,
    "words": 0.6202
   },
   "kat": {
@@ -234,7 +234,7 @@
   "heb": "fa734d549e09",
   "hin": "0c544a05ddff",
   "hye": "fcdae56759a5",
-  "jpn": "03e091722167",
+  "jpn": "1a4151404630",
   "kat": "e591e7d1f59e",
   "khm": "ff5306a5463b",
   "kor": "687a6524762f",
