@@ -48,10 +48,17 @@ class TestActualText:
     def test_a_letter_named_by_another_form_takes_the_letter_that_was_written(self):
         assert _line(("ھ", "ه"), "abc") == "هabc"
 
-    @pytest.mark.parametrize("unseen", ["\xad", "\u200c", "\u200b", " "])
+    @pytest.mark.parametrize("unseen", ["\xad", "\u200b", "\u2060", " "])
     def test_a_text_with_nothing_to_see_changes_nothing(self, unseen):
         """InDesign writes a soft hyphen over the space glyph at each place a word may be broken."""
         assert _line("these", (" ", unseen), "distributions") == "these distributions"
+
+    def test_a_joiner_inside_a_word_is_kept(self):
+        """LibreOffice and a browser write the zero-width non-joiner of a Persian word over the glyph they set for it. It
+        is part of the spelling ('he becomes'), and stands between the two letters it was written between."""
+        non_joiner = "\u200c"
+
+        assert _line("دوش", (["\x00"], non_joiner), "یم", no_width="\x00") == "می" + non_joiner + "شود"
 
     def test_the_text_of_a_whole_line_is_not_put_on_one_glyph(self):
         """A sequence of many glyphs is a line given another wording; its glyphs keep their places and their text."""

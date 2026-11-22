@@ -149,6 +149,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Persian, Hindi, Bengali, Sinhala: the zero-width joiners of a word are kept.** The non-joiner inside a Persian word
+  and the joiner that chooses the form of a conjunct are part of the spelling; they were removed in every format with
+  the characters that cannot be seen. They stay where they stand between two letters of a script that writes them (and
+  between the pictographs a joiner makes one of), and go everywhere else as before.
 - **PDF: a title set in corner brackets is a heading.** `『世界人権宣言』` at the head of a Japanese document, or the name
   of a law in `「 」`, was taken for a quotation, which is no heading. Corner brackets mark a title; only a line in
   quotation marks is a saying.

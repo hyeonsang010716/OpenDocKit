@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import re
 import unicodedata
 
-from opendockit.markdown import _INVISIBLE, _SYMBOL_FONT_GLYPHS
+from opendockit.markdown import _SYMBOL_FONT_GLYPHS, without_invisible
 from opendockit.models import IMAGE_MARKER
 
 
@@ -110,7 +110,7 @@ def _visible(text: str) -> str:
     (`_pdf_chars._drawn_text`), so a `2025–2026` on a line with a footnote mark lost its dash
     (Pinned by: test_inline_formatting.py::TestInvisibleCharacters,
     test_pdf.py::TestSoftHyphenOnALineWithAScript)."""
-    return _INVISIBLE.sub("", text)
+    return without_invisible(text)
 
 
 # ---- Strikethrough -----------------------------------------------------------------------------------------------

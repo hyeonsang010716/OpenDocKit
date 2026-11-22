@@ -244,14 +244,15 @@ LibreOffice saves it in the other formats; a text in Hebrew or Arabic letters is
 
 | Twin | Overall | NID | MHS | Words |
 | :--- | ---: | ---: | ---: | ---: |
-| DOCX, ODT, RTF, HTML, EPUB | 1.000 | 1.000 | 1.000 | 0.997 |
-| PDF (tagged and untagged alike: the text has no table) | 0.992 | 0.994 | 0.990 | 0.963 |
+| DOCX, ODT, RTF, HTML, EPUB | 1.000 | 1.000 | 1.000 | 1.000 |
+| PDF (tagged and untagged alike: the text has no table) | 0.993 | 0.995 | 0.991 | 0.964 |
 | *PDF before the text a PDF says its glyphs stand for was read* | *0.882* | *0.910* | *0.853* | *0.839* |
 | *PDF before lines were read from right to left* | *0.740* | *0.791* | *0.690* | *0.644* |
 
-- **The readers of the formats that state their text read every script.** What is left of 1.000 is one convention:
-  the zero-width characters inside a Persian or Bengali word are taken out with the other characters that cannot be
-  seen.
+- **The readers of the formats that state their text read every script**, to the last character: all five score 1.0000
+  on every measure. On their first run they scored 0.996 on Persian and Bengali, whose zero-width joiners were taken
+  out with the characters that cannot be seen; those are part of a spelling and are kept now
+  (`docs/decisions/core.md`).
 - **The PDF reader is within one point of them**, from 0.740 two changes earlier: the four texts written from right to
   left scored 0.42 to 0.44 on NID read backwards and score 0.997 to 1.000 now, and Hindi went from 0.745 to 1.000.
   Lowest is Burmese (NID 0.938), and there the twin is at fault, not its reader: LibreOffice draws the vowel sign
