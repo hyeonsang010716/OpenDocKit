@@ -98,6 +98,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **XLSX: a workbook with a large pivot table keeps its merged cells.** A workbook whose pivot caches passed 1 MB was
+  read in streaming mode, without merged cells and without superscripts in cells, because reading the caches was slow.
+  They are no longer read, so such a workbook is read like any other.
 - **Pictures are prepared faster.** An RGBA PNG that needs no change is passed on as it is instead of being compressed
   again (only the chunks a rewrite keeps are copied, so metadata is still stripped). A 7 MB HWP with 51 pictures
   converts in 118 ms instead of 549 ms.

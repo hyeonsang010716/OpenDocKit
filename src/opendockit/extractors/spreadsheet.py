@@ -92,13 +92,9 @@ from opendockit.models import ConvertOptions, Extraction, quiet_warnings
 _FULL_LOAD_MAX_SHEET_BYTES = 20 * 1024 * 1024
 
 
-# In a full load openpyxl turns the pivot caches the workbook points to (definition + records) entirely into objects. The conversion
-# does not use those values, yet a 2.8MB file with 9MB of records took 14s and 1.5GB (its sheet XML was 18MB, so the size threshold
-# did not catch it). When the uncompressed sizes total more than this, the workbook is streamed, which does not read pivot caches
-# (1MB ≈ 1.5s)
-# (Pinned by: test_office.py::TestReportedGaps::test_xlsx_with_a_large_pivot_cache_is_streamed).
-_MAX_PIVOT_CACHE_BYTES = 1024 * 1024
-_PIVOT_CACHE_DEFINITION = "/pivotCacheDefinition"
+# A workbook is not streamed for the size of its pivot caches: they are not read at all
+# (`_openpyxl_reading._no_pivot_caches_while_reading`), so a workbook with pivot tables keeps its merged cells
+# (Pinned by: test_spreadsheet_pivot_caches.py::TestPivotCachesAreNotRead::test_a_large_pivot_cache_costs_nothing).
 # Upper bound on the number of merge ranges in a full load, beside the bound on the cells they cover (`_MAX_MERGED_CELLS`). openpyxl
 # also spends about 40 µs on each range whatever its size (it creates the range and sets borders on its edge cells): 100,000
 # one-cell merges, which cover only 100,000 cells, took 4 s and 490,000 of them 20 s and 558 MB. Above the bound the workbook is
@@ -178,8 +174,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
         # test_xlsx_picture_reference_count_cannot_be_dodged, test_office.py::TestXlsx::test_huge_merged_range_is_read_without_expanding_it,
         # test_spreadsheet.py::TestManySmallMergeRanges).
         read_only = (large or _picture_reference_bytes(archive) > options.max_uncompressed_bytes
-                     or _too_many_merges(archive, sheet_names)
-                     or _pivot_cache_bytes(archive) > _MAX_PIVOT_CACHE_BYTES)
+                     or _too_many_merges(archive, sheet_names))
         # A workbook large enough for its sheet XML to be big was saved by Excel, so it contains results. The sheet XML is not
         # scanned a second time. Small workbooks that are streamed because of pictures or merges are checked
         # (Pinned by: test_office.py::TestXlsx::test_formula_check_still_runs_when_pictures_force_streaming).
@@ -1323,18 +1318,3 @@ def _merge_areas(archive: zipfile.ZipFile, sheet_names: list[str]) -> Iterator[i
                 # Pinned by: test_office_round45.py::TestMalformedMergeRangeAndTheMergeLimit)
                 continue
             yield (max_col - min_col + 1) * (max_row - min_row + 1)
-
-
-def _pivot_cache_bytes(archive: zipfile.ZipFile) -> int:
-    """Total uncompressed size of the pivot cache definitions the workbook points to through relationships and of the parts
-    (records) those definitions point to.
-
-    Counted by following relationships as openpyxl does. Counting by path name (`xl/pivotCache/`) would miss caches kept at other
-    paths.
-    """
-    names = set(archive.namelist())
-    sizes = {info.filename: info.file_size for info in archive.infolist()}
-    total = 0
-    for definition in _related(archive, names, _workbook_path(archive, names), kind=_PIVOT_CACHE_DEFINITION).values():
-        total += sizes.get(definition, 0) + sum(sizes.get(part, 0) for part in _related(archive, names, definition).values())
-    return total

@@ -52,6 +52,27 @@ class TestPivotCachesAreNotRead:
 
         assert "| 사과 | 3 |" in convert(data, "a.xlsx").text
 
+    def test_a_large_pivot_cache_costs_nothing(self, monkeypatch):
+        """A workbook whose pivot caches passed 1 MB used to be streamed, since openpyxl turned them into objects whole (a 2.8 MB
+        file took 14 s and 1.5 GB) - and a streamed workbook has no merged cells. Unread, the caches cost nothing: the
+        workbook is read in full whatever their size."""
+        from opendockit.extractors import spreadsheet
+
+        modes = []
+        load = spreadsheet.openpyxl.load_workbook
+        monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook",
+                            lambda *args, **kwargs: modes.append(bool(kwargs.get("read_only"))) or load(*args, **kwargs))
+        records = f'<pivotCacheRecords xmlns="{_MAIN}">' + '<r><x v="0"/><n v="12.5"/></r>' * 60_000 + "</pivotCacheRecords>"
+        relations = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" '
+                     f'Target="pivotCacheRecords1.xml" Type="{_RELATIONSHIPS}/pivotCacheRecords"/></Relationships>')
+        data = builder.zip_with(_with_pivot_cache(_workbook(merged=True)), add={
+            "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels": relations, "xl/pivotCache/pivotCacheRecords1.xml": records})
+
+        result = convert(data, "a.xlsx")
+
+        assert len(records) > 1024 * 1024 and modes == [False]
+        assert "| 합계 | 8 |" in result.text and "| 합계 | 9 |" in result.text
+
     def test_openpyxl_reads_pivot_caches_as_before_outside_a_conversion(self, monkeypatch):
         """The change holds only while this package is reading: a program that uses openpyxl beside it gets its caches."""
         from openpyxl.pivot.cache import CacheDefinition

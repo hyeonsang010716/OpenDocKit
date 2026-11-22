@@ -160,7 +160,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ### Large or unusual files
 
-- **XLSX with large cell data** (sheet XML over 20 MB in total, roughly tens of thousands of rows) and **XLSX whose pivot cache exceeds 1 MB** are read in streaming mode to save memory, so there is no merged-cell information. Pictures are still extracted.
+- **XLSX with large cell data** (sheet XML over 20 MB in total, roughly tens of thousands of rows) is read in streaming mode to save memory, so there is no merged-cell information. Pictures are still extracted.
 - **A large XLSX with more than 5,000 consecutive empty rows** (only when read in streaming mode) is not read past that point, with a warning.
 - **XLS is read by taking only the workbook stream out of the OLE container.** A file with a partly damaged container still converts if the stream is intact (handing the whole file to xlrd never finished on a cyclic mini-stream chain).
 - **An XLSX with missing relationship information** for pictures, tables or hyperlinks is read without those items, with a warning. Unreadable document properties (creation date and the like), merge ranges and defined names in XLSX are ignored without a warning (of the document properties only the title is used). Non-integer position and merge attributes in Excel 2003 XML (`ss:Index` and the like) are ignored with a warning.

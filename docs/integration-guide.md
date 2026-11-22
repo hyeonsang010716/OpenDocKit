@@ -111,7 +111,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - In `.xls`, when merged cells cover more than 500,000 cells, the merged value is kept in the first cell only (warning).
 - Among formats, fractions (`# ?/?`), scientific notation and conditional formats (`[<=9999999]…`) come out as the raw value.
 - A file with large cell data (sheet XML over 20 MB in total, roughly tens of thousands of rows) is read **without merged-cell information** (and without in-cell superscript/subscript marks).
-- A file whose pivot cache exceeds 1 MB, a file that references the same picture a very large number of times, and a file whose merge or hyperlink ranges cover more than 500,000 cells are also read without merged-cell information.
+- A file that references the same picture a very large number of times and a file whose merge or hyperlink ranges cover more than 500,000 cells are also read without merged-cell information.
 - An abnormal file that points to the same sheet several times has that sheet read only once (warning).
 - A file whose cell style information violates the specification is read keeping only number and date display formats (warning; superscript/subscript applied to a whole cell is lost).
 - Only in the large files read without merged-cell information as above: **5,000 consecutive empty rows are taken as the end of the sheet** (warning). Other files are read to the end.

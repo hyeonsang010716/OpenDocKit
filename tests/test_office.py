@@ -1190,37 +1190,6 @@ class TestReportedGaps:
                                "<tr><td></td><td>B</td><td>C</td></tr>\n"
                                '<tr><td colspan="2">B</td><td>D</td></tr>\n</table>')
 
-    def test_xlsx_with_a_large_pivot_cache_is_streamed(self, monkeypatch):
-        """A full openpyxl load turns the pivot cache, which is never used, into objects in its entirety (a 2.8MB file took 14 seconds
-        and 1.5GB). The criterion that looked only at the sheet XML size did not catch it."""
-        from opendockit.extractors import spreadsheet
-
-        modes = []
-        original_load = spreadsheet.openpyxl.load_workbook
-
-        def recording_load(*args, **kwargs):
-            modes.append(kwargs.get("read_only"))
-            return original_load(*args, **kwargs)
-
-        monkeypatch.setattr(spreadsheet.openpyxl, "load_workbook", recording_load)
-        monkeypatch.setattr(spreadsheet, "_MAX_PIVOT_CACHE_BYTES", 100)
-        relationship = ('<Relationship Id="rIdPivot" Target="pivotCache/pivotCacheDefinition1.xml" Type="http://schemas.'
-                        'openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"/>')
-        records = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship '
-                   'Id="rId1" Target="pivotCacheRecords1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
-                   'relationships/pivotCacheRecords"/></Relationships>')
-        data = builder.zip_with(
-            _long_sheet(1),
-            edit={"xl/_rels/workbook.xml.rels": lambda xml: xml.replace("</Relationships>", f"{relationship}</Relationships>")},
-            add={"xl/pivotCache/pivotCacheDefinition1.xml": "<pivotCacheDefinition/>",
-                 "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels": records,
-                 "xl/pivotCache/pivotCacheRecords1.xml": "<pivotCacheRecords>" + "<r/>" * 50 + "</pivotCacheRecords>"})
-
-        result = convert(data, "a.xlsx")
-
-        assert "| 1 | 항목 1 |" in result.text
-        assert modes == [True]
-
 
 class TestSuperscriptAndTextBoxes:
     def test_docx_superscript_and_subscript_runs_are_marked(self):
