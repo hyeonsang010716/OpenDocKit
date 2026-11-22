@@ -90,6 +90,9 @@ spec.loader.exec_module(conversion)
 data = open(sys.argv[2], "rb").read()
 jobs = [gevent.spawn(conversion.convert_upload, data, "notice.hwpx") for _ in range(2)]
 gevent.joinall(jobs)
+for job in jobs:
+    if not job.successful():
+        print(repr(job.exception), file=sys.stderr, flush=True)
 print(sum(job.successful() for job in jobs), flush=True)
 os._exit(0)
 """
@@ -287,7 +290,9 @@ class TestConversion:
         finished = subprocess.run([sys.executable, "-B", "-c", _TWO_AT_ONCE, str(PLUGIN / "tools" / "conversion.py"), str(document)],
                                   capture_output=True, text=True, timeout=120, check=True)
 
-        assert finished.stdout.split()[-1] == "2"
+        # What a request that did not finish raised is on the standard error: without it a failure on a slow runner said
+        # only that one of the two was missing
+        assert finished.stdout.split()[-1] == "2", finished.stderr[-2000:]
 
     def test_a_runtime_that_cannot_make_a_worker_pool_still_converts(self, monkeypatch):
         """Some serverless runtimes cannot make a process pool at all (no shared memory for its semaphores)."""
