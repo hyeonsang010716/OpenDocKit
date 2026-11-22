@@ -35,7 +35,7 @@ SYMBOL_GLYPHS: dict[str, dict[int, str]] = {
         **_glyph_run(0x45, "☜☞☝☟"), **_glyph_run(0x81, "①②③④⑤⑥⑦⑧⑨⑩"), **_glyph_run(0x8C, "❶❷❸❹❺❻❼❽❾❿"),
         **_glyph_run(0xDF, "←→↑↓↖↗↙↘"), **_glyph_run(0xEF, "⇦⇨⇧⇩"), **_glyph_run(0xFB, "✗✓☒☑"),
         0x6C: "●", 0x6D: "○", 0x6E: "■", 0x6F: "□", 0x71: "❑", 0x72: "❒", 0x75: "◆", 0x76: "❖", 0x78: "☒", 0x9E: "·", 0x9F: "•",
-        0xA1: "○",
+        0xA0: "▪", 0xA1: "○",  # A0 is the smaller square of the two (A7), the mark of a sub-item in Hangul documents
         0xA7: "▪", 0xA8: "□", 0xAB: "★", 0xD8: "➢", 0xE8: "➔",
     },
     "wingdings 2": {0x4F: "✗", 0x50: "✓", 0x51: "☒", 0x52: "☑", 0x53: "☒", 0x54: "☒", 0xA3: "☐"},
