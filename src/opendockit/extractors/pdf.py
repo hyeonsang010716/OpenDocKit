@@ -153,7 +153,7 @@ from opendockit.extractors._pdf_table_filters import (
 )
 from opendockit.extractors._pdf_tagged_tables import _extract_tagged_tables, _page_tagged_tables, _tagged_tables
 from opendockit.markdown import solid_length
-from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
+from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, name_in_warning
 
 
 # A page with more drawn objects than this (characters, lines, shapes, images, Form XObjects, including inside forms) is not handed
@@ -546,7 +546,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                            "Upload a file printed to PDF (saved under another name) instead.")
             _named_attachments(pdf.doc.catalog, attachments)
             if attachments:
-                names = list(dict.fromkeys(attachments.values()))
+                # The name of an attached file is written by whoever made the PDF: on one line and cut (`name_in_warning`)
+                names = list(dict.fromkeys(flat for name in attachments.values() if (flat := name_in_warning(name))))
                 shown = ", ".join(names[:_ATTACHMENT_NAMES_SHOWN]) + (f" and {len(names) - _ATTACHMENT_NAMES_SHOWN} more"
                                                                      if len(names) > _ATTACHMENT_NAMES_SHOWN else "")
                 extraction.warnings.append(f"{len(names)} PDF attachment(s) ({shown}) were not read. Convert attachments separately.")

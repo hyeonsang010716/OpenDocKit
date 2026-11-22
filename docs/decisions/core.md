@@ -108,7 +108,7 @@ For use on a server see [server.md](../server.md) (conversion must go through `I
 - Tables must be built with `render_table`/`TableGrid`, so that the merged-cell rules (Markdown repeats vertically and keeps the first cell horizontally; a table that still has horizontal spans becomes HTML)
   do not differ per format. A format that has span information passes the span counts to `TableGrid` (it does not repeat values itself). Exception: Excel spreads merges over the cells and is always Markdown ([spreadsheet-tables.md](spreadsheet-tables.md)).
 - User-facing text (exception messages, `warnings`) is English, fixed wording, and never contains file content or parser error text
-  (the cause is chained through `__cause__`). `warnings` carry no more than the sheet name or page number needed to say where.
+  (the cause is chained through `__cause__`). `warnings` carry no more than the sheet name or page number needed to say where, and a name the document gives (a sheet, an attached file) is quoted through `models.name_in_warning`: on one line, without control characters and without the format characters that change how a line is shown (direction overrides, zero-width spaces; the joiners that spell a word stay), cut at 100 characters. A hidden sheet named with a line break and three thousand characters, or a file attached to a PDF, made a warning of several lines and of any length - text of the document's author handed to whoever reads the warnings, a language model among them (`test_names_in_warnings.py`).
 
 ## Adding a new format
 

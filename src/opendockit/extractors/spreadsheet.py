@@ -80,7 +80,7 @@ from opendockit.extractors._xlsx_parts import (
     _xlsx_comments,
     _xlsx_people,
 )
-from opendockit.models import ConvertOptions, Extraction, quiet_warnings
+from opendockit.models import ConvertOptions, Extraction, name_in_warning, quiet_warnings
 
 
 # When the sheet XML (uncompressed) totals at most this size, the workbook is fully loaded. Only a full load carries merged-cell
@@ -239,7 +239,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
     # left out anyway) (Pinned by: test_spreadsheet.py::TestMissingPartRelationships::test_sheet_whose_part_is_missing_is_named).
     for name, state in reading.unread_sheets:
         if state == "visible" or options.include_hidden_sheets:
-            extraction.warnings.append(f"Sheet '{name}' was left out because its part is missing from the file.")
+            extraction.warnings.append(f"Sheet '{name_in_warning(name)}' was left out because its part is missing from the file.")
     if styles_too_large:
         extraction.warnings.append("The workbook's style table is unusually large, so only number and date display formats were read."
                                    + (" Some display formats could not be kept, so dates and amounts may appear as numbers."
@@ -267,14 +267,14 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
             # sheets on every lookup, which is quadratic in the sheet count, so the list is used
             for sheet in workbook._sheets:
                 if sheet.sheet_state != "visible" and not options.include_hidden_sheets:
-                    extraction.warnings.append(f"Hidden sheet '{sheet.title}' was excluded.")
+                    extraction.warnings.append(f"Hidden sheet '{name_in_warning(sheet.title)}' was excluded.")
                     continue
 
                 path = str(getattr(sheet, "_worksheet_path", None) or reading.sheet_parts.get(id(sheet), "")).lstrip("/")
                 # A broken relationship part of the sheet leaves out only what it leads to; the cells are read
                 # (Pinned by: test_spreadsheet_damaged_parts.py::TestDamagedSheetRelationships)
                 if _relations_damaged(archive, names, path):
-                    extraction.warnings.append(f"The relationship part of sheet '{sheet.title}' is corrupted, so its comments, "
+                    extraction.warnings.append(f"The relationship part of sheet '{name_in_warning(sheet.title)}' is corrupted, so its comments, "
                                                "pictures, charts and form controls were left out.")
                 if isinstance(sheet, Chartsheet):
                     _append_sheet(extraction, sheet.title, [], _drawing_blocks(archive, names, path, pictures, extraction, options))
@@ -308,7 +308,7 @@ def _extract_xlsx(data: bytes, options: ConvertOptions) -> Extraction:
                     comments, damaged = _xlsx_comments(archive, names, path, people)
                     if damaged:
                         extraction.warnings.append(
-                            f"The cell comment part of sheet '{sheet.title}' is corrupted, so its comments could not be read.")
+                            f"The cell comment part of sheet '{name_in_warning(sheet.title)}' is corrupted, so its comments could not be read.")
                     drawn.append(_comment_block(comments, row_at, extraction, options))
                 _append_sheet(extraction, sheet.title, rows, drawn, across, room, options)
                 if extraction.exceeded:
@@ -836,7 +836,7 @@ def _with_formulas(rows: Iterator[tuple[int, tuple[str, ...]]], formulas: dict[i
     row that did not arrive because it has no cells are inserted as a row at that position."""
     count = sum(len(columns) for columns in formulas.values())
     if count:
-        warnings.append(f"Sheet '{sheet_name}': {count:,} formula(s) with no stored result were copied as written "
+        warnings.append(f"Sheet '{name_in_warning(sheet_name)}': {count:,} formula(s) with no stored result were copied as written "
                         "(opening and re-saving the file in Excel converts them to values).")
 
     pending = deque(sorted(formulas))
