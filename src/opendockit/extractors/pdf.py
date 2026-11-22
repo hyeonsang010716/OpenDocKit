@@ -77,7 +77,7 @@ from opendockit.extractors._pdf_artifacts import (
     _xobject_owners,
 )
 from opendockit.extractors._pdf_banded_tables import _extract_banded_tables, _upright_rules
-from opendockit.extractors._pdf_bidi import _PAGE_READING, _RIGHT_TO_LEFT, _page_reading
+from opendockit.extractors._pdf_bidi import _PAGE_READING, _RIGHT_TO_LEFT, _number_set_apart, _page_reading
 from opendockit.extractors._pdf_chars import (
     _drawn_text,
     _drop_cap,
@@ -105,6 +105,7 @@ from opendockit.extractors._pdf_model import (
     _REPEAT_RATIO,
     _SIDE_REPEAT_RATIO,
     _BoxIndex,
+    _has_letter,
     _in_margin,
     _info_text,
     _is_bold_line,
@@ -1074,13 +1075,22 @@ def _sound_cid_system_info(info: dict) -> bool:
     return resolve1(info.get("Registry")) == b"Adobe" and resolve1(info.get("Ordering")) in _KNOWN_CID_ORDERINGS
 
 
+def _made_by_word(page: object) -> bool:
+    """Whether the document says Microsoft Word wrote it (the Producer or the Creator of its information dictionary)."""
+    try:
+        information = page.pdf.metadata or {}
+    except Exception:  # noqa: BLE001 — a broken information dictionary says nothing
+        return False
+    return any("Microsoft" in str(information.get(key, "")) and "Word" in str(information.get(key, "")) for key in ("Producer", "Creator"))
+
+
 def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -> _Page:
     _normalize_page_boxes(page)
     _repair_cid_system_info(page)
     _repair_replacement_chars(page, _PAGE_GLYPHS.get())  # pdfium's character where pdfminer read U+FFFD
     layout_page = page  # the layout of a derived page (FilteredPage) redoes layout analysis from scratch, so read from the original page
     unmeasured = _unmeasured(page.chars)
-    _PAGE_READING.set(_page_reading(page.chars, _LAPARAMS["word_margin"]))
+    _PAGE_READING.set(_page_reading(page.chars, _LAPARAMS["word_margin"], _made_by_word(page)))
     page, dropped = _without_drawing_artifacts(page)
     hidden_chars = sum(1 for char in dropped if char["text"].strip())
     placement_fit, placement_pending = _repair_placed_runs(page, placement_fit)
@@ -1183,8 +1193,15 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         # that of reading for another. What follows for scripts, letter spacing and initials reads left to right and is
         # not asked.
         leftwards = _RIGHT_TO_LEFT.search(text) is not None
-        if leftwards or any(char.get("restored") for char in inside):
+        if leftwards:
+            # Only the characters whose middle is on the line: `inside` reaches a point past both ends, and the first letter
+            # of the piece beside the line was read into it a second time
+            own = [char for char in inside if line["x0"] <= (char["x0"] + char["x1"]) / 2 <= line["x1"]]
+            text = _text_from_chars(own) or text
+        elif any(char.get("restored") for char in inside):
             text = _text_from_chars(inside) or text  # the line text pdfminer built lacks the restored spaces
+        elif len(text) <= 6 and not _has_letter(text):
+            text = _number_set_apart(_text_from_chars(inside)) or text  # '.1' beside an item read from right to left
         if not leftwards:
             text = _letter_spaced_text(inside, spacings) or text
         has_copies, shadowed = copy_index.at(line)  # removed characters under the line (`_CopyIndex`)

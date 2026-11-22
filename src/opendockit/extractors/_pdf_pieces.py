@@ -13,6 +13,7 @@ import re
 
 from pdfminer.layout import LTChar, LTContainer, LTFigure, LTLayoutContainer, LTTextLineHorizontal
 
+from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT
 from opendockit.extractors._pdf_chars import (
     _SCRIPT_FAR_SHIFT,
     _SCRIPT_FAR_SIZE_RATIO,
@@ -75,7 +76,7 @@ _JUSTIFIED_PASSES = 8
 _JUSTIFIED_WORK = 1_000_000
 
 
-_RIGHT_TO_LEFT = re.compile(r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]")  # Hebrew and Arabic script (`_late_symbols_in_place`)
+_LIGATURE_MAX = 4  # characters one glyph of right-to-left letters may stand for (`_is_plain_glyph`)
 
 
 # When the number of Form XObject line clusters × the number of text lines on the page is larger than this, nothing is moved
@@ -128,6 +129,7 @@ def _rejoined_lines(page: object, lines: list[dict], owners: list[int | None]) -
     pieces, merged = _merged_overlapping_pieces(pieces, laparams.word_margin)
     following = _piece_joints(pieces)
     following.update(_justified_joints(pieces, following))
+    following.update(_right_to_left_joints(pieces, following))
     if not following and not merged and not any(placed):
         return lines, owners
 
@@ -416,6 +418,65 @@ def _piece_joints(pieces: list[LTTextLineHorizontal]) -> dict[int, int]:
             following[index] = other
             taken.add(other)
     return following
+
+
+def _right_to_left_joints(pieces: list[LTTextLineHorizontal], following: dict[int, int]) -> dict[int, int]:
+    """Piece number → the piece standing right after it on its row, for the rows that hold Hebrew or Arabic letters and
+    the joins `following` does not have yet.
+
+    Word and LibreOffice draw a line of Arabic run by run, starting from the right: each run is to the left of the one
+    drawn before it, and pdfminer, which joins only what is drawn side by side, makes a piece of each ('البند', 'ان 15 و',
+    '116', 'من جدول الأعمال' for one line). The text of such a line is its letters in the order of the page, read back
+    (`_pdf_bidi._logical`), so the whole row has to be one line first: read piece by piece, the words of the line came
+    out as paragraphs in the order of the page. `_continues_piece` is too narrow for it — a bracket or a full stop drawn
+    alone holds no letter, and a Latin word in the line is set in another font with another bottom edge. Here two
+    pieces are joined when one starts where the other ends, a space apart at most (`_PIECE_SPACE_GAP_RATIO`), they
+    overlap for most of the height of the smaller (`_PIECE_OVERLAP_RATIO`) and are of like height
+    (`_PIECE_HEIGHT_RATIO`), and the chain they make holds a right-to-left letter. Rows without one are not looked at
+    (Pinned by: test_pdf_right_to_left.py::TestLinesDrawnRunByRun)."""
+    leftwards = [bool(_RIGHT_TO_LEFT.search(piece.get_text())) for piece in pieces]
+    if not any(leftwards):
+        return {}
+    bands: dict[int, list[int]] = {}
+    for index, piece in enumerate(pieces):
+        if all(math.isfinite(value) for value in piece.bbox) and piece.height > 0 and piece.get_text().strip():
+            bands.setdefault(math.floor(piece.y0 / _PIECE_BAND), []).append(index)
+    near = {band + step for index, piece in enumerate(pieces) if leftwards[index] and math.isfinite(piece.y0)
+            for band in (math.floor(piece.y0 / _PIECE_BAND),) for step in (-1, 0, 1)}
+    continued = set(following.values())
+    links: dict[int, int] = {}
+    for band in sorted(near & bands.keys()):
+        for index in bands[band]:
+            if index in following or index in links:
+                continue
+            piece = pieces[index]
+            reach = piece.height * _PIECE_SPACE_GAP_RATIO
+            best = None
+            for other_band in (band - 1, band, band + 1):
+                for other in bands.get(other_band, ()):
+                    after = pieces[other]
+                    if other == index or other in continued or not -piece.height * _PIECE_JOIN_GAP_RATIO <= after.x0 - piece.x1 <= reach:
+                        continue
+                    shared = min(piece.y1, after.y1) - max(piece.y0, after.y0)
+                    low, high = sorted((piece.height, after.height))
+                    if shared >= low * _PIECE_OVERLAP_RATIO and low >= high * _PIECE_HEIGHT_RATIO and (
+                            best is None or after.x0 < pieces[best].x0):
+                        best = other
+            if best is not None and not _leads_to({**following, **links}, best, index):
+                links[index] = best
+                continued.add(best)
+    # Only the chains that hold a right-to-left letter are kept: the pieces of a row of Latin text are joined by
+    # `_continues_piece` or not at all
+    merged = {**following, **links}
+    heads = set(merged) - set(merged.values())
+    kept: dict[int, int] = {}
+    for head in heads:
+        chain = [head]
+        while chain[-1] in merged and len(chain) <= len(pieces):
+            chain.append(merged[chain[-1]])
+        if any(leftwards[index] for index in chain):
+            kept.update((index, merged[index]) for index in chain[:-1] if index in links)
+    return kept
 
 
 def _justified_joints(pieces: list[LTTextLineHorizontal], following: dict[int, int]) -> dict[int, int]:
@@ -740,8 +801,11 @@ def _is_footnote_mark(char: LTChar, body: LTChar) -> bool:
 
 def _is_plain_glyph(text: str) -> bool:
     """Whether this is one plain character with a font mapping. `(cid:n)` and the private use area (formula bracket pieces) are
-    not."""
-    return len(text) == 1 and not "\ue000" <= text <= "\uf8ff"
+    not. A ligature of Arabic or Hebrew letters is one glyph of several characters ('لا', 'في') and plain as its letters
+    are."""
+    if len(text) == 1:
+        return not "\ue000" <= text <= "\uf8ff"
+    return 1 < len(text) <= _LIGATURE_MAX and all(_RIGHT_TO_LEFT.match(letter) for letter in text)
 
 
 def _place_xobject_lines(lines: list[_Line], owners: list[int | None]) -> list[_Line]:
