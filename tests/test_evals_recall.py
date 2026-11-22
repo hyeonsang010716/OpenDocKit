@@ -1,9 +1,13 @@
 """The recall scorecard (`evals/recall.py`): the words a document states in its own XML against its conversion."""
 
 import json
+from pathlib import Path
+import struct
 
-from evals.recall import _counts, compare, compare_text, main, run, source_units
+from evals.fetch_hangul_samples import sample_name
+from evals.recall import _counts, _hwp_text, compare, compare_text, main, run, source_units
 from tests import builder
+from tests.test_hwp import TAG_CTRL_HEADER, TAG_LIST_HEADER, TAG_PARA_HEADER, TAG_PARA_TEXT, _fake_hwp, _sample_section
 
 
 def _hwpx(tmp_path, body: str, name: str = "a.hwpx"):
@@ -44,6 +48,66 @@ class TestSourceUnits:
         texts = ["".join(text for text, _ in pieces) for _, pieces in source_units(path)]
 
         assert "바깥문단" in texts and "상자 안" in texts
+
+
+    def test_a_master_page_of_an_hwpx_is_text_of_the_document(self, tmp_path):
+        """It is drawn on every page of its section. No reader writes it today: the count says so and no one has to remember."""
+        master = ('<hm:masterPage xmlns:hm="http://www.hancom.co.kr/hwpml/2011/master-page" '
+                  'xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph"><hp:subList><hp:p><hp:run><hp:t>대외비</hp:t></hp:run></hp:p>'
+                  "</hp:subList></hm:masterPage>")
+        path = tmp_path / "a.hwpx"
+        path.write_bytes(builder.zip_with(builder.hwpx_bytes(), add={"Contents/masterpage0.xml": master}))
+
+        assert ("Contents/masterpage0.xml", [("대외비", "masterPage/subList/p/run/t")]) in source_units(path)
+
+
+class TestHwpSource:
+    """An HWP 5 file states its text in the PARA_TEXT records of its section streams, read here without following a control."""
+
+    def test_the_paragraphs_of_the_records_with_the_controls_they_lie_under(self, tmp_path):
+        path = tmp_path / "a.hwp"
+        path.write_bytes(_fake_hwp(None, flags=1, sections=[_sample_section()]))
+
+        units = source_units(path)
+
+        assert units[:3] == [("BodyText/Section0", [("1. 개요 ", "body")]), ("BodyText/Section0", [("본문입니다 ", "body")]),
+                             ("BodyText/Section0", [("각주 내용 ", "fn")])]
+        assert ("BodyText/Section0", [("분류 ", "tbl")]) in units
+        assert run(tmp_path)["documents"]["a.hwp"]["missing"] == []
+
+    def test_a_paragraph_under_a_control_no_reader_knows_is_counted(self, tmp_path):
+        """What reading the records flat is for: the reader follows the controls it knows, the count does not."""
+        record = builder.hwp_record
+        section = (record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("본문", (11, "zzzz")))
+                   + record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("zzzz")) + record(TAG_LIST_HEADER, 2, b"\x01\x00" + b"\x00" * 6)
+                   + record(TAG_PARA_HEADER, 2, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 3, builder.hwp_text("모르는 개체 안의 글"))
+                   + record(TAG_PARA_HEADER, 0, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 1, builder.hwp_text("다음 문단")))
+        path = tmp_path / "a.hwp"
+        path.write_bytes(_fake_hwp(None, sections=[section]))
+
+        assert source_units(path) == [("BodyText/Section0", [("본문 ", "body")]), ("BodyText/Section0", [("모르는 개체 안의 글 ", "zzzz")]),
+                                      ("BodyText/Section0", [("다음 문단 ", "body")])]
+
+    def test_a_tab_parts_two_words_and_a_field_does_not(self):
+        tab = struct.pack("<H", 9) + b"\x00" * 12 + struct.pack("<H", 9)
+        field = builder.hwp_text((3, "%clk"))[:-2]
+
+        assert _hwp_text("가나".encode("utf-16-le") + tab + "다라".encode("utf-16-le")) == "가나 다라"
+        assert _hwp_text("가나".encode("utf-16-le") + field + "다라".encode("utf-16-le") + struct.pack("<H", 4) + b"\x00" * 12
+                         + struct.pack("<H", 4)) == "가나다라"
+
+    def test_a_file_whose_body_is_encrypted_states_no_text(self, tmp_path):
+        (tmp_path / "a.hwp").write_bytes(_fake_hwp(None, flags=0b10, sections=[_sample_section()]))
+        (tmp_path / "b.hwp").write_bytes(_fake_hwp(None, flags=0b100, preview="미리보기 본문"))
+        (tmp_path / "c.hwp").write_bytes(b"not a compound file")
+
+        assert {entry["status"] for entry in run(tmp_path)["documents"].values()} == {"source not read"}
+
+
+class TestHangulSamples:
+    def test_a_sample_is_named_by_its_place(self):
+        assert sample_name("hwp2hwpx", Path("table/from.hwp")) == "hwp2hwpx__table.hwp"
+        assert sample_name("hwplib", Path("basic/a b.HWP")) == "hwplib__basic__a_b.hwp"
 
 
 class TestCompareText:
