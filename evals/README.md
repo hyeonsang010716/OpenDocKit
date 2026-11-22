@@ -253,8 +253,10 @@ LibreOffice saves it in the other formats; a text in Hebrew or Arabic letters is
   the zero-width characters inside a Persian or Bengali word are taken out with the other characters that cannot be
   seen.
 - **The PDF reader is within one point of them**, from 0.740 two changes earlier: the four texts written from right
-  to left scored 0.42 to 0.44 on NID read backwards and score 0.997 to 1.000 now, and Hindi went from 0.745 to 1.000. Lowest are Burmese (NID 0.938: vowel
-  signs still lost) and Japanese (MHS 0.920: a title set in corner brackets is taken for a quotation).
+  to left scored 0.42 to 0.44 on NID read backwards and score 0.997 to 1.000 now, and Hindi went from 0.745 to 1.000. Lowest are Burmese (NID 0.938) and
+  Japanese (MHS 0.920: a title set in corner brackets is taken for a quotation). The Burmese twin is at fault, not its
+  reader: LibreOffice draws the vowel sign U+102C in a second font and names it a space in the PDF it writes, so no
+  reader finds it (`pdftotext` loses the same letters).
 - **Words is no measure for a script without spaces.** In Japanese, Chinese, Thai, Khmer and Burmese a "word" is what
   stands between two spaces, a whole line or sentence, and a line break in a PDF paragraph ends one. NID is the measure
   there.
