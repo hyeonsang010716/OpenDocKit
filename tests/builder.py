@@ -679,6 +679,47 @@ def pdf_with_images() -> bytes:
     return buffer.getvalue()
 
 
+def pdf_of_glyphs(runs: list[tuple[float, float, float, str | list[str], bool]]) -> bytes:
+    """A page of text in any script, drawn as the runs (x, y from the bottom of the page, size, glyphs, bold) in the order
+    given. The glyphs of a run are drawn from left to right, each 0.58 of the size wide; a run is a text, one glyph for
+    each character, or a list with the text of each glyph (a ligature is one glyph of several characters). The fonts
+    are Identity-H fonts named 'Any' and 'Any-Bold' without a font program, whose ToUnicode says what each glyph is."""
+    import zlib
+
+    def stream(body: bytes) -> bytes:
+        packed = zlib.compress(body)
+        return b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(packed) + packed + b"\nendstream"
+
+    codes: dict[str, int] = {}
+    content = b""
+    for x, y, size, glyphs, bold in runs:
+        drawn = b"".join(b"%04X" % codes.setdefault(glyph, len(codes) + 1) for glyph in glyphs)
+        content += b"BT /F%d %g Tf %g %g Td <%s> Tj ET\n" % (2 if bold else 1, size, x, y, drawn)
+    named = b" ".join(b"<%04X> <%s>" % (code, glyph.encode("utf-16-be").hex().upper().encode()) for glyph, code in codes.items())
+    cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /T def "
+            b"1 begincodespacerange <0000> <FFFF> endcodespacerange %d beginbfchar %s endbfchar "
+            b"endcmap CMapName currentdict /CMap defineresource pop end end" % (len(codes), named))
+
+    def font(name: bytes) -> bytes:
+        return (b"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /ToUnicode 5 0 R "
+                b"/DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s "
+                b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 580 "
+                b"/FontDescriptor << /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [0 -200 1000 800] "
+                b"/ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >> >>] >>" % (name, name, name))
+
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
+                  b"/Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> >>",
+               4: stream(content), 5: stream(cmap), 6: font(b"Any"), 7: font(b"Any-Bold")}
+    data, offsets = b"%PDF-1.7\n", {}
+    for number, body in objects.items():
+        offsets[number] = len(data)
+        data += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(data)
+    data += b"xref\n0 8\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % offsets[number] for number in range(1, 8))
+    return data + b"trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % xref
+
+
 def pdf_with_font_runs(lines: list[str]) -> bytes:
     """PDF that draws the text of one baseline as separate runs per font (mimicking Cairo-style generators): for each line all
     Hangul/symbol runs are drawn first in the Korean font, and the digit runs afterwards in another font. Each run's x is

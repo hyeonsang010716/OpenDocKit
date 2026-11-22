@@ -20,7 +20,7 @@ from opendockit.extractors._pdf_chars import (
     _SUBSCRIPT_DROP,
     _SUPERSCRIPT_RISE,
 )
-from opendockit.extractors._pdf_model import _MAX_GROUPED_TEXT_PIECES, _TABLE_ROW_TOLERANCE, _WORD_CHAR, _Line
+from opendockit.extractors._pdf_model import _MAX_GROUPED_TEXT_PIECES, _TABLE_ROW_TOLERANCE, _is_word_char, _Line, _word_chars
 
 
 _FOOTNOTE_MARK_PIECE = re.compile(r"^(?:\d{1,3}\)|\*{1,3})$")  # footnote number piece drawn separately ('1)', '*', `_footnote_mark_piece`)
@@ -193,7 +193,7 @@ def _late_symbols_in_place(piece: LTTextLineHorizontal, word_margin: float) -> L
 
     if not moved or any(not char.get_text().strip() for char in moved):
         return None
-    if any(_WORD_CHAR.search(char.get_text()) for char in moved) and any(_advances_leftwards(char) for char in chars):
+    if any(_word_chars(char.get_text()) for char in moved) and any(_advances_leftwards(char) for char in chars):
         return None  # text turned upside down (a page rotated by 180°) runs right to left on the page and is read in drawing order
     ordered = sorted(chars, key=lambda char: char.x0)
     if _glyphs_collide(ordered):
@@ -569,7 +569,7 @@ def _lowered_script(last: LTChar, script: LTTextLineHorizontal, end: float) -> b
     A raised piece is not taken here: footnote marks are `_footnote_mark_piece`, and bare raised numbers are deliberately not
     joined (Pinned by: test_pdf_reading_order.py::TestSubscriptsOnALineOfTheirOwn)."""
     chars = [obj for obj in script if isinstance(obj, LTChar) and obj.get_text().strip()]
-    if not 1 <= len(chars) <= _LOWERED_SCRIPT_CHARS or not all(_WORD_CHAR.match(char.get_text()) for char in chars):
+    if not 1 <= len(chars) <= _LOWERED_SCRIPT_CHARS or not all(_is_word_char(char.get_text()) for char in chars):
         return False
     size = max(last.size, 1.0)
     return abs(script.x0 - end) <= size * _PIECE_JOIN_GAP_RATIO and all(
@@ -647,7 +647,7 @@ def _edge_chars(piece: LTTextLineHorizontal) -> tuple[LTChar, LTChar] | None:
     test_pdf.py::TestLinesDrawnInPieces::test_one_symbol_drawn_later_in_a_fallback_font_joins_its_line).
     """
     chars = [obj for obj in piece if isinstance(obj, LTChar) and obj.get_text().strip()]
-    if not any(_WORD_CHAR.match(char.get_text()) for char in chars) and not (len(chars) == 1 and _PIECE_SYMBOL.match(chars[0].get_text())):
+    if not any(_is_word_char(char.get_text()) for char in chars) and not (len(chars) == 1 and _PIECE_SYMBOL.match(chars[0].get_text())):
         return None
     return min(chars, key=lambda char: char.x0), max(chars, key=lambda char: char.x1)
 
