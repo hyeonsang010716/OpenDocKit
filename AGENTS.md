@@ -41,6 +41,8 @@ document that justifies it.
   the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`). The comparison also names
   the documents whose text changed without a score moving: look at them before saying what a change did.
   A change to how DOCX, ODT, RTF, HTML or EPUB write headings, lists or tables is run against their twins the same way.
+  A change to how the characters, the marks or the direction of a line are read is run against the script twins
+  (nineteen languages, `evals/README.md`): no mean may fall there either.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.
 - Tables go through `render_table` / `TableGrid`.
