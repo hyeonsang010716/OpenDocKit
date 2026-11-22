@@ -95,7 +95,9 @@ _FULL_LOAD_MAX_SHEET_BYTES = 20 * 1024 * 1024
 # In a full load openpyxl turns the pivot caches the workbook points to (definition + records) entirely into objects. The conversion
 # does not use those values, yet a 2.8MB file with 9MB of records took 14s and 1.5GB (its sheet XML was 18MB, so the size threshold
 # did not catch it). When the uncompressed sizes total more than this, the workbook is streamed, which does not read pivot caches
-# (1MB ≈ 1.5s)
+# (1MB ≈ 1.5s). Since the caches are not read in a full load either (`_openpyxl_reading._no_pivot_caches_while_reading`)
+# the rule is kept for what it saves on the sheet: that file streamed takes 1.4 s and 409 MB, read in full 2.7 s and 658 MB,
+# and of 472 workbooks none converts differently without the rule
 # (Pinned by: test_office.py::TestReportedGaps::test_xlsx_with_a_large_pivot_cache_is_streamed).
 _MAX_PIVOT_CACHE_BYTES = 1024 * 1024
 _PIVOT_CACHE_DEFINITION = "/pivotCacheDefinition"
