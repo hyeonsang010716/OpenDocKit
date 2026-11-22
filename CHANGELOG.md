@@ -160,7 +160,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   private-use characters U+F020–F0FF and draws them with the Wingdings glyph of that number, whatever font the text
   names. They were removed with the other private-use characters, so the dot between two words joined them — `미국·영국·독일`
   came out as `미국영국독일` — and the round bullet of a line was lost, in 4 of 120 press releases. They are read with the
-  table already used for Wingdings text in DOCX, PPTX and PDF.
+  table already used for Wingdings text in DOCX, PPTX and PDF, which gains the small square (glyph A0, `▪`) a request
+  for proposals sets before its sub-items.
 - **PDF: tables without rules in Hindi, Japanese, Chinese, Khmer, Thai and other scripts.** The number that opens a row
   is set in a Latin font and stands at another height than the cells beside it; the rows were put together across that
   step only for Hangul and Han, so the numbers were rows of their own and no table was found. A cell in a script

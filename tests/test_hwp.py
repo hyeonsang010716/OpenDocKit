@@ -790,6 +790,15 @@ class TestHancomSymbols:
                                                                      "○ (일 시) 2026.11.20.")
         assert self._hwp(monkeypatch, f"핵심과제를 발굴{dot}구체화하고 {ring} 항목") == "핵심과제를 발굴·구체화하고 ○ 항목"
 
+    def test_the_small_square_before_a_sub_item_is_kept(self, monkeypatch):
+        """Glyph A0 of Wingdings, a black square smaller than A7: the mark of the sub-items in a request for proposals
+        (a public sample of hwp2hwpx), which came out without it."""
+        square = chr(0xF0A0)
+
+        assert self._hwp(monkeypatch, f" {square} 연계대상 DB 테이블 스키마") == "▪ 연계대상 DB 테이블 스키마"
+        assert convert(builder.hwpx_bytes("<hp:p><hp:run><hp:t> &#xF0A0; 연계대상 데이터</hp:t></hp:run></hp:p>"),
+                       "a.hwpx").text == "▪ 연계대상 데이터"
+
     def test_a_number_the_wingdings_table_does_not_hold_is_left_out_as_before(self, monkeypatch):
         """Glyph 21 of Wingdings (a pencil) has no character in the shared table: the cleaning removes it, as it did."""
         assert self._hwp(monkeypatch, f"가{chr(0xF021)}나") == "가나"
