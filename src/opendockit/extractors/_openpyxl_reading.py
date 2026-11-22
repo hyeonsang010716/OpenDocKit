@@ -965,6 +965,19 @@ def _sheets_noting_parts(parser: _openpyxl_workbook_reader.WorkbookParser) -> It
 _find_sheets = _openpyxl_workbook_reader.WorkbookParser.find_sheets
 
 
+# The pivot caches of a workbook (the source data of its pivot tables, kept a second time) are not read while this module is
+# reading. openpyxl asks for them at every sheet, whether the sheet has a pivot table or not, and turns each definition and
+# its records into objects; the conversion uses none of it - a pivot table's values are in the cells, and its part is already
+# taken off the sheet's relationships (`_RELATIONS_LEFT_UNREAD`). One element openpyxl cannot read there rejected the whole
+# workbook: `<fieldGroup><discretePr>`, which Excel writes for a field grouped by hand
+# (Pinned by: test_spreadsheet_pivot_caches.py::TestPivotCachesAreNotRead).
+_pivot_caches = _openpyxl_workbook_reader.WorkbookParser.pivot_caches
+
+
+def _no_pivot_caches_while_reading(parser: _openpyxl_workbook_reader.WorkbookParser) -> dict:
+    return {} if _READING.get() is not None else _pivot_caches.fget(parser)
+
+
 # A streamed sheet looks for `<dimension>` when it is opened (`ReadOnlyWorksheet._get_size`). Without one, openpyxl's search runs to
 # the end of `<sheetData>`, so the whole sheet was parsed once for nothing: a 13 MB workbook (600,000 rows) took 16.7 s instead of
 # 3.7 s. The range is discarded before the rows are read anyway (`reset_dimensions`, `_streamed_rows`), so while this module is
@@ -982,6 +995,7 @@ _openpyxl_excel_reader.ExcelReader.read_properties = _properties_or_title
 _openpyxl_excel_reader.ExcelReader.read_custom = _skipped_while_reading(_openpyxl_excel_reader.ExcelReader.read_custom)
 _openpyxl_excel_reader.ExcelReader.read_chartsheet = _chartsheet_without_parts
 _openpyxl_workbook_reader.WorkbookParser.find_sheets = _sheets_noting_parts
+_openpyxl_workbook_reader.WorkbookParser.pivot_caches = property(_no_pivot_caches_while_reading)
 
 
 def _is_number(value: str | None) -> bool:
