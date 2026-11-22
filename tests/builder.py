@@ -679,12 +679,17 @@ def pdf_with_images() -> bytes:
     return buffer.getvalue()
 
 
-def pdf_of_glyphs(runs: list[tuple[float, float, float, str | list[str], bool]], *, producer: str | None = None) -> bytes:
+def pdf_of_glyphs(runs: list[tuple], *, producer: str | None = None, no_width: str = "",
+                  around: tuple[bytes, bytes] = (b"", b"")) -> bytes:
     """A page of text in any script, drawn as the runs (x, y from the bottom of the page, size, glyphs, bold) in the order
     given. The glyphs of a run are drawn from left to right, each 0.58 of the size wide; a run is a text, one glyph for
     each character, or a list with the text of each glyph (a ligature is one glyph of several characters). The fonts
     are Identity-H fonts named 'Any' and 'Any-Bold' without a font program, whose ToUnicode says what each glyph is.
-    `producer` is the program the document says it was written by."""
+
+    A run with a sixth item is drawn inside a marked-content sequence that says its glyphs stand for that text
+    (`/Span << /ActualText … >> BDC … EMC`). The glyphs in `no_width` move nothing (a mark set on a letter), `around` is
+    written before and after the whole content (a marked-content sequence around it), and `producer` is the program the
+    document says it was written by."""
     import zlib
 
     def stream(body: bytes) -> bytes:
@@ -693,20 +698,25 @@ def pdf_of_glyphs(runs: list[tuple[float, float, float, str | list[str], bool]],
 
     codes: dict[str, int] = {}
     content = b""
-    for x, y, size, glyphs, bold in runs:
+    for x, y, size, glyphs, bold, *actual in runs:
         drawn = b"".join(b"%04X" % codes.setdefault(glyph, len(codes) + 1) for glyph in glyphs)
-        content += b"BT /F%d %g Tf %g %g Td <%s> Tj ET\n" % (2 if bold else 1, size, x, y, drawn)
+        show = b"BT /F%d %g Tf %g %g Td <%s> Tj ET\n" % (2 if bold else 1, size, x, y, drawn)
+        if actual:
+            show = b"/Span << /ActualText <FEFF%s> >> BDC\n%sEMC\n" % (actual[0].encode("utf-16-be").hex().upper().encode(), show)
+        content += show
+    content = around[0] + content + around[1]
     named = b" ".join(b"<%04X> <%s>" % (code, glyph.encode("utf-16-be").hex().upper().encode()) for glyph, code in codes.items())
     cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /T def "
             b"1 begincodespacerange <0000> <FFFF> endcodespacerange %d beginbfchar %s endbfchar "
             b"endcmap CMapName currentdict /CMap defineresource pop end end" % (len(codes), named))
+    widths = b" ".join(b"%d [0]" % codes[glyph] for glyph in no_width if glyph in codes)
 
     def font(name: bytes) -> bytes:
         return (b"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /ToUnicode 5 0 R "
                 b"/DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s "
-                b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 580 "
+                b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 580 /W [%s] "
                 b"/FontDescriptor << /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [0 -200 1000 800] "
-                b"/ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >> >>] >>" % (name, name, name))
+                b"/ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >> >>] >>" % (name, name, widths, name))
 
     objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
                3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "

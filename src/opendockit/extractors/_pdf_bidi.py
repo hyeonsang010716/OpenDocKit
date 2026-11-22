@@ -36,8 +36,8 @@ _PAGE_READING: ContextVar[_Reading] = ContextVar("pdf_page_reading", default=_Re
 
 
 def _is_mark(text: str) -> bool:
-    """Whether a glyph is only marks set on a letter (vowel signs, shadda, points)."""
-    return bool(text) and all(unicodedata.category(letter) == "Mn" for letter in text)
+    """Whether a glyph is only marks set on a letter (vowel signs, shadda, points, accents, tone marks)."""
+    return bool(text) and all(unicodedata.category(letter) in ("Mn", "Me") for letter in text)
 
 
 def _kind(unit: str) -> str:

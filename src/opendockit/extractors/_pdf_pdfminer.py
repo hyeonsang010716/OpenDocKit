@@ -13,6 +13,7 @@ from io import BytesIO
 from itertools import count, islice
 import math
 import re
+import unicodedata
 import zlib
 
 from pdfminer import layout as pdfminer_layout
@@ -30,10 +31,11 @@ from pdfminer.pdftypes import (
     PDFStream,
     resolve1,
 )
-from pdfminer.utils import Plane, choplist
+from pdfminer.utils import Plane, choplist, decode_text
 from pdfplumber.page import PDFPageAggregatorWithMarkedContent
 
 from opendockit.exceptions import DocumentTooLargeError
+from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _is_mark
 from opendockit.extractors._pdf_model import _SYMBOL_BULLETS
 from opendockit.extractors._symbols import symbol_glyph
 
@@ -745,7 +747,42 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
         copies[key] += 1
         if copies[key] > _MAX_OVERPRINTS:
             objs.pop()
+        else:
+            _set_on_its_letter(objs)
     return advance
+
+
+# A mark is drawn on the letter before it when it is no wider than this share of its size and its middle lies within the
+# letter, give or take this share of the size (`_set_on_its_letter`).
+_MARK_WIDTH_RATIO = 0.1
+_MARK_REACH_RATIO = 0.15
+
+
+def _set_on_its_letter(objs: list) -> None:
+    """Joins a mark that was just drawn (a vowel sign, a tone mark, an accent: a glyph of marks only, with no width to
+    speak of) to the letter drawn before it, when it stands over that letter: the letter carries the text of both and
+    the mark is taken out.
+
+    Thai sets a vowel under a letter and a tone mark over both ('อยู่'), each a glyph that moves nothing. pdfminer puts
+    two characters on one line when they are closer than twice the width of the wider — never, for two glyphs without
+    width — so the line ended between the two marks, and the pieces came out in another order ('…อยู' on one line, the
+    tone mark and the rest of the sentence elsewhere). Joined to its letter the mark needs no place of its own.
+    Deliberate: not a mark of Hebrew or Arabic, which a program that draws a line in the order of the page draws before
+    its letter; those are set on their letter by their place (`_pdf_bidi._visual_units`)
+    (Pinned by: test_pdf_actual_text.py::TestMarksSetOnALetter)."""
+    if len(objs) < 2:
+        return
+    mark, letter = objs[-1], objs[-2]
+    text = mark.get_text()
+    if not isinstance(letter, LTChar) or not _is_mark(text) or _RIGHT_TO_LEFT.search(text) or not letter.get_text().strip():
+        return
+    size = max(mark.size, 1.0)
+    reach = size * _MARK_REACH_RATIO
+    if (mark.width <= size * _MARK_WIDTH_RATIO and abs(mark.size - letter.size) <= 0.1
+            and letter.x0 - reach <= (mark.x0 + mark.x1) / 2 <= letter.x1 + reach
+            and min(mark.y1, letter.y1) - max(mark.y0, letter.y0) > 0):
+        letter._text = letter.get_text() + text
+        objs.pop()
 
 
 # Symbol font PostScript name (subset prefix, ',Bold' and '-Regular' removed; lower case without spaces) → font name in
@@ -845,6 +882,125 @@ def _names_win_ansi(self: pdffont.PDFSimpleFont, descriptor: object, widths: obj
 
 
 pdffont.PDFSimpleFont.__init__ = _names_win_ansi
+
+
+# A marked-content sequence may say what its glyphs stand for (`/Span << /ActualText (…) >> BDC … EMC`, PDF 32000-1 14.9.4).
+# The glyphs of one cluster of a script are taken together up to this many, and its text is this long at most; a longer
+# sequence is left as its glyphs say (`_stand_for`).
+_ACTUAL_TEXT_GLYPHS = 8
+_ACTUAL_TEXT_CHARS = 32
+_TAGS = "_opendockit_tags"
+_begin_tag_flat = PDFPageAggregatorWithMarkedContent.begin_tag
+_end_tag_flat = PDFPageAggregatorWithMarkedContent.end_tag
+
+
+def _begin_tag_nested(self: PDFPageAggregatorWithMarkedContent, tag: object, props: object = None) -> None:
+    """Begins a marked-content sequence inside the one that is open, and notes the text it says its glyphs stand for.
+
+    pdfplumber keeps one tag and one MCID, not the sequences inside each other: a `/Span` with an `ActualText` inside
+    the content of a table cell (`/P << /MCID 7 >> BDC`) took the MCID away from itself and from everything after it up
+    to the end of the cell, so those characters belonged to no cell of a tagged table. A sequence without an MCID of its
+    own is part of the one around it (Pinned by: test_pdf_actual_text.py::TestSequencesInsideEachOther)."""
+    if _INFLATE_BUDGET.get() is None:
+        return _begin_tag_flat(self, tag, props)
+    item = getattr(self, "cur_item", None)
+    stack = self.__dict__.setdefault(_TAGS, [])
+    stack.append((self.cur_tag, self.cur_mcid, _actual_text(props), item, len(item._objs) if item is not None else 0))
+    around = self.cur_mcid
+    _begin_tag_flat(self, tag, props)
+    if self.cur_mcid is None:
+        self.cur_mcid = around
+    return None
+
+
+def _end_tag_nested(self: PDFPageAggregatorWithMarkedContent) -> None:
+    """Ends the innermost marked-content sequence: its glyphs take the text it said they stand for (`_stand_for`), and
+    the tag and MCID of the sequence around it apply again."""
+    stack = self.__dict__.get(_TAGS)
+    if _INFLATE_BUDGET.get() is None or not stack:
+        return _end_tag_flat(self)
+    tag, mcid, actual, item, start = stack.pop()
+    if actual and item is not None and item is getattr(self, "cur_item", None):
+        _stand_for(item._objs, start, actual)
+    self.cur_tag, self.cur_mcid = tag, mcid
+    return None
+
+
+def _actual_text(props: object) -> str | None:
+    """The `ActualText` of the property list of a marked-content sequence; None when it has none, it is no text, or it
+    holds nothing to see.
+
+    Deliberate: a text of spaces and marks without a shape says what a glyph is not, not what it is. InDesign writes a
+    soft hyphen (U+00AD) over the space glyph it sets at every place a word may be broken, and over the hyphen of a word
+    it did break; a browser writes a zero-width non-joiner over a space glyph that moves nothing. Taken as the text,
+    the first put a hyphen before every such word ('these -distributions are') on ten documents of the benchmark. The
+    glyphs of such a sequence are read as they are drawn (Pinned by:
+    test_pdf_actual_text.py::TestActualText::test_a_text_with_nothing_to_see_changes_nothing)."""
+    if not isinstance(props, dict):
+        return None
+    try:
+        value = resolve1(props.get("ActualText"))
+        text = decode_text(value) if isinstance(value, bytes) else None
+    except Exception:  # noqa: BLE001 — a broken entry says nothing; the glyphs are read as they are
+        return None
+    if text is None or not any(unicodedata.category(letter)[0] not in "CZ" for letter in text):
+        return None
+    return text
+
+
+def _stand_for(objs: list, start: int, actual: str) -> None:
+    """Gives the glyphs drawn since `objs[start]` the text their marked-content sequence says they stand for.
+
+    A glyph is not always a character. The vowel sign of Hindi drawn before its consonant, the stacked marks of Thai,
+    a ligature of Arabic, a letter in the form of its place in the word: a browser and LibreOffice write the glyphs and,
+    around them, the characters they stand for. Read from the glyphs alone, the sign before the consonant was a
+    character without a name (U+0000), marks were lost or stood apart from their letter, and of the words of a Hindi
+    Wikipedia article 70% were found where `pdftotext`, which reads `ActualText`, finds 97%.
+
+    One glyph takes the text. Several glyphs on one line become one: the widest keeps its place from top to bottom, is
+    as wide as all of them and carries the text, and the others are taken out — the text of a cluster cannot be dealt
+    out among its glyphs, which are not in the order of its characters. Deliberate: a sequence of more than
+    `_ACTUAL_TEXT_GLYPHS` glyphs or `_ACTUAL_TEXT_CHARS` characters is a line or a paragraph given another wording, not
+    a cluster; its glyphs keep their places and their own text, on which the columns of a table are found. An empty
+    `ActualText` (a hyphen at the end of a line that is no part of the word) changes nothing either
+    (Pinned by: test_pdf_actual_text.py)."""
+    chars = [obj for obj in objs[start:] if isinstance(obj, LTChar)]
+    if not chars or len(chars) > _ACTUAL_TEXT_GLYPHS or len(actual) > _ACTUAL_TEXT_CHARS:
+        return
+    if "".join(char.get_text() for char in chars) == actual:
+        return
+    carrier = max(chars, key=lambda char: char.width)
+    if len(chars) > 1:
+        boxes = [char.bbox for char in chars]
+        if not all(math.isfinite(value) for box in boxes for value in box):
+            return
+        if any(min(char.y1, carrier.y1) - max(char.y0, carrier.y0) <= 0 for char in chars):
+            return  # glyphs of more than one line
+        carrier.set_bbox((min(box[0] for box in boxes), carrier.y0, max(box[2] for box in boxes), carrier.y1))
+        gone = {id(char) for char in chars if char is not carrier}
+        objs[start:] = [obj for obj in objs[start:] if id(obj) not in gone]
+    carrier._text = actual
+
+
+_add_to_line = LTTextLineHorizontal.add
+
+
+def _add_keeping_the_reach(self: LTTextLineHorizontal, obj: object) -> None:
+    """Adds a character to a line as pdfminer does, but a mark set on a letter does not take the end of the line back.
+
+    pdfminer writes a space where a character starts further right than the one before it ended. A vowel sign or an
+    accent drawn as a glyph of its own stands over its letter and ends before the letter does — in a browser's PDF it
+    has no width at all — so the letter after it started 'far' from it and a space was written into the word
+    ('प्राकृ तिक' for 'प्राकृतिक') (Pinned by: test_pdf_actual_text.py::TestMarksSetOnALetter)."""
+    reach = getattr(self, "_x1", None)
+    _add_to_line(self, obj)
+    if reach is not None and isinstance(obj, LTChar) and obj.x1 < reach and _is_mark(obj.get_text()):
+        self._x1 = reach
+
+
+LTTextLineHorizontal.add = _add_keeping_the_reach
+PDFPageAggregatorWithMarkedContent.begin_tag = _begin_tag_nested  # outside a conversion (no budget) both behave as before
+PDFPageAggregatorWithMarkedContent.end_tag = _end_tag_nested
 PDFPageAggregatorWithMarkedContent.render_char = _render_char_few_copies  # outside a conversion (no budget) it behaves as before
 
 

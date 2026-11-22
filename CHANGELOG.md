@@ -145,6 +145,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: Hindi, Thai and other scripts whose glyphs are not their characters.** A browser and LibreOffice write, around
+  the glyphs of such a script, the characters they stand for (`ActualText`); that text is now read. Before, the vowel
+  sign Hindi draws before its consonant was lost, the vowels and tone marks of Thai stood apart from their letters or
+  ended their line, and a Thai document saved by LibreOffice came out with letters missing and without a heading. Of the
+  three-letter runs of a Hindi and a Thai Wikipedia article printed by a browser, 98.5% and 97.9% are now found in the
+  output (75% and 66% before). A page number whose digit had no name in its font ('3�4') is read too.
 - **PDF: Arabic, Hebrew, Persian and Urdu are read in their order of reading.** A PDF holds glyphs at places, and a
   line written from right to left came out backwards letter by letter ('םלוע םולש' for 'שלום עולם'), whether Word,
   LibreOffice or a browser had made the file. Each such line is now brought back to its text: letters from the right,
