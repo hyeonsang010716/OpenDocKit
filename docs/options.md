@@ -78,7 +78,7 @@ Values are checked when `ConvertOptions` is created.
 
 ## Exceptions
 
-All exceptions are subclasses of `ConversionError`; branch on `code`. The one exception is a broken installation: a library needed to read the file that cannot be imported (a broken wheel, a binary built for another Python) raises `ImportError` with a fixed sentence on each conversion that needs it, also from `IsolatedConverter`, as `import opendockit` did when it imported every reader up front. The messages are fixed wording that can be shown to end users as is, and never contain document content or parser error text. A failed image description is a warning, not an exception.
+Every failure to convert a document is a subclass of `ConversionError`; branch on `code`. What is not about the document is raised as it is: a wrong argument is a `TypeError` or `ValueError` (the options are checked when they are made, the file name and the data when `convert` is called), a path `convert_file` cannot open is an `OSError`, and an `IsolatedConverter` used after `aclose()` raises `RuntimeError`. The last such case is a broken installation: a library needed to read the file that cannot be imported (a broken wheel, a binary built for another Python) raises `ImportError` with a fixed sentence on each conversion that needs it, also from `IsolatedConverter`, as `import opendockit` did when it imported every reader up front. The messages are fixed wording that can be shown to end users as is, and never contain document content or parser error text. A failed image description is a warning, not an exception.
 
 | Exception | `code` | When |
 | --- | --- | --- |

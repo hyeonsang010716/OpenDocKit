@@ -47,7 +47,7 @@ These are synthetic images and a small sample. Newer models tend to correct part
 
 ### Conversion and description are separate
 
-Conversion is offline, synchronous and deterministic (it can be tested and run in a process pool). The one exception is legacy `.doc` / `.ppt`, which are handed to a local LibreOffice process ([decisions/legacy-office.md](decisions/legacy-office.md)). Only description, which needs the network and costs money, is split off as an asynchronous step.
+Conversion is offline, synchronous and deterministic (it can be tested and run in a process pool). The one exception is legacy `.doc` / `.ppt`, which are handed to a local LibreOffice process ([decisions/legacy-office.md](decisions/legacy-office.md)). Only description, which needs the network and costs money, is split off as an asynchronous step. Determinism has one bound that is measured on the clock: a PDF whose structure analysis passes `pdf_time_budget` (60 s by default) is read from there on by plain extraction, with a warning, so a very large PDF can read more plainly on a slow machine than on a fast one; `pdf_time_budget=None` removes the bound.
 
 ### Why not a general-purpose converter
 
