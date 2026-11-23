@@ -221,7 +221,7 @@ opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → Ext
 
 | 格式 | 分节单位 | 要点 |
 | --- | --- | --- |
-| PDF | 页 | 跨栏的阅读顺序、有线表格和无边框表格、表单字段的值、根据字号推断标题、去除重复的页眉 / 页脚、在页面证据确凿时链接脚注、扫描页面交给视觉模型 |
+| PDF | 页 | 跨栏的阅读顺序、有线表格和无边框表格、表单字段的值、根据字号和字重推断标题、去除重复的页眉 / 页脚、在页面证据确凿时链接脚注、扫描页面交给视觉模型 |
 | DOCX | 文档 | 标题样式、列表编号、合并单元格、图表 → 表格、SmartArt、脚注 / 尾注、公式 → LaTeX、批注 |
 | PPTX | 幻灯片 | 按屏幕上的顺序、项目符号层级、表格、图表 → 表格、SmartArt、公式、演讲者备注 |
 | XLSX · XLS · Excel 2003 XML · CSV | 工作表 | 一张工作表中的多个表格、合并单元格、数字和日期格式、图表、单元格批注 |
@@ -242,20 +242,41 @@ opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → Ext
 ## 与其他工具的比较
 
 <p align="center">
-  <img alt="通过的结构检查：OpenDocKit 49 项中的 49 项，Docling 36 项，MarkItDown 31 项，Kreuzberg 29 项，Unstructured 12 项"
+  <img alt="通过的结构检查：OpenDocKit 49 项中的 49 项，Docling 37，MarkItDown 31，Kreuzberg 29，kordoc 22，Unstructured 12"
        src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/structure-checks.svg" width="720">
 </p>
 
-我们在标准的 GitHub 运行器上，用同一批文件运行了 OpenDocKit、MarkItDown、Kreuzberg、Unstructured 和 Docling
-（[方法、原始结果以及如何重新运行](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)）：
+我们在没有 GPU 的 4 核标准 GitHub runner 上，用同一批文件运行了 OpenDocKit、MarkItDown、Kreuzberg、Unstructured、
+Docling 和 kordoc。测试方法、全部原始结果以及重新运行的步骤都在[完整报告](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)里。
 
-- **结构** —— OpenDocKit 保留得最多：在“合并的单元格是否仍然属于它所在的行”这类检查中，49 项通过了 49 项，
-  排在其后的工具通过 36 项。这些检查是我们自己设计的，而且 0.2.0 是在已知这些检查的情况下开发的；
-  这意味着什么，报告里有说明。
-- **格式** —— 在测试的 31 种格式中，有 26 种不需要任何模型或外部服务就能读取，是五个工具中最多的；
-  它也是其中唯一能读取 HWP 和 HWPX 的工具。
-- **不是最快的，也没有 OCR** —— 扫描件和图片只能通过视觉模型读取，而 Docling 和 Unstructured 可以离线读取。
-  Kreuzberg 大约快三十倍；旧版 `.doc` / `.ppt` 因为要经过 LibreOffice，每个文件大约需要一秒。
+|  | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling | kordoc |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| 能读取的格式（共 31 种） | **26** | 19 | 22 | 24 | 22 | 11 |
+| HWP 和 HWPX | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 通过的结构检查（共 49 项，由我们编写） | **49** | 31 | 29 | 12 | 37 | 22 |
+| PDF 基准得分（200 个文件，非我们编写） | 0.877 | 0.589 | 0.689 | 0.697 | 0.892 | **0.965** |
+| 转换这 200 个 PDF 的秒数 | 37 | 38 | **4** | 52 | 1,514 | 589 |
+| 期间的内存峰值（MB） | 222 | 310 | **82** | 2,127 | 3,023 | 1,309 |
+| 安装体积（MB） | **103** | 337 | 5,792 | 6,746 | 5,987 | 670 |
+
+- **不用模型，读得最广。** 在测试的 31 种格式中，OpenDocKit 只靠 CPU 就能读取 26 种，比其他工具都多，并且通过了
+  全部 49 项结构检查，例如“合并单元格是否仍然属于它所在的行”。这些检查是我们自己写的，报告里说明了应当如何看待这一点。
+- **PDF 上接近使用模型的工具，而耗时只是它们的零头。** opendataloader-bench 不是我们编写的基准，在它的 200 个 PDF
+  上 OpenDocKit 得 0.877 分。kordoc（0.965）和 Docling（0.892）更高，但它们靠运行模型得到这个分数：处理这 200 个文件
+  分别需要 589 秒和 1,514 秒，OpenDocKit 需要 37 秒。
+- **HWP 和 HWPX。** 只有 OpenDocKit 和 kordoc 能读。kordoc 在 PDF 上领先，还能在本机识别扫描件；OpenDocKit 则在
+  Python 里用同一个函数读取其余格式。
+- **为接收陌生人上传的文件而设计。** 面对 113 个模糊测试发现的文件和攻击文件，它没有崩溃也没有卡死，进程占用的内存
+  最高为 97 MB。其中一个文件让另外 2 个工具的内存超过了 6 GB。
+- **不足之处。** 它没有 OCR：扫描件和图片需要视觉模型，而 Docling、Unstructured 和 kordoc 可以在本机读取。表格是它在
+  PDF 上最弱的一项（0.776，kordoc 为 0.981）。Kreuzberg 在各方面都快得多，旧版 `.doc` / `.ppt` 需要经过 LibreOffice。
+
+<p align="center">
+  <img alt="opendataloader-bench 200 个 PDF 的得分：kordoc 0.965，Docling 0.892，OpenDocKit 0.877，Unstructured 0.697，Kreuzberg 0.689，MarkItDown 0.589"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/pdf-benchmark.svg" width="720">
+  <img alt="转换这 200 个 PDF 所需的秒数：Kreuzberg 4，OpenDocKit 37，MarkItDown 38，Unstructured 52，kordoc 589，Docling 1,514"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/pdf-time.svg" width="720">
+</p>
 
 ## 示例
 

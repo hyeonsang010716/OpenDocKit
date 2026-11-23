@@ -14,6 +14,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **The benchmark was run again, on six tools.** kordoc joins MarkItDown, Kreuzberg, Unstructured and Docling, and the
+  report gains a PDF benchmark we did not write (the 200 documents of opendataloader-bench, scored in the same run), a
+  count of the words of each source that are missing from each tool's output, and installed sizes measured on the
+  runner. The READMEs show the new figures, including where OpenDocKit is behind
+  ([benchmarks/README.md](benchmarks/README.md)).
 - **Windows: the command line writes LF line ends**, as on Linux and macOS. Redirected or piped, every line of its
   output and its messages ended in CR LF, so the same document gave other bytes on Windows and a Markdown file for a
   model carried a CR on every line. A console shows no difference.

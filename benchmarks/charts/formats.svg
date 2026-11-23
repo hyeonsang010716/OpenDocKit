@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 336" width="760" height="336" role="img" aria-label="Formats read without a remote model or service">
+<style>
+  .surface { fill: #fcfcfb; } .title { fill: #0b0b0b; font-weight: 600; } .label { fill: #0b0b0b; }
+  .note, .tick { fill: #52514e; } .axis { stroke: #d8d7d2; } .bar { fill: #9a9993; } .bar.us { fill: #2a78d6; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; } .title, .label { fill: #f0efec; } .note, .tick { fill: #c3c2b7; }
+    .axis { stroke: #3a3a37; } .bar { fill: #7d7c76; } .bar.us { fill: #3987e5; }
+  }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 14px; }
+</style>
+<rect class="surface" width="760" height="336" rx="8"/>
+<text class="title" x="24" y="32" font-size="16">Formats read without a remote model or service</text>
+<line class="axis" x1="150" y1="56" x2="150" y2="284"/>
+<text class="label" x="138" y="80" text-anchor="end" font-weight="600">OpenDocKit</text>
+<path class="bar us" d="M150,64 h331.48387096774195 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-331.48387096774195 z"/>
+<text class="label" x="493.48387096774195" y="80">26 of 31</text>
+<text class="label" x="138" y="118" text-anchor="end">Unstructured</text>
+<path class="bar" d="M150,102 h305.6774193548387 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-305.6774193548387 z"/>
+<text class="label" x="467.6774193548387" y="118">24 of 31</text>
+<text class="label" x="138" y="156" text-anchor="end">Kreuzberg</text>
+<path class="bar" d="M150,140 h279.8709677419355 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-279.8709677419355 z"/>
+<text class="label" x="441.8709677419355" y="156">22 of 31</text>
+<text class="label" x="138" y="194" text-anchor="end">Docling</text>
+<path class="bar" d="M150,178 h279.8709677419355 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-279.8709677419355 z"/>
+<text class="label" x="441.8709677419355" y="194">22 of 31</text>
+<text class="label" x="138" y="232" text-anchor="end">MarkItDown</text>
+<path class="bar" d="M150,216 h241.16129032258064 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-241.16129032258064 z"/>
+<text class="label" x="403.1612903225806" y="232">19 of 31</text>
+<text class="label" x="138" y="270" text-anchor="end">kordoc</text>
+<path class="bar" d="M150,254 h137.93548387096774 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-137.93548387096774 z"/>
+<text class="label" x="299.93548387096774" y="270">11 of 31</text>
+<text class="note" x="24" y="320" font-size="12">One file for each of 31 formats. Tool versions and method: benchmarks/README.md</text>
+</svg>

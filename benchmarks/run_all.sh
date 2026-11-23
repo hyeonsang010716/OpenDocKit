@@ -26,8 +26,8 @@ if [ "$suite" = all ] || [ "$suite" = corpus ]; then
     PYTHONPATH=.. $scorer recall_corpus.py results
     $python harness.py hostile results/hostile.json results --workers 3 --timeout 60 --fresh
 fi
-if [ "$suite" = all ] || [ "$suite" = pdfbench ]; then
-    # The 200 PDFs of opendataloader-bench, a benchmark none of the six projects here wrote, scored against its references
+if { [ "$suite" = all ] && [ -d "$pdfbench/pdfs" ]; } || [ "$suite" = pdfbench ]; then
+    # Left out of `all` when the documents are not there (the container). The 200 PDFs of opendataloader-bench, a benchmark none of the six projects here wrote, scored against its references
     $python -c "
 import json, pathlib, sys
 files = sorted(pathlib.Path(sys.argv[1], 'pdfs').glob('*.pdf'))

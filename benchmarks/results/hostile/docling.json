@@ -1,911 +1,911 @@
 {
  "tool": "docling",
- "version": "2.150.0",
- "import_seconds": 0.031412758999977086,
- "wall_seconds": 177.9545858229999,
+ "version": "2.151.1",
+ "import_seconds": 0.03421234000006734,
+ "wall_seconds": 136.2824113050001,
  "results": {
   "0000.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 4591020179783680.pdf with status: failure. Errors: docling-parse could not load document 1fa395f36909b6bae45a86b0611f95bd7bbc07ef6d8fe3c01b4bc9651d89888c: Failed to load document with key key=1fa395f36909b6bae45a86b0611f95bd7bbc07ef6d8fe3c01b4bc9651d89888c: pa",
-   "seconds": 3.151318889000322,
-   "peak_rss_mb": 682.55078125,
+   "seconds": 2.538112229000035,
+   "peak_rss_mb": 678.3671875,
    "outcome": "error"
   },
   "0001.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 4646567755972608.pdf with status: failure. Errors: docling-parse could not load document c2c4efbc27e61f7302f25b69a790b3bc0c41c88c21745704d0f64510f5b2efd2: Failed to load document with key key=c2c4efbc27e61f7302f25b69a790b3bc0c41c88c21745704d0f64510f5b2efd2: pa",
-   "seconds": 3.7506441780001296,
-   "peak_rss_mb": 682.125,
+   "seconds": 2.9561569249999593,
+   "peak_rss_mb": 678.28125,
    "outcome": "error"
   },
   "0002.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 4652594248613888.pdf with status: failure. Errors: docling-parse could not load document bc7cac33fa6a69568661a9a0db515402e029c4f4f4b46f3b949610d8bfed89c0: Failed to load document with key key=bc7cac33fa6a69568661a9a0db515402e029c4f4f4b46f3b949610d8bfed89c0: pa",
-   "seconds": 3.8719864849999794,
-   "peak_rss_mb": 682.2578125,
-   "outcome": "error"
-  },
-  "0003.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: 4691742750474240.pdf with status: failure. Errors: docling-parse could not load document 28ba22794afc99978a51006cdca55f2561aa8e8e731d46e19eb8bd6c522a856d: Failed to load document with key key=28ba22794afc99978a51006cdca55f2561aa8e8e731d46e19eb8bd6c522a856d: pa",
-   "seconds": 3.3865163079999547,
-   "peak_rss_mb": 682.2734375,
-   "outcome": "error"
-  },
-  "0005.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: 4736668896133120.pdf with status: failure. Errors: docling-parse could not load document 608407d60ac531afaf5bed5711c8b78651e0497f3c87b3dcabf45c8d82dd0a64: Failed to load document with key key=608407d60ac531afaf5bed5711c8b78651e0497f3c87b3dcabf45c8d82dd0a64: pa",
-   "seconds": 3.706608777999918,
-   "peak_rss_mb": 682.3359375,
+   "seconds": 3.2748084049999306,
+   "peak_rss_mb": 678.06640625,
    "outcome": "error"
   },
   "0004.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 4715311080734720.pdf with status: failure. Errors: docling-parse could not load document 0c0bd494344002b53edf0f3dfbcdd769f61c5b339c12f5aec4911dd903cc2c86: Failed to load document with key key=0c0bd494344002b53edf0f3dfbcdd769f61c5b339c12f5aec4911dd903cc2c86: pa",
-   "seconds": 3.9343033659997673,
-   "peak_rss_mb": 682.3828125,
+   "seconds": 2.236636897000153,
+   "peak_rss_mb": 678.48046875,
+   "outcome": "error"
+  },
+  "0003.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: 4691742750474240.pdf with status: failure. Errors: docling-parse could not load document 28ba22794afc99978a51006cdca55f2561aa8e8e731d46e19eb8bd6c522a856d: Failed to load document with key key=28ba22794afc99978a51006cdca55f2561aa8e8e731d46e19eb8bd6c522a856d: pa",
+   "seconds": 3.333081059000051,
+   "peak_rss_mb": 678.24609375,
+   "outcome": "error"
+  },
+  "0005.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: 4736668896133120.pdf with status: failure. Errors: docling-parse could not load document 608407d60ac531afaf5bed5711c8b78651e0497f3c87b3dcabf45c8d82dd0a64: Failed to load document with key key=608407d60ac531afaf5bed5711c8b78651e0497f3c87b3dcabf45c8d82dd0a64: pa",
+   "seconds": 2.976856823000162,
+   "peak_rss_mb": 678.15625,
    "outcome": "error"
   },
   "0008.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 5177159198507008.pdf with status: failure. Errors: docling-parse could not load document f0d110e67572cc3be55a1aef11f484969a6a1cabd75cabb2fe625a57842ee6e5: Failed to load document with key key=f0d110e67572cc3be55a1aef11f484969a6a1cabd75cabb2fe625a57842ee6e5: pa",
-   "seconds": 4.116605020999941,
-   "peak_rss_mb": 682.2421875,
+   "seconds": 3.2345262180001555,
+   "peak_rss_mb": 678.24609375,
    "outcome": "error"
   },
   "0007.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 4927662560968704.pdf with status: failure. Errors: Page 1 failed to parse.",
-   "seconds": 8.777370789000088,
-   "peak_rss_mb": 1453.7734375,
+   "seconds": 7.572716558999673,
+   "peak_rss_mb": 1335.19921875,
    "outcome": "error"
   },
   "0006.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
    "ok": true,
    "chars": 48,
-   "seconds": 14.13043113599997,
-   "peak_rss_mb": 1558.1953125,
+   "seconds": 9.460848878999968,
+   "peak_rss_mb": 1551.86328125,
    "outcome": "ok"
   },
   "0009.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 14.10060398900032,
-   "peak_rss_mb": 1665.87890625,
+   "seconds": 10.160045781999997,
+   "peak_rss_mb": 1624.328125,
    "outcome": "empty"
-  },
-  "0010.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
-   "ok": true,
-   "chars": 48,
-   "seconds": 12.320472911000252,
-   "peak_rss_mb": 1468.5625,
-   "outcome": "ok"
   },
   "0012.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 5809779695484928.pdf with status: failure. Errors: docling-parse could not load document f9aa195dfe87c5dde89710e962695af872f247cd7ba3ebabe5c64f1c7aed19fb: Failed to load document with key key=f9aa195dfe87c5dde89710e962695af872f247cd7ba3ebabe5c64f1c7aed19fb: pa",
-   "seconds": 4.1821505380003146,
-   "peak_rss_mb": 682.24609375,
+   "seconds": 2.698279025999909,
+   "peak_rss_mb": 678.4765625,
    "outcome": "error"
+  },
+  "0010.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
+   "ok": true,
+   "chars": 48,
+   "seconds": 10.037926655999854,
+   "peak_rss_mb": 1470.265625,
+   "outcome": "ok"
   },
   "0011.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 12.273928437999984,
-   "peak_rss_mb": 1476.02734375,
+   "seconds": 9.810382236999885,
+   "peak_rss_mb": 1475.0859375,
    "outcome": "empty"
   },
   "0014.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 5914823472250880.pdf with status: failure. Errors: docling-parse could not load document 62144e76824f3b99162f68303ca0dce751b3da8461fe4e555880261a175c808c: Failed to load document with key key=62144e76824f3b99162f68303ca0dce751b3da8461fe4e555880261a175c808c: pa",
-   "seconds": 3.7222607970002173,
-   "peak_rss_mb": 682.0859375,
+   "seconds": 3.170658947999982,
+   "peak_rss_mb": 678.5546875,
    "outcome": "error"
   },
   "0015.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 6013812888633344.pdf with status: failure. Errors: docling-parse could not load document d27e210d1c14bd093ed048c820526a73f4319e3c1335a8954748702d02c5dc0b: Failed to load document with key key=d27e210d1c14bd093ed048c820526a73f4319e3c1335a8954748702d02c5dc0b: pa",
-   "seconds": 3.907427439999992,
-   "peak_rss_mb": 682.12890625,
+   "seconds": 2.7350051570001597,
+   "peak_rss_mb": 678.05078125,
    "outcome": "error"
   },
   "0016.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
    "ok": false,
    "error": "ConversionError: Conversion failed for: 6085913544818688.pdf with status: failure. Errors: docling-parse could not load document 91c46fe061b16b4c055aff84b4c22ba9ddd2fad5c36c6c13f9f3c5fa95963d93: Failed to load document with key key=91c46fe061b16b4c055aff84b4c22ba9ddd2fad5c36c6c13f9f3c5fa95963d93: pa",
-   "seconds": 3.294975819999763,
-   "peak_rss_mb": 682.1875,
+   "seconds": 2.7400558770000316,
+   "peak_rss_mb": 678.26953125,
+   "outcome": "error"
+  },
+  "0017.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: 6400141380878336.pdf with status: failure. Errors: docling-parse could not load document 4418f36f97b0e0b07be734bbeee1ef4a7becf20527857d7d0ea2665a35c69ec3: Failed to load document with key key=4418f36f97b0e0b07be734bbeee1ef4a7becf20527857d7d0ea2665a35c69ec3: pa",
+   "seconds": 3.125324447999901,
+   "peak_rss_mb": 677.9296875,
    "outcome": "error"
   },
   "0013.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
    "ok": true,
    "chars": 14,
-   "seconds": 12.374724500999946,
-   "peak_rss_mb": 1479.26171875,
+   "seconds": 8.79790416600008,
+   "peak_rss_mb": 1441.37109375,
    "outcome": "ok"
-  },
-  "0017.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: 6400141380878336.pdf with status: failure. Errors: docling-parse could not load document 4418f36f97b0e0b07be734bbeee1ef4a7becf20527857d7d0ea2665a35c69ec3: Failed to load document with key key=4418f36f97b0e0b07be734bbeee1ef4a7becf20527857d7d0ea2665a35c69ec3: pa",
-   "seconds": 4.034099001999948,
-   "peak_rss_mb": 682.23046875,
-   "outcome": "error"
   },
   "0020.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_3b15cq5i', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpq2ux2prw', '/tmp/tmpq2ux2prw/input.doc']' returned non-zero exi",
-   "seconds": 4.065202869999666,
-   "peak_rss_mb": 677.3828125,
-   "outcome": "error"
-  },
-  "0021.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash dda9dd500d6922d60205d5045adb7496bc3ff431a4dad702da1c26af030766fc",
-   "seconds": 3.92391059900001,
-   "peak_rss_mb": 677.58203125,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_gi4qri_n', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpxdf58uye', '/tmp/tmpxdf58uye/input.doc']' returned non-zero exi",
+   "seconds": 3.3210228150001058,
+   "peak_rss_mb": 673.625,
    "outcome": "error"
   },
   "0019.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
    "ok": true,
    "chars": 8888,
-   "seconds": 8.964981452999837,
-   "peak_rss_mb": 714.26953125,
+   "seconds": 6.1519335910002155,
+   "peak_rss_mb": 710.27734375,
    "outcome": "ok"
+  },
+  "0021.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash dda9dd500d6922d60205d5045adb7496bc3ff431a4dad702da1c26af030766fc",
+   "seconds": 3.0550963099999535,
+   "peak_rss_mb": 673.796875,
+   "outcome": "error"
   },
   "0018.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
    "ok": true,
    "chars": 47,
-   "seconds": 13.485247956999956,
-   "peak_rss_mb": 1551.4765625,
+   "seconds": 8.989347645999715,
+   "peak_rss_mb": 1554.55859375,
    "outcome": "ok"
   },
   "0023.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
    "ok": true,
    "chars": 0,
-   "seconds": 4.088486364999881,
-   "peak_rss_mb": 677.83984375,
+   "seconds": 3.368534275000002,
+   "peak_rss_mb": 674.140625,
    "outcome": "empty"
-  },
-  "0024.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
-   "ok": true,
-   "chars": 59852,
-   "seconds": 4.78373370700001,
-   "peak_rss_mb": 680.4921875,
-   "outcome": "ok"
   },
   "0022.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
    "ok": true,
    "chars": 8888,
-   "seconds": 7.460033646999818,
-   "peak_rss_mb": 714.17578125,
+   "seconds": 5.20562610099978,
+   "peak_rss_mb": 710.30078125,
+   "outcome": "ok"
+  },
+  "0024.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
+   "ok": true,
+   "chars": 59852,
+   "seconds": 3.7664057729998603,
+   "peak_rss_mb": 676.60546875,
    "outcome": "ok"
   },
   "0025.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
    "ok": true,
    "chars": 0,
-   "seconds": 4.20531839899968,
-   "peak_rss_mb": 678.0859375,
+   "seconds": 3.204882161000114,
+   "peak_rss_mb": 674.1875,
    "outcome": "empty"
   },
   "0026.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_9uwb1f6w', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpsx2dhrle', '/tmp/tmpsx2dhrle/input.doc']' returned non-zero exi",
-   "seconds": 3.699685878999844,
-   "peak_rss_mb": 677.8828125,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_r33vt3gz', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmp0ouag8i1', '/tmp/tmp0ouag8i1/input.doc']' returned non-zero exi",
+   "seconds": 2.9932452420002846,
+   "peak_rss_mb": 673.5625,
    "outcome": "error"
   },
   "0027.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
    "ok": true,
-   "chars": 10457,
-   "seconds": 5.990783394000118,
-   "peak_rss_mb": 684.91015625,
+   "chars": 10462,
+   "seconds": 4.148231514000145,
+   "peak_rss_mb": 681.109375,
    "outcome": "ok"
   },
   "0028.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
    "ok": true,
    "chars": 14,
-   "seconds": 4.668885701999898,
-   "peak_rss_mb": 678.1015625,
+   "seconds": 3.1283469009999862,
+   "peak_rss_mb": 674.01171875,
    "outcome": "ok"
   },
   "0029.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_zsfnmq0k', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpjmz85guy', '/tmp/tmpjmz85guy/input.doc']' returned non-zero exi",
-   "seconds": 3.933249616000012,
-   "peak_rss_mb": 677.5546875,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_yvnfpw3s', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpnay271jb', '/tmp/tmpnay271jb/input.doc']' returned non-zero exi",
+   "seconds": 3.7129615210001248,
+   "peak_rss_mb": 673.57421875,
    "outcome": "error"
   },
   "0030.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_6ha95o6b', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpk5alsh9t', '/tmp/tmpk5alsh9t/input.doc']' returned non-zero exi",
-   "seconds": 4.2920668060000935,
-   "peak_rss_mb": 677.5,
-   "outcome": "error"
-  },
-  "0032.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 096a1119c0fd110d7fb7b93db16bd1a302513732d8dd0bd7641ecedafbe36f43",
-   "seconds": 3.4299878140000146,
-   "peak_rss_mb": 677.5390625,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_uj2xhgcv', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'docx', '--outdir', '/tmp/tmpmo9lrhac', '/tmp/tmpmo9lrhac/input.doc']' returned non-zero exi",
+   "seconds": 2.8899800650001453,
+   "peak_rss_mb": 673.27734375,
    "outcome": "error"
   },
   "0031.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
    "ok": true,
    "chars": 3088,
-   "seconds": 4.246006856999884,
-   "peak_rss_mb": 678.45703125,
+   "seconds": 3.593535179000355,
+   "peak_rss_mb": 674.421875,
    "outcome": "ok"
   },
-  "0034.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
+  "0032.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
    "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 04a57da257ee6af6d33ba88999e2c12a54d266c1d1ffb56eefc1cd04bd1c9be6",
-   "seconds": 3.2061218349999763,
-   "peak_rss_mb": 677.80078125,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 096a1119c0fd110d7fb7b93db16bd1a302513732d8dd0bd7641ecedafbe36f43",
+   "seconds": 3.045057623000048,
+   "peak_rss_mb": 673.79296875,
    "outcome": "error"
   },
   "0033.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash f45e20bb8d8c4ed61413c9874927a784307b75e22a6d7be775e6485dc60e1abb",
-   "seconds": 3.700089476999892,
-   "peak_rss_mb": 677.62890625,
+   "seconds": 2.5553410219999932,
+   "peak_rss_mb": 673.8515625,
    "outcome": "error"
   },
-  "0035.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
+  "0034.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
    "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 9a78086d1bfd6aab90fa1c1e12569c166267a1d7e1e6c5d36e4bfb64c5ee10b9",
-   "seconds": 4.094124711999939,
-   "peak_rss_mb": 677.4140625,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 04a57da257ee6af6d33ba88999e2c12a54d266c1d1ffb56eefc1cd04bd1c9be6",
+   "seconds": 3.0245617739997215,
+   "peak_rss_mb": 673.5,
    "outcome": "error"
   },
   "0036.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash b418f2b0e307e6f526f85ef90979fe582d5c2644a4597a882597ccd18300d838",
-   "seconds": 3.561415548000241,
-   "peak_rss_mb": 677.6171875,
+   "seconds": 2.587873405999744,
+   "peak_rss_mb": 673.7890625,
    "outcome": "error"
   },
-  "0037.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+  "0035.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
    "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash d9eb560e2285db6cf38c5b2ed0edd7a44b1b4de45343085c9232b82426c51632",
-   "seconds": 3.9097486559999197,
-   "peak_rss_mb": 677.6484375,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 9a78086d1bfd6aab90fa1c1e12569c166267a1d7e1e6c5d36e4bfb64c5ee10b9",
+   "seconds": 3.0479898379999213,
+   "peak_rss_mb": 673.80078125,
    "outcome": "error"
   },
   "0038.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 9c9d14a0ed831cc9adca4ca212a86ec19df760f54ce0c495996808fd9c015af7",
-   "seconds": 3.2376234909997947,
-   "peak_rss_mb": 677.4375,
+   "seconds": 2.4379383929999676,
+   "peak_rss_mb": 673.73828125,
+   "outcome": "error"
+  },
+  "0037.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash d9eb560e2285db6cf38c5b2ed0edd7a44b1b4de45343085c9232b82426c51632",
+   "seconds": 3.186384000000089,
+   "peak_rss_mb": 673.55078125,
    "outcome": "error"
   },
   "0039.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash af0490674ff7c414b1d34ae6bae2140e9e2a3166e5b7ef524201ffb576c74d57",
-   "seconds": 3.4343032470001162,
-   "peak_rss_mb": 677.8125,
-   "outcome": "error"
-  },
-  "0040.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 7d34e905b8df2a09b9b671e1e1243c7898da94cf935797b98fc4131faeb55f25",
-   "seconds": 3.853733117000047,
-   "peak_rss_mb": 677.703125,
+   "seconds": 3.05323186600026,
+   "peak_rss_mb": 673.66015625,
    "outcome": "error"
   },
   "0041.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash dbb8b118a4bc0a3d75a65722805f4ab039d3067626c98b209dde41a2f0af86f8",
-   "seconds": 3.7824731840000823,
-   "peak_rss_mb": 677.68359375,
+   "seconds": 2.5499754580000626,
+   "peak_rss_mb": 673.921875,
+   "outcome": "error"
+  },
+  "0040.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 7d34e905b8df2a09b9b671e1e1243c7898da94cf935797b98fc4131faeb55f25",
+   "seconds": 3.0509281399999963,
+   "peak_rss_mb": 673.66015625,
    "outcome": "error"
   },
   "0042.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash a1f9d9fd811700ea52b571c72aaaceea012d53f83ef2e6baace0238168c4b206",
-   "seconds": 3.6710208040003636,
-   "peak_rss_mb": 677.96484375,
-   "outcome": "error"
-  },
-  "0044.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: deep-table-cell.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 31c5bfe1f68c98699cb356891de2e02fe223f633706d666c430ca79fd2cdf6bb",
-   "seconds": 3.525016154000241,
-   "peak_rss_mb": 680.11328125,
+   "seconds": 3.086208392000117,
+   "peak_rss_mb": 673.9921875,
    "outcome": "error"
   },
   "0043.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 4fa1dc1cd5bddeaa5a14169d9a4f5abdc687d732c3beb06901cf9a701533d466",
-   "seconds": 3.9102376250002635,
-   "peak_rss_mb": 677.80859375,
+   "seconds": 3.2630090570000903,
+   "peak_rss_mb": 673.58984375,
+   "outcome": "error"
+  },
+  "0044.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: deep-table-cell.docx with status: failure. Errors: MsWordDocumentBackend could not load document with hash 31c5bfe1f68c98699cb356891de2e02fe223f633706d666c430ca79fd2cdf6bb",
+   "seconds": 3.2760620410003867,
+   "peak_rss_mb": 675.72265625,
    "outcome": "error"
   },
   "0045.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_ggdjda40', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp2b29d91d', '/tmp/tmp2b29d91d/input.ppt']' returned non-zero exi",
-   "seconds": 4.0120193600000675,
-   "peak_rss_mb": 677.44140625,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_krsecjgv', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpide0t9j8', '/tmp/tmpide0t9j8/input.ppt']' returned non-zero exi",
+   "seconds": 2.6622292520000883,
+   "peak_rss_mb": 673.49609375,
+   "outcome": "error"
+  },
+  "0048.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
+   "ok": false,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_zmoth5lv', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpkvyj2ebw', '/tmp/tmpkvyj2ebw/input.ppt']' returned non-zero exi",
+   "seconds": 2.7809818549999363,
+   "peak_rss_mb": 673.203125,
    "outcome": "error"
   },
   "0046.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash f568b01439e5012760839f4d0d197dba99c57ca72a66b277515428fb07e0e136",
-   "seconds": 3.597494968999854,
-   "peak_rss_mb": 677.72265625,
+   "seconds": 3.261936244000026,
+   "peak_rss_mb": 673.3359375,
    "outcome": "error"
   },
   "0047.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_znq1582r', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpxxnwjbwr', '/tmp/tmpxxnwjbwr/input.ppt']' returned non-zero exi",
-   "seconds": 4.198157856999842,
-   "peak_rss_mb": 677.296875,
-   "outcome": "error"
-  },
-  "0048.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
-   "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_oysy5zap', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpvdy3_lxe', '/tmp/tmpvdy3_lxe/input.ppt']' returned non-zero exi",
-   "seconds": 4.321499950000089,
-   "peak_rss_mb": 677.2578125,
-   "outcome": "error"
-  },
-  "0049.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
-   "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_8wiwyiak', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpphk3tmc6', '/tmp/tmpphk3tmc6/input.ppt']' returned non-zero exi",
-   "seconds": 3.735060212999997,
-   "peak_rss_mb": 677.31640625,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_ah6krdj8', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpo04j8eej', '/tmp/tmpo04j8eej/input.ppt']' returned non-zero exi",
+   "seconds": 3.462021856999854,
+   "peak_rss_mb": 673.54296875,
    "outcome": "error"
   },
   "0050.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_dg2k0q8p', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpibwfh67t', '/tmp/tmpibwfh67t/input.ppt']' returned non-zero exi",
-   "seconds": 4.481137386000228,
-   "peak_rss_mb": 677.41015625,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_wc41r897', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpd8myng38', '/tmp/tmpd8myng38/input.ppt']' returned non-zero exi",
+   "seconds": 2.936741722000079,
+   "peak_rss_mb": 673.30859375,
+   "outcome": "error"
+  },
+  "0049.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
+   "ok": false,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_gri6gf_y', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmppda6m4fe', '/tmp/tmppda6m4fe/input.ppt']' returned non-zero exi",
+   "seconds": 3.4113763649997964,
+   "peak_rss_mb": 673.25390625,
    "outcome": "error"
   },
   "0051.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
    "ok": true,
    "chars": 0,
-   "seconds": 3.712770795999859,
-   "peak_rss_mb": 678.32421875,
+   "seconds": 3.478228444999786,
+   "peak_rss_mb": 674.3046875,
    "outcome": "empty"
-  },
-  "0052.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
-   "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_shm2fcqz', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp_n7db2a0', '/tmp/tmp_n7db2a0/input.ppt']' returned non-zero exi",
-   "seconds": 4.625305991000005,
-   "peak_rss_mb": 677.3359375,
-   "outcome": "error"
   },
   "0053.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_1foupry5', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpc2dj34sg', '/tmp/tmpc2dj34sg/input.ppt']' returned non-zero exi",
-   "seconds": 4.069567050000387,
-   "peak_rss_mb": 677.5234375,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_69acvvn5', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpju5lsti5', '/tmp/tmpju5lsti5/input.ppt']' returned non-zero exi",
+   "seconds": 2.9405367659996955,
+   "peak_rss_mb": 673.37890625,
+   "outcome": "error"
+  },
+  "0052.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
+   "ok": false,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_7bl9gkaw', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmplluipz0o', '/tmp/tmplluipz0o/input.ppt']' returned non-zero exi",
+   "seconds": 3.7918056589996922,
+   "peak_rss_mb": 673.4296875,
    "outcome": "error"
   },
   "0054.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_f6dfgdkp', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmplo4s8oxr', '/tmp/tmplo4s8oxr/input.ppt']' returned non-zero exi",
-   "seconds": 3.9849596919998476,
-   "peak_rss_mb": 677.28125,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_gqrej6_2', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmppp1pj4lq', '/tmp/tmppp1pj4lq/input.ppt']' returned non-zero exi",
+   "seconds": 3.3744694130000426,
+   "peak_rss_mb": 673.30859375,
    "outcome": "error"
   },
   "0055.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_rhb2gce1', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpiicvjkte', '/tmp/tmpiicvjkte/input.ppt']' returned non-zero exi",
-   "seconds": 4.301930319999883,
-   "peak_rss_mb": 677.2265625,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_5u4a_sf8', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp9bt1nu6i', '/tmp/tmp9bt1nu6i/input.ppt']' returned non-zero exi",
+   "seconds": 3.070039165000253,
+   "peak_rss_mb": 673.34765625,
    "outcome": "error"
   },
   "0056.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_rw5y4xr2', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp9b5sdgi5', '/tmp/tmp9b5sdgi5/input.ppt']' returned non-zero exi",
-   "seconds": 4.644068776999575,
-   "peak_rss_mb": 677.30859375,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_reynxfl4', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpkfm4s7lg', '/tmp/tmpkfm4s7lg/input.ppt']' returned non-zero exi",
+   "seconds": 3.13539819000016,
+   "peak_rss_mb": 673.2890625,
    "outcome": "error"
   },
   "0057.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
    "ok": true,
    "chars": 0,
-   "seconds": 3.7095555659998354,
-   "peak_rss_mb": 678.34375,
+   "seconds": 3.6384759460001987,
+   "peak_rss_mb": 674.3203125,
    "outcome": "empty"
   },
   "0058.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
    "ok": true,
    "chars": 9149,
-   "seconds": 4.412758838999707,
-   "peak_rss_mb": 690.46484375,
+   "seconds": 3.09834680799986,
+   "peak_rss_mb": 686.46484375,
    "outcome": "ok"
   },
   "0059.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_1l0ykazj', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmppimpkodz', '/tmp/tmppimpkodz/input.ppt']' returned non-zero exi",
-   "seconds": 4.258459990000119,
-   "peak_rss_mb": 677.17578125,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_ncfld3wo', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp76tw2rcd', '/tmp/tmp76tw2rcd/input.ppt']' returned non-zero exi",
+   "seconds": 3.2166197950000424,
+   "peak_rss_mb": 673.44921875,
    "outcome": "error"
   },
   "0060.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_cpdv8soo', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp563_9yr2', '/tmp/tmp563_9yr2/input.ppt']' returned non-zero exi",
-   "seconds": 4.23008791600023,
-   "peak_rss_mb": 677.1875,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_y1mtemch', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp3l876j0f', '/tmp/tmp3l876j0f/input.ppt']' returned non-zero exi",
+   "seconds": 2.99033296899961,
+   "peak_rss_mb": 673.23046875,
    "outcome": "error"
   },
   "0061.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_6th9_kc2', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp_w2cbw6x', '/tmp/tmp_w2cbw6x/input.ppt']' returned non-zero exi",
-   "seconds": 3.975171651000437,
-   "peak_rss_mb": 677.33203125,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_66vpq0cu', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpiwo9xwp5', '/tmp/tmpiwo9xwp5/input.ppt']' returned non-zero exi",
+   "seconds": 3.413213740000174,
+   "peak_rss_mb": 673.30078125,
    "outcome": "error"
   },
   "0062.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_m8xtxwoa', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpdoi_72r2', '/tmp/tmpdoi_72r2/input.ppt']' returned non-zero exi",
-   "seconds": 4.2076515170001585,
-   "peak_rss_mb": 677.21484375,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_u1454r0k', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp233fi5ai', '/tmp/tmp233fi5ai/input.ppt']' returned non-zero exi",
+   "seconds": 3.0524992510004267,
+   "peak_rss_mb": 673.19140625,
    "outcome": "error"
   },
   "0063.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_0670_qbo', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp46wd_ri6', '/tmp/tmp46wd_ri6/input.ppt']' returned non-zero exi",
-   "seconds": 4.066400570000042,
-   "peak_rss_mb": 677.37109375,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_1y3t69tf', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmp4qteyqlh', '/tmp/tmp4qteyqlh/input.ppt']' returned non-zero exi",
+   "seconds": 2.754926949000037,
+   "peak_rss_mb": 673.39453125,
    "outcome": "error"
   },
   "0064.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
    "ok": false,
-   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_kxr73sag', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpacd4rh8j', '/tmp/tmpacd4rh8j/input.ppt']' returned non-zero exi",
-   "seconds": 3.962715297000159,
-   "peak_rss_mb": 677.38671875,
+   "error": "CalledProcessError: Command '['/usr/bin/libreoffice', '-env:UserInstallation=file:///tmp/docling_lo_profile_gk8if7gb', '--headless', '--norestore', '--nologo', '--nolockcheck', '--nodefault', '--convert-to', 'pptx', '--outdir', '/tmp/tmpoq9ufro7', '/tmp/tmpoq9ufro7/input.ppt']' returned non-zero exi",
+   "seconds": 3.1851530119997733,
+   "peak_rss_mb": 673.23828125,
    "outcome": "error"
   },
   "0065.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash b09ec6479441ec761a3736c09453a6c6cc8ad413c571e738d3810b8338893270",
-   "seconds": 3.5041868610001075,
-   "peak_rss_mb": 677.74609375,
+   "seconds": 3.0776677570001993,
+   "peak_rss_mb": 673.51953125,
    "outcome": "error"
   },
   "0066.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 8a40f3c434103aaa959ef3deb3d1d7e19230a615cb817188a1fea755faa8f00d",
-   "seconds": 3.628059314999973,
-   "peak_rss_mb": 677.69140625,
+   "seconds": 2.6079229510000914,
+   "peak_rss_mb": 673.6171875,
    "outcome": "error"
   },
   "0067.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash d135b4f69cf7e7195c73d711a702dbd0b665c3e61bd6d29f6b79fdd3a5d26d45",
-   "seconds": 3.8160085179997623,
-   "peak_rss_mb": 677.52734375,
-   "outcome": "error"
-  },
-  "0068.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 433b17dd0f7ab6b528033f506c40fdd886f2dd0b3a269ce587cec6933b83245b",
-   "seconds": 3.78928199999973,
-   "peak_rss_mb": 677.515625,
+   "seconds": 2.519104936000076,
+   "peak_rss_mb": 673.44921875,
    "outcome": "error"
   },
   "0069.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash e098775305cc81413b8a53a3c28df3862cd73ffc4eacf2395649bef0afc0d1ec",
-   "seconds": 3.6737736610002685,
-   "peak_rss_mb": 677.484375,
+   "seconds": 2.789933809000104,
+   "peak_rss_mb": 673.47265625,
+   "outcome": "error"
+  },
+  "0068.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 433b17dd0f7ab6b528033f506c40fdd886f2dd0b3a269ce587cec6933b83245b",
+   "seconds": 3.1811869309999565,
+   "peak_rss_mb": 673.59765625,
    "outcome": "error"
   },
   "0070.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash eebc0ddd70073edbc37b7ba26d942c16179ae94fd2825aad8569d12d23215545",
-   "seconds": 3.958896432000074,
-   "peak_rss_mb": 677.72265625,
+   "seconds": 2.595864028000051,
+   "peak_rss_mb": 673.5625,
    "outcome": "error"
   },
   "0071.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 27fb0d0641003899ab36e96e1aa1811eac43c5e1ac496a148b9d1f217db31ffc",
-   "seconds": 3.16737805799994,
-   "peak_rss_mb": 677.53515625,
+   "seconds": 2.8186976400002095,
+   "peak_rss_mb": 673.453125,
    "outcome": "error"
   },
   "0072.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 62c8407d18590a32039424926e33a0bfedf15c35fa364eb8779c1051d2b49dbb",
-   "seconds": 3.9438834120001047,
-   "peak_rss_mb": 677.53125,
-   "outcome": "error"
-  },
-  "0074.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 133d4b668ae3d116eaeda20ec21746c784038fe295d9069a0ed772fca73e85ee",
-   "seconds": 3.255673511000168,
-   "peak_rss_mb": 677.97265625,
+   "seconds": 3.115460064999752,
+   "peak_rss_mb": 673.671875,
    "outcome": "error"
   },
   "0073.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash d825a57baa28f20513c50849e076ea166a69451cf52eb60acec73bdba61d00b7",
-   "seconds": 3.6736235519997535,
-   "peak_rss_mb": 677.546875,
+   "seconds": 2.738406864999888,
+   "peak_rss_mb": 673.38671875,
+   "outcome": "error"
+  },
+  "0074.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx with status: failure. Errors: MsPowerpointDocumentBackend could not load document with hash 133d4b668ae3d116eaeda20ec21746c784038fe295d9069a0ed772fca73e85ee",
+   "seconds": 2.6827440500001103,
+   "peak_rss_mb": 673.76171875,
    "outcome": "error"
   },
   "0075.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
    "ok": true,
    "chars": 48,
-   "seconds": 4.397689818999879,
-   "peak_rss_mb": 678.51953125,
+   "seconds": 3.1304480010003317,
+   "peak_rss_mb": 674.2421875,
    "outcome": "ok"
   },
   "0076.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx with status: failure. Errors: MsWordDocumentBackend could not load document with hash ab7e62cbb8990befd18ac61d9114af4bdeb8d4d8dcc9ed2b219b74244d19652d",
-   "seconds": 3.333416103000218,
-   "peak_rss_mb": 677.75390625,
+   "seconds": 2.8125559139998586,
+   "peak_rss_mb": 673.99609375,
    "outcome": "error"
   },
   "0077.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
    "ok": true,
    "chars": 0,
-   "seconds": 4.392638490000081,
-   "peak_rss_mb": 677.8671875,
+   "seconds": 3.3700279160002538,
+   "peak_rss_mb": 674.00390625,
    "outcome": "empty"
-  },
-  "0079.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
-   "ok": true,
-   "chars": 67121,
-   "seconds": 3.631925879999926,
-   "peak_rss_mb": 678.89453125,
-   "outcome": "ok"
   },
   "0078.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
    "ok": true,
    "chars": 2560611,
-   "seconds": 4.969001860999924,
-   "peak_rss_mb": 707.04296875,
+   "seconds": 3.8787563820001196,
+   "peak_rss_mb": 701.80859375,
+   "outcome": "ok"
+  },
+  "0079.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
+   "ok": true,
+   "chars": 67121,
+   "seconds": 3.1355163859998356,
+   "peak_rss_mb": 675.01171875,
    "outcome": "ok"
   },
   "0080.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
    "ok": true,
    "chars": 33180,
-   "seconds": 4.440631672000109,
-   "peak_rss_mb": 678.2421875,
+   "seconds": 2.842025864000334,
+   "peak_rss_mb": 674.76171875,
    "outcome": "ok"
   },
   "0081.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
    "ok": true,
    "chars": 277,
-   "seconds": 4.302077569000176,
-   "peak_rss_mb": 679.80859375,
+   "seconds": 3.511603260999891,
+   "peak_rss_mb": 675.09765625,
    "outcome": "ok"
   },
   "0082.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
    "ok": true,
    "chars": 489113,
-   "seconds": 3.959822145000089,
-   "peak_rss_mb": 690.125,
+   "seconds": 3.6133803789998638,
+   "peak_rss_mb": 685.5703125,
    "outcome": "ok"
   },
   "0083.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
    "ok": true,
-   "chars": 277,
-   "seconds": 5.166721739999957,
-   "peak_rss_mb": 707.3359375,
-   "outcome": "ok"
-  },
-  "0085.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
-   "ok": true,
-   "chars": 114143,
-   "seconds": 3.9221900970001116,
-   "peak_rss_mb": 678.7421875,
+   "chars": 261,
+   "seconds": 3.019076627999766,
+   "peak_rss_mb": 674.8671875,
    "outcome": "ok"
   },
   "0084.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
    "ok": true,
    "chars": 261,
-   "seconds": 4.319293887000185,
-   "peak_rss_mb": 678.2265625,
+   "seconds": 3.3195102149998093,
+   "peak_rss_mb": 673.98828125,
+   "outcome": "ok"
+  },
+  "0085.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
+   "ok": true,
+   "chars": 114143,
+   "seconds": 2.9420533560000877,
+   "peak_rss_mb": 674.85546875,
    "outcome": "ok"
   },
   "0086.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
    "ok": true,
    "chars": 0,
-   "seconds": 3.8857729080000354,
-   "peak_rss_mb": 677.9765625,
+   "seconds": 3.4284109429995624,
+   "peak_rss_mb": 674.046875,
    "outcome": "empty"
   },
   "0087.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
    "ok": true,
    "chars": 233579,
-   "seconds": 4.376153516999693,
-   "peak_rss_mb": 680.33984375,
+   "seconds": 2.662818100000095,
+   "peak_rss_mb": 676.3515625,
    "outcome": "ok"
   },
   "0088.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
    "ok": true,
    "chars": 4511,
-   "seconds": 4.507793924999987,
-   "peak_rss_mb": 677.625,
+   "seconds": 3.5260449829997924,
+   "peak_rss_mb": 673.75,
    "outcome": "ok"
   },
   "0089.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
    "ok": true,
    "chars": 7958,
-   "seconds": 3.9813064660002055,
-   "peak_rss_mb": 678.015625,
-   "outcome": "ok"
-  },
-  "0091.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
-   "ok": true,
-   "chars": 6884,
-   "seconds": 4.061060889000146,
-   "peak_rss_mb": 677.87109375,
+   "seconds": 3.28852533700001,
+   "peak_rss_mb": 674.23046875,
    "outcome": "ok"
   },
   "0090.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
    "ok": true,
    "chars": 729075,
-   "seconds": 4.682861289999892,
-   "peak_rss_mb": 695.2578125,
+   "seconds": 3.4439053090000016,
+   "peak_rss_mb": 691.6328125,
+   "outcome": "ok"
+  },
+  "0091.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
+   "ok": true,
+   "chars": 6884,
+   "seconds": 3.250724660999822,
+   "peak_rss_mb": 673.94140625,
    "outcome": "ok"
   },
   "0092.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 95d38f6b6ba90f977a30428ae11ea673a1519984165827f7818a8a310964d34d",
-   "seconds": 3.5725475879999067,
-   "peak_rss_mb": 677.48828125,
+   "seconds": 2.687280243999794,
+   "peak_rss_mb": 673.4140625,
    "outcome": "error"
   },
   "0094.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash fe393e289221e5d0fc1611ec9a416a826bfa8cf4d4d3cc061a45b93ef447e378",
-   "seconds": 3.641570576000049,
-   "peak_rss_mb": 677.51953125,
+   "seconds": 2.3038798310003585,
+   "peak_rss_mb": 673.63671875,
    "outcome": "error"
   },
   "0093.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 81b40a100a7521f5b560bc3d1d7128c54bf1a0711e3da8e72dad8b70ace2e255",
-   "seconds": 4.078584708000108,
-   "peak_rss_mb": 677.30859375,
+   "seconds": 3.30870645899995,
+   "peak_rss_mb": 673.5625,
    "outcome": "error"
   },
   "0095.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 3df2702db5e10050701637415465bad583d97e8126121660c229b331c3e3c439",
-   "seconds": 3.2505364430003283,
-   "peak_rss_mb": 678.08203125,
+   "seconds": 3.0380104070000016,
+   "peak_rss_mb": 673.93359375,
    "outcome": "error"
   },
   "0097.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 759df2993da5c960644be3f51e01073502a8a80b2d63c52253f4ec853bf32f5d",
-   "seconds": 3.1123227819998647,
-   "peak_rss_mb": 677.6484375,
+   "seconds": 2.856420760000219,
+   "peak_rss_mb": 673.3828125,
    "outcome": "error"
   },
   "0096.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 150097f203a5d18f29c4799a477e403565c95d16a7f03d9503cba73429f4266a",
-   "seconds": 3.978735662999952,
-   "peak_rss_mb": 679.48828125,
+   "seconds": 3.2065236180001193,
+   "peak_rss_mb": 675.484375,
    "outcome": "error"
   },
   "0098.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 0a98e11497a7596b6b0d8e4dee5a537b7a02d3cc558d06ee05a6563399d14ffd",
-   "seconds": 4.014152801000364,
-   "peak_rss_mb": 677.43359375,
-   "outcome": "error"
-  },
-  "0099.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 002b86de5d3bc0764bbba7f52ca7416c7d813640a205a23b55529dd50669c3d9",
-   "seconds": 3.6070940439999504,
-   "peak_rss_mb": 677.5078125,
-   "outcome": "error"
-  },
-  "0100.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 2471661d4400985eaaa1d3f41de214da43b84c8ace42b0a9e9cfb386d910509a",
-   "seconds": 4.058256924000034,
-   "peak_rss_mb": 677.4609375,
+   "seconds": 2.7273376140001346,
+   "peak_rss_mb": 673.71484375,
    "outcome": "error"
   },
   "0101.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 11d74c8026c6635b4175d6250cae75d4cace74e1d92e71124a3863bc7bcb3274",
-   "seconds": 3.239084386000286,
-   "peak_rss_mb": 677.44140625,
+   "seconds": 2.277750073000334,
+   "peak_rss_mb": 673.76953125,
+   "outcome": "error"
+  },
+  "0099.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 002b86de5d3bc0764bbba7f52ca7416c7d813640a205a23b55529dd50669c3d9",
+   "seconds": 3.0127034899996943,
+   "peak_rss_mb": 673.58203125,
+   "outcome": "error"
+  },
+  "0100.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 2471661d4400985eaaa1d3f41de214da43b84c8ace42b0a9e9cfb386d910509a",
+   "seconds": 3.1889200450000317,
+   "peak_rss_mb": 673.55078125,
    "outcome": "error"
   },
   "0102.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 57c472b9fbb1a5ca1337189465c010cfab59516d532e446b172f2a4d5f88e23f",
-   "seconds": 3.5520591130002686,
-   "peak_rss_mb": 677.5625,
+   "seconds": 2.531429057999958,
+   "peak_rss_mb": 673.5625,
    "outcome": "error"
   },
   "0104.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 9313f4e25f326db2bc1ef5d4087db9e94267184df76b1bd4b6aff1e4d7171f7b",
-   "seconds": 3.6083799349999026,
-   "peak_rss_mb": 677.375,
+   "seconds": 2.7460002460002215,
+   "peak_rss_mb": 673.7578125,
    "outcome": "error"
   },
   "0103.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash a4e85686a0c801774ca5fad9beac37073ffbc68772bb2937bf133bc34695d482",
-   "seconds": 3.825211323000076,
-   "peak_rss_mb": 677.5078125,
+   "seconds": 3.199409598999864,
+   "peak_rss_mb": 673.39453125,
    "outcome": "error"
   },
   "0105.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 002b86de5d3bc0764bbba7f52ca7416c7d813640a205a23b55529dd50669c3d9",
-   "seconds": 3.9004173569996965,
-   "peak_rss_mb": 677.546875,
+   "seconds": 2.796226428999944,
+   "peak_rss_mb": 673.66015625,
    "outcome": "error"
-  },
-  "0107.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
-   "ok": true,
-   "chars": 359,
-   "seconds": 4.4583208409999315,
-   "peak_rss_mb": 681.1484375,
-   "outcome": "ok"
   },
   "0106.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
    "ok": true,
    "chars": 47274,
-   "seconds": 4.5448816660000375,
-   "peak_rss_mb": 678.68359375,
+   "seconds": 3.1514448269999775,
+   "peak_rss_mb": 674.578125,
+   "outcome": "ok"
+  },
+  "0107.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
+   "ok": true,
+   "chars": 359,
+   "seconds": 3.9317545369999607,
+   "peak_rss_mb": 677.06640625,
    "outcome": "ok"
   },
   "0108.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: deep-data.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 382a42a0febe5e79a3053059c81bd8b15486e28e1ed9632b5675cb53980d0c96",
-   "seconds": 3.507805750999978,
-   "peak_rss_mb": 678.45703125,
-   "outcome": "error"
-  },
-  "0110.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
-   "ok": false,
-   "error": "ConversionError: Conversion failed for: poc-xmlbomb-empty.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 4ba7b6c26d74df6da8b46fab945b09f96180a75aad88914cea7b98e787a5cb11",
-   "seconds": 3.609167917999912,
-   "peak_rss_mb": 677.8125,
+   "seconds": 2.782142775000011,
+   "peak_rss_mb": 674.20703125,
    "outcome": "error"
   },
   "0109.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-shared-strings.xlsx",
    "ok": false,
    "error": "RuntimeError: Pipeline SimplePipeline failed",
-   "seconds": 4.033274285000061,
-   "peak_rss_mb": 687.34765625,
+   "seconds": 3.117452491000222,
+   "peak_rss_mb": 683.1171875,
+   "outcome": "error"
+  },
+  "0110.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
+   "ok": false,
+   "error": "ConversionError: Conversion failed for: poc-xmlbomb-empty.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 4ba7b6c26d74df6da8b46fab945b09f96180a75aad88914cea7b98e787a5cb11",
+   "seconds": 2.8988619669999025,
+   "peak_rss_mb": 673.69140625,
    "outcome": "error"
   },
   "0111.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
    "ok": false,
    "error": "ConversionError: Conversion failed for: poc-xmlbomb.xlsx with status: failure. Errors: MsExcelDocumentBackend could not load document with hash 5edcd16d3efccd3a8ae5e0bddd7ae5ed52abb0359ba71af81370cbf869ab8d56",
-   "seconds": 3.4356391350002013,
-   "peak_rss_mb": 677.71484375,
+   "seconds": 2.5119343970000045,
+   "peak_rss_mb": 673.54296875,
    "outcome": "error"
   },
   "0112.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
    "ok": true,
    "chars": 71,
-   "seconds": 3.2116573630000858,
-   "peak_rss_mb": 678.0390625,
+   "seconds": 2.6405649299999823,
+   "peak_rss_mb": 674.1328125,
    "outcome": "ok"
   }
  }

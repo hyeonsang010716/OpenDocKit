@@ -15,7 +15,8 @@ from probes import PROBES
 
 ROOT = Path(__file__).parent
 NAMES = {"opendockit": "OpenDocKit", "markitdown": "MarkItDown", "kreuzberg": "Kreuzberg", "unstructured": "Unstructured",
-         "docling": "Docling"}
+         "docling": "Docling", "kordoc": "kordoc"}
+MODELS = {"docling", "kordoc"}  # ran a layout or OCR model on the PDFs of the benchmark (make_report.py says why these two)
 STYLE = """
   .surface { fill: #fcfcfb; } .title { fill: #0b0b0b; font-weight: 600; } .label { fill: #0b0b0b; }
   .note, .tick { fill: #52514e; } .axis { stroke: #d8d7d2; } .bar { fill: #9a9993; } .bar.us { fill: #2a78d6; }
@@ -29,7 +30,7 @@ STYLE = """
 
 def bar_chart(title: str, note: str, rows: list[tuple[str, float, str]], maximum: float, path: Path) -> None:
     """Horizontal bars, largest first. `rows` holds (tool, value, text shown at the end of the bar)."""
-    width, left, right, top, step, thickness = 760, 150, 110, 64, 38, 22
+    width, left, right, top, step, thickness = 760, 150, 210, 64, 38, 22
     plot = width - left - right
     height = top + step * len(rows) + 44
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" '
@@ -54,12 +55,33 @@ def bar_chart(title: str, note: str, rows: list[tuple[str, float, str]], maximum
 def main() -> None:
     summary = json.loads((ROOT / "results" / "summary.json").read_text())
     tools = list(summary["tools"])
-    (ROOT / "charts").mkdir(exist_ok=True)
+    charts = ROOT / "charts"
+    charts.mkdir(exist_ok=True)
+    source = "Tool versions and method: benchmarks/README.md"
+
+    def draw(name: str, title: str, note: str, values: dict[str, float], text, maximum: float | None = None, *, lowest: bool = False) -> None:
+        rows = sorted(((tool, values[tool], text(tool)) for tool in tools), key=lambda row: row[1] if lowest else -row[1])
+        bar_chart(title, f"{note} {source}", rows, maximum or max(values.values()), charts / name)
 
     passed = {tool: sum(bool(row[tool]) for row in summary["probes"].values()) for tool in tools}
-    rows = sorted(((tool, passed[tool], f"{passed[tool]} of {len(PROBES)}") for tool in tools), key=lambda row: -row[1])
-    bar_chart("Structure checks passed", f"{len(PROBES)} yes/no checks on documents with known content. Tool versions and method: benchmarks/README.md",
-              rows, len(PROBES), ROOT / "charts" / "structure-checks.svg")
+    draw("structure-checks.svg", "Structure checks passed", f"{len(PROBES)} yes/no checks on documents with known content, written by us.",
+         passed, lambda tool: f"{passed[tool]} of {len(PROBES)}", len(PROBES))
+
+    read = {tool: sum(row[tool]["status"] == "pass" for row in summary["coverage"].values()) for tool in tools}
+    draw("formats.svg", "Formats read without a remote model or service", f"One file for each of {len(summary['coverage'])} formats.",
+         read, lambda tool: f"{read[tool]} of {len(summary['coverage'])}", len(summary["coverage"]))
+
+    pdf = summary["pdfbench"]
+    score = {tool: pdf[tool]["means"]["overall"]["mean"] for tool in tools}
+    draw("pdf-benchmark.svg", "Score on the 200 PDFs of opendataloader-bench", "Reading order, tables and headings; scored in this run.",
+         score, lambda tool: f"{score[tool]:.3f}" + (" · with models" if tool in MODELS else ""), 1.0)
+    taken = {tool: pdf[tool]["total_seconds"] for tool in tools}
+    draw("pdf-time.svg", "Seconds to convert those 200 PDFs (shorter is better)", "4 cores, no GPU.",
+         taken, lambda tool: f"{taken[tool]:,.0f} s" + (" · with models" if tool in MODELS else ""), lowest=True)
+
+    size = {tool: summary["install"][tool]["megabytes"] for tool in tools}
+    draw("install-size.svg", "Installed size (smaller is better)", "Each tool with the extras for full document support.",
+         size, lambda tool: f"{size[tool]:,} MB" if size[tool] < 1000 else f"{size[tool] / 1024:.1f} GB", lowest=True)
 
 
 if __name__ == "__main__":

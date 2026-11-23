@@ -1,0 +1,5950 @@
+{
+ "tool": "kordoc",
+ "version": "4.25.3",
+ "import_seconds": 0.25692817,
+ "wall_seconds": 123.70225989100027,
+ "results": {
+  "0002.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/47950_normal.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.02241140100000001,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0003.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/51921-Word-Crash067.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0012913050000000225,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0000.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/47304.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.01704078099999998,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0001.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/47950_lower.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.003867940000000033,
+   "peak_rss_mb": 104.8046875,
+   "outcome": "error"
+  },
+  "0004.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/52117.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.003184222000000034,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0005.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/53379.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.006692886999999985,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0007.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/57603-seven_columns.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0020976009999999976,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0008.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/57843.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007883810000000153,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0006.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/53446.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.005858013000000028,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0009.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/58804_1.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0019899340000000053,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0010.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/59322.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.002075243999999998,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0011.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61490.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0011081819999999994,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0012.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61586.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0010618979999999852,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0013.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/64132.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.001330962999999997,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0014.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/AIOOB-Tap.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0010532790000000317,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0016.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug34898.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006710019999999872,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0015.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug33519.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00156101799999999,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0017.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug44292.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0011480840000000399,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0018.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug44431.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007493179999999598,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0020.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug45473.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007754479999999831,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0019.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug45269.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0016709640000000263,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0022.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46610_1.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005816110000000094,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0024.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46817.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00046279600000002577,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0023.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46610_3.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00172974099999999,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0025.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug47287.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000573680999999965,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0021.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug46220.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.003161835999999994,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0027.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug47742.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005142100000000482,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0029.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug48075.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0009607899999999745,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0028.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug48065.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.001479157999999984,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0030.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug49908.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0010246600000000398,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0031.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug49919.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005448959999999943,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0026.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug47731.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.003758336999999983,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0032.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50075.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0011423130000000016,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0034.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50936_3.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0032041660000000434,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0033.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50936_1.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0019834869999999683,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0035.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug50955.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0022871840000000246,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0036.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51686.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004868439999999623,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0039.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug52032_1.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004935329999999567,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0038.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51944.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0013001090000000204,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0037.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51834.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007859359999999924,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0040.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug52032_3.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000827809000000002,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0041.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug52311.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004311210000000187,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0042.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53182.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004546500000000151,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0043.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53380_1.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000715219999999988,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0045.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53380_4.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000671810999999991,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0044.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug53380_3.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0010203070000000024,
+   "peak_rss_mb": 105.1796875,
+   "outcome": "error"
+  },
+  "0046.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60936.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00039384899999998877,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0047.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60942.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00045784500000002024,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0049.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/DiffFirstPageHeadFoot.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004257630000000177,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0051.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/GaiaTest.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007183329999999728,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0052.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/HeaderFooterProblematic.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005520460000000185,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0053.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/HeaderWithMacros.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005954360000000065,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0054.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ListEntryNoListTable.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000465266999999983,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0055.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/MarkAuthorsTable.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005759600000000091,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0056.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NoHeadFoot.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007516200000000026,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0057.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/PasswordProtected.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00045935700000001136,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0058.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Picture_Alternative_Text.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004920500000000061,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0050.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FloatingPictures.doc",
+   "ok": true,
+   "chars": 152,
+   "seconds": 0.007278490000000033,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "ok"
+  },
+  "0059.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ProblemExtracting.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0025328890000000117,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0060.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/SampleDoc.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0019107030000000123,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0061.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/SimpleMacro.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005806600000000231,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0063.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColHeadFoot.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00044050299999997834,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0062.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColFoot.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005398849999999698,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0065.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Word6_sections.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004383749999999509,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0064.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WithArtShapes.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0008887290000000121,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0066.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Word6_sections2.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000665584000000024,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0067.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/au.edu.utas.www___data_assets_word_doc_0003_154335_International-Travel-Approval-Request-Form.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007599759999999947,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0068.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug65255.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005945030000000316,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0070.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/capitalized.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004433119999999917,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0071.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProperties.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00030562299999996865,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0072.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/empty.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003958329999999819,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0069.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/cap.stanford.edu_profiles_viewbiosketch_facultyid=4009&name=m_maciver.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0028152089999999817,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0073.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/equation.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0013094189999999911,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0075.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/header_footer_replace.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00047212100000001555,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0074.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/footnote.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0013667310000000158,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0077.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/hyperlink.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003808480000000145,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0078.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/lists-margins.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004869239999999877,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0076.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/header_image.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0014028260000000046,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0080.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/page-break-before.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005702590000000214,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0079.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/o_kurs.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.002169419000000005,
+   "peak_rss_mb": 113.69921875,
+   "outcome": "error"
+  },
+  "0048.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug61268.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.02455514800000003,
+   "peak_rss_mb": 119.421875,
+   "outcome": "error"
+  },
+  "0081.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/page-break.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005268839999999955,
+   "peak_rss_mb": 112.40234375,
+   "outcome": "error"
+  },
+  "0083.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/password_password_cryptoapi.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005141219999999862,
+   "peak_rss_mb": 119.421875,
+   "outcome": "error"
+  },
+  "0082.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/parentinvguid.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0013303490000000123,
+   "peak_rss_mb": 114.44921875,
+   "outcome": "error"
+  },
+  "0085.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/pictures_escher.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.001305072999999993,
+   "peak_rss_mb": 120.421875,
+   "outcome": "error"
+  },
+  "0086.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/saved-by-table.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004896050000000401,
+   "peak_rss_mb": 114.57421875,
+   "outcome": "error"
+  },
+  "0087.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/simple-list.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00046994300000000066,
+   "peak_rss_mb": 120.671875,
+   "outcome": "error"
+  },
+  "0088.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/simple-table2.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00044805600000000825,
+   "peak_rss_mb": 114.57421875,
+   "outcome": "error"
+  },
+  "0089.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/simple.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004071369999999774,
+   "peak_rss_mb": 120.796875,
+   "outcome": "error"
+  },
+  "0090.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/test-fields.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00045731499999999417,
+   "peak_rss_mb": 114.69921875,
+   "outcome": "error"
+  },
+  "0092.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testCroppedPictures.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007904889999999795,
+   "peak_rss_mb": 114.94921875,
+   "outcome": "error"
+  },
+  "0091.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/test.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006100849999999695,
+   "peak_rss_mb": 121.046875,
+   "outcome": "error"
+  },
+  "0094.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testRangeInsertion.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0007588610000000244,
+   "peak_rss_mb": 121.421875,
+   "outcome": "error"
+  },
+  "0084.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/picture.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.005872780000000034,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "error"
+  },
+  "0093.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testPictures.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0010838919999999917,
+   "peak_rss_mb": 115.69921875,
+   "outcome": "error"
+  },
+  "0095.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testRangeReplacement.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006375099999999633,
+   "peak_rss_mb": 121.671875,
+   "outcome": "error"
+  },
+  "0096.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/vector_image.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005149180000000228,
+   "peak_rss_mb": 113.07421875,
+   "outcome": "error"
+  },
+  "0098.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/word95err.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004408530000000042,
+   "peak_rss_mb": 121.796875,
+   "outcome": "error"
+  },
+  "0097.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/watermark.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006663340000000062,
+   "peak_rss_mb": 115.69921875,
+   "outcome": "error"
+  },
+  "0099.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/word_with_embeded.doc",
+   "ok": false,
+   "error": "XLS: Workbook 스트림이 없음 (BIFF5 또는 비표준 파일)",
+   "seconds": 0.0005530420000000049,
+   "peak_rss_mb": 113.19921875,
+   "outcome": "error"
+  },
+  "0102.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/52449.docx",
+   "ok": true,
+   "chars": 266,
+   "seconds": 0.05297839999999997,
+   "peak_rss_mb": 128.83984375,
+   "outcome": "ok"
+  },
+  "0100.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/51921-Word-Crash067.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.06179956099999998,
+   "peak_rss_mb": 131.3828125,
+   "outcome": "empty"
+  },
+  "0101.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/52288.docx",
+   "ok": true,
+   "chars": 52,
+   "seconds": 0.065510423,
+   "peak_rss_mb": 129.4375,
+   "outcome": "ok"
+  },
+  "0103.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/55733.docx",
+   "ok": true,
+   "chars": 4,
+   "seconds": 0.009038138000000003,
+   "peak_rss_mb": 134.33984375,
+   "outcome": "ok"
+  },
+  "0104.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/55966.docx",
+   "ok": true,
+   "chars": 156,
+   "seconds": 0.02003473200000002,
+   "peak_rss_mb": 133.3125,
+   "outcome": "ok"
+  },
+  "0106.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/57312.docx",
+   "ok": true,
+   "chars": 425,
+   "seconds": 0.028403895000000033,
+   "peak_rss_mb": 137.83984375,
+   "outcome": "ok"
+  },
+  "0107.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/58618.docx",
+   "ok": true,
+   "chars": 159,
+   "seconds": 0.015969540999999993,
+   "peak_rss_mb": 135.1875,
+   "outcome": "ok"
+  },
+  "0108.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/59030.docx",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.021401933000000043,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0105.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/56392.docx",
+   "ok": true,
+   "chars": 586,
+   "seconds": 0.05708839499999999,
+   "peak_rss_mb": 134.0625,
+   "outcome": "ok"
+  },
+  "0110.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/60293.docx",
+   "ok": true,
+   "chars": 60,
+   "seconds": 0.01856123600000001,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0111.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/60316.docx",
+   "ok": true,
+   "chars": 986,
+   "seconds": 0.02461097000000001,
+   "peak_rss_mb": 134.0625,
+   "outcome": "ok"
+  },
+  "0113.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61745.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.007696385999999961,
+   "peak_rss_mb": 134.0625,
+   "outcome": "empty"
+  },
+  "0109.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/59378.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.07664956399999995,
+   "peak_rss_mb": 145.1875,
+   "outcome": "empty"
+  },
+  "0114.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61787.docx",
+   "ok": true,
+   "chars": 4082,
+   "seconds": 0.010539856999999984,
+   "peak_rss_mb": 134.0625,
+   "outcome": "ok"
+  },
+  "0112.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/60329.docx",
+   "ok": true,
+   "chars": 4708,
+   "seconds": 0.04575108299999999,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0115.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/61991.docx",
+   "ok": true,
+   "chars": 653,
+   "seconds": 0.010717424000000052,
+   "peak_rss_mb": 145.5625,
+   "outcome": "ok"
+  },
+  "0118.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug54771a.docx",
+   "ok": true,
+   "chars": 49,
+   "seconds": 0.012367119000000003,
+   "peak_rss_mb": 145.5625,
+   "outcome": "ok"
+  },
+  "0116.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/65099.docx",
+   "ok": true,
+   "chars": 339,
+   "seconds": 0.021153006000000005,
+   "peak_rss_mb": 137.76171875,
+   "outcome": "ok"
+  },
+  "0119.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug54849.docx",
+   "ok": true,
+   "chars": 414,
+   "seconds": 0.014197768999999994,
+   "peak_rss_mb": 145.6875,
+   "outcome": "ok"
+  },
+  "0120.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug55142.docx",
+   "ok": true,
+   "chars": 225,
+   "seconds": 0.008090262999999936,
+   "peak_rss_mb": 139.01171875,
+   "outcome": "ok"
+  },
+  "0121.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60337.docx",
+   "ok": true,
+   "chars": 132,
+   "seconds": 0.004739756000000057,
+   "peak_rss_mb": 145.6875,
+   "outcome": "ok"
+  },
+  "0122.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug60341.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.0017632630000000518,
+   "peak_rss_mb": 139.26171875,
+   "outcome": "ok"
+  },
+  "0117.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug51170.docx",
+   "ok": true,
+   "chars": 10149,
+   "seconds": 0.04024806999999998,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0124.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug64561.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.005001145000000065,
+   "peak_rss_mb": 140.38671875,
+   "outcome": "ok"
+  },
+  "0125.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug66263-paragraph.docx",
+   "ok": true,
+   "chars": 91,
+   "seconds": 0.001365020999999956,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0123.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug62859.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.00935790099999997,
+   "peak_rss_mb": 146.0625,
+   "outcome": "empty"
+  },
+  "0126.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Bug66988.docx",
+   "ok": true,
+   "chars": 5,
+   "seconds": 0.003033060999999975,
+   "peak_rss_mb": 140.88671875,
+   "outcome": "ok"
+  },
+  "0128.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/DiffFirstPageHeadFoot.docx",
+   "ok": true,
+   "chars": 432,
+   "seconds": 0.006311273000000029,
+   "peak_rss_mb": 146.0625,
+   "outcome": "ok"
+  },
+  "0127.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ComplexNumberedLists.docx",
+   "ok": true,
+   "chars": 298,
+   "seconds": 0.009048766,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0131.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/EnforcedWith.docx",
+   "ok": true,
+   "chars": 27,
+   "seconds": 0.0023421489999999492,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0132.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FancyFoot.docx",
+   "ok": true,
+   "chars": 279,
+   "seconds": 0.00340505799999994,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0130.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/EmptyDocumentWithHeaderFooter.docx",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.012618569999999977,
+   "peak_rss_mb": 150.1875,
+   "outcome": "ok"
+  },
+  "0133.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FieldCodes.docx",
+   "ok": true,
+   "chars": 20,
+   "seconds": 0.0031894150000000535,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0134.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/FldSimple.docx",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.00637372199999993,
+   "peak_rss_mb": 150.1875,
+   "outcome": "ok"
+  },
+  "0135.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/HeaderFooterUnicode.docx",
+   "ok": true,
+   "chars": 514,
+   "seconds": 0.005023479999999949,
+   "peak_rss_mb": 137.96484375,
+   "outcome": "ok"
+  },
+  "0136.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Headers.docx",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.005404389999999921,
+   "peak_rss_mb": 150.1875,
+   "outcome": "ok"
+  },
+  "0138.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NoHeadFoot.docx",
+   "ok": true,
+   "chars": 180,
+   "seconds": 0.002176917000000003,
+   "peak_rss_mb": 150.1875,
+   "outcome": "ok"
+  },
+  "0139.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Numbering.docx",
+   "ok": true,
+   "chars": 179,
+   "seconds": 0.007761942999999973,
+   "peak_rss_mb": 150.3125,
+   "outcome": "ok"
+  },
+  "0140.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NumberingWOverrides.docx",
+   "ok": true,
+   "chars": 63,
+   "seconds": 0.009834340999999995,
+   "peak_rss_mb": 151.86328125,
+   "outcome": "ok"
+  },
+  "0141.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/NumberingWithOutOfOrderId.docx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.0045446779999999765,
+   "peak_rss_mb": 151.86328125,
+   "outcome": "ok"
+  },
+  "0142.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/PageSpecificHeadFoot.docx",
+   "ok": true,
+   "chars": 524,
+   "seconds": 0.01067487200000005,
+   "peak_rss_mb": 151.86328125,
+   "outcome": "ok"
+  },
+  "0143.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/SampleDoc.docx",
+   "ok": true,
+   "chars": 140,
+   "seconds": 0.002621422999999936,
+   "peak_rss_mb": 151.86328125,
+   "outcome": "ok"
+  },
+  "0137.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/IllustrativeCases.docx",
+   "ok": true,
+   "chars": 6882,
+   "seconds": 0.052803584,
+   "peak_rss_mb": 142.57421875,
+   "outcome": "ok"
+  },
+  "0145.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestDocument.docx",
+   "ok": true,
+   "chars": 208,
+   "seconds": 0.0027419069999999692,
+   "peak_rss_mb": 142.69921875,
+   "outcome": "ok"
+  },
+  "0146.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestPoiXMLDocumentCorePropertiesGetKeywords.docx",
+   "ok": true,
+   "chars": 66,
+   "seconds": 0.002212592000000086,
+   "peak_rss_mb": 142.69921875,
+   "outcome": "ok"
+  },
+  "0144.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Styles.docx",
+   "ok": true,
+   "chars": 49,
+   "seconds": 0.014091236999999979,
+   "peak_rss_mb": 153.98828125,
+   "outcome": "ok"
+  },
+  "0147.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestTableCellAlign.docx",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.002120421999999962,
+   "peak_rss_mb": 142.82421875,
+   "outcome": "ok"
+  },
+  "0149.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColFoot.docx",
+   "ok": true,
+   "chars": 254,
+   "seconds": 0.0038719300000000204,
+   "peak_rss_mb": 143.32421875,
+   "outcome": "ok"
+  },
+  "0148.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/TestTableColumns.docx",
+   "ok": true,
+   "chars": 166,
+   "seconds": 0.0028166089999999712,
+   "peak_rss_mb": 153.98828125,
+   "outcome": "ok"
+  },
+  "0151.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Tika-792.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0036606890000000477,
+   "peak_rss_mb": 154.11328125,
+   "outcome": "empty"
+  },
+  "0129.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/EmbeddedDocument.docx",
+   "ok": true,
+   "chars": 74,
+   "seconds": 0.10260252200000002,
+   "peak_rss_mb": 148.19140625,
+   "outcome": "ok"
+  },
+  "0150.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/ThreeColHead.docx",
+   "ok": true,
+   "chars": 260,
+   "seconds": 0.011976810999999999,
+   "peak_rss_mb": 144.07421875,
+   "outcome": "ok"
+  },
+  "0154.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WithTabs.docx",
+   "ok": true,
+   "chars": 3,
+   "seconds": 0.0020466199999999617,
+   "peak_rss_mb": 144.44921875,
+   "outcome": "ok"
+  },
+  "0153.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WithGIF.docx",
+   "ok": true,
+   "chars": 617,
+   "seconds": 0.014547921999999972,
+   "peak_rss_mb": 150.4921875,
+   "outcome": "ok"
+  },
+  "0152.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/VariousPictures.docx",
+   "ok": true,
+   "chars": 190,
+   "seconds": 0.046244442999999934,
+   "peak_rss_mb": 161.59765625,
+   "outcome": "ok"
+  },
+  "0157.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug-paragraph-alignment.docx",
+   "ok": true,
+   "chars": 181,
+   "seconds": 0.002775627999999983,
+   "peak_rss_mb": 161.59765625,
+   "outcome": "ok"
+  },
+  "0158.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug53475-password-is-pass.docx",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006963829999999688,
+   "peak_rss_mb": 161.59765625,
+   "outcome": "error"
+  },
+  "0159.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug53475-password-is-solrcell.docx",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005393169999999827,
+   "peak_rss_mb": 161.59765625,
+   "outcome": "error"
+  },
+  "0160.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug56075-changeTracking_off.docx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0018638290000000098,
+   "peak_rss_mb": 161.72265625,
+   "outcome": "ok"
+  },
+  "0161.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug56075-changeTracking_on.docx",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.0017743040000000293,
+   "peak_rss_mb": 161.72265625,
+   "outcome": "ok"
+  },
+  "0162.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug56076.docx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.00167049099999997,
+   "peak_rss_mb": 161.72265625,
+   "outcome": "ok"
+  },
+  "0155.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/WordWithAttachments.docx",
+   "ok": true,
+   "chars": 1023,
+   "seconds": 0.06556598800000006,
+   "peak_rss_mb": 157.52734375,
+   "outcome": "ok"
+  },
+  "0156.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bib-chernigovka.netdo.ru_download_docs_17459.docx",
+   "ok": true,
+   "chars": 24703,
+   "seconds": 0.175220103,
+   "peak_rss_mb": 191.27734375,
+   "outcome": "ok"
+  },
+  "0165.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug65738.docx",
+   "ok": true,
+   "chars": 849,
+   "seconds": 0.006053658000000042,
+   "peak_rss_mb": 197.90234375,
+   "outcome": "ok"
+  },
+  "0166.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug66312.docx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.00422048499999994,
+   "peak_rss_mb": 197.90234375,
+   "outcome": "ok"
+  },
+  "0167.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug69628.docx",
+   "ok": true,
+   "chars": 1293,
+   "seconds": 0.003941014999999993,
+   "peak_rss_mb": 198.02734375,
+   "outcome": "ok"
+  },
+  "0168.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/capitalized.docx",
+   "ok": true,
+   "chars": 35,
+   "seconds": 0.0034164759999999886,
+   "peak_rss_mb": 198.02734375,
+   "outcome": "ok"
+  },
+  "0169.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/checkboxes.docx",
+   "ok": true,
+   "chars": 148,
+   "seconds": 0.006021609999999896,
+   "peak_rss_mb": 198.15234375,
+   "outcome": "ok"
+  },
+  "0170.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/comment.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0015877679999999827,
+   "peak_rss_mb": 198.15234375,
+   "outcome": "empty"
+  },
+  "0171.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/delins.docx",
+   "ok": true,
+   "chars": 2167,
+   "seconds": 0.012429177000000095,
+   "peak_rss_mb": 198.52734375,
+   "outcome": "ok"
+  },
+  "0172.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProperties.docx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.00477950199999998,
+   "peak_rss_mb": 198.65234375,
+   "outcome": "ok"
+  },
+  "0173.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_comments_no_password.docx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.0055111729999999855,
+   "peak_rss_mb": 198.65234375,
+   "outcome": "ok"
+  },
+  "0174.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_forms_no_password.docx",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.004598261000000093,
+   "peak_rss_mb": 198.65234375,
+   "outcome": "ok"
+  },
+  "0175.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_no_protection_tag_existing.docx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.0016600730000000112,
+   "peak_rss_mb": 198.65234375,
+   "outcome": "ok"
+  },
+  "0176.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_readonly_no_password.docx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.004815304000000083,
+   "peak_rss_mb": 198.65234375,
+   "outcome": "ok"
+  },
+  "0177.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/documentProtection_trackedChanges_no_password.docx",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.004466720000000009,
+   "peak_rss_mb": 198.65234375,
+   "outcome": "ok"
+  },
+  "0178.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/drawing.docx",
+   "ok": true,
+   "chars": 58870,
+   "seconds": 0.09225401199999998,
+   "peak_rss_mb": 203.90234375,
+   "outcome": "ok"
+  },
+  "0179.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/emptyPPr.docx",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.006091721999999891,
+   "peak_rss_mb": 204.15234375,
+   "outcome": "ok"
+  },
+  "0180.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/endnotes.docx",
+   "ok": true,
+   "chars": 942,
+   "seconds": 0.0027829769999998463,
+   "peak_rss_mb": 204.15234375,
+   "outcome": "ok"
+  },
+  "0181.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/footnotes.docx",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.0023058699999999135,
+   "peak_rss_mb": 204.15234375,
+   "outcome": "ok"
+  },
+  "0182.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/headerFooter.docx",
+   "ok": true,
+   "chars": 56,
+   "seconds": 0.0032066560000000664,
+   "peak_rss_mb": 204.15234375,
+   "outcome": "ok"
+  },
+  "0183.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/headerPic.docx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0031364310000001295,
+   "peak_rss_mb": 204.15234375,
+   "outcome": "empty"
+  },
+  "0184.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/heading123.docx",
+   "ok": true,
+   "chars": 1816,
+   "seconds": 0.002348897999999963,
+   "peak_rss_mb": 204.15234375,
+   "outcome": "ok"
+  },
+  "0163.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug59058.docx",
+   "ok": true,
+   "chars": 149439,
+   "seconds": 0.372848346,
+   "peak_rss_mb": 245.11328125,
+   "outcome": "ok"
+  },
+  "0185.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/issue_51265_1.docx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.06608636199999979,
+   "peak_rss_mb": 210.27734375,
+   "outcome": "ok"
+  },
+  "0187.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/issue_51265_3.docx",
+   "ok": true,
+   "chars": 105,
+   "seconds": 0.007487581999999975,
+   "peak_rss_mb": 210.40234375,
+   "outcome": "ok"
+  },
+  "0188.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/rtl.docx",
+   "ok": true,
+   "chars": 1911,
+   "seconds": 0.0029868240000000697,
+   "peak_rss_mb": 210.40234375,
+   "outcome": "ok"
+  },
+  "0189.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/sample.docx",
+   "ok": true,
+   "chars": 1544,
+   "seconds": 0.002481138000000101,
+   "peak_rss_mb": 210.40234375,
+   "outcome": "ok"
+  },
+  "0190.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/saut_page.docx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.015739321999999903,
+   "peak_rss_mb": 213.27734375,
+   "outcome": "ok"
+  },
+  "0186.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/issue_51265_2.docx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.06000319000000013,
+   "peak_rss_mb": 250.96484375,
+   "outcome": "ok"
+  },
+  "0192.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/smarttag-snippet.docx",
+   "ok": true,
+   "chars": 287,
+   "seconds": 0.002519792999999936,
+   "peak_rss_mb": 250.96484375,
+   "outcome": "ok"
+  },
+  "0193.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/table-alignment.docx",
+   "ok": true,
+   "chars": 664,
+   "seconds": 0.008802795999999944,
+   "peak_rss_mb": 250.96484375,
+   "outcome": "ok"
+  },
+  "0194.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/table_footnotes.docx",
+   "ok": true,
+   "chars": 54,
+   "seconds": 0.0022335379999999534,
+   "peak_rss_mb": 250.96484375,
+   "outcome": "ok"
+  },
+  "0191.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/shapes-with-text.docx",
+   "ok": true,
+   "chars": 123,
+   "seconds": 0.016205255999999963,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0195.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/testComment.docx",
+   "ok": true,
+   "chars": 28,
+   "seconds": 0.006892147000000023,
+   "peak_rss_mb": 250.96484375,
+   "outcome": "ok"
+  },
+  "0197.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/tika-3816.docx",
+   "ok": true,
+   "chars": 111,
+   "seconds": 0.0027061979999998586,
+   "peak_rss_mb": 250.96484375,
+   "outcome": "ok"
+  },
+  "0196.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/tika-3388.docx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.017998222999999824,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0198.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/truncated62886.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.007012621999999965,
+   "peak_rss_mb": 251.08984375,
+   "outcome": "error"
+  },
+  "0199.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/unicode-path.docx",
+   "ok": true,
+   "chars": 1,
+   "seconds": 0.0016701109999999063,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0200.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/blank.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.006004222999999911,
+   "peak_rss_mb": 251.08984375,
+   "outcome": "ok"
+  },
+  "0202.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/ole.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.004371333999999933,
+   "peak_rss_mb": 251.08984375,
+   "outcome": "ok"
+  },
+  "0201.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/etc.hwp",
+   "ok": true,
+   "chars": 157,
+   "seconds": 0.009981326999999965,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0203.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/각주미주.hwp",
+   "ok": true,
+   "chars": 65,
+   "seconds": 0.0021909239999999956,
+   "peak_rss_mb": 251.08984375,
+   "outcome": "ok"
+  },
+  "0204.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/구버전(5.0.2.2) Picture 컨트롤.hwp",
+   "ok": true,
+   "chars": 3662,
+   "seconds": 0.006798169000000144,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0206.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/글상자-압축.hwp",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.0013786169999998492,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0207.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/글상자.hwp",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.001783907999999883,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0208.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/글자겹침.hwp",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.0026358079999999973,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0205.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/그림.hwp",
+   "ok": true,
+   "chars": 101,
+   "seconds": 0.012568340999999919,
+   "peak_rss_mb": 252.15625,
+   "outcome": "ok"
+  },
+  "0209.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/다각형.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.000948654999999917,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0210.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/덧말.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.001206177000000025,
+   "peak_rss_mb": 252.15625,
+   "outcome": "ok"
+  },
+  "0211.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/머리글꼬리글.hwp",
+   "ok": true,
+   "chars": 576,
+   "seconds": 0.0020136690000001635,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0212.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/묶음.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0015227890000001024,
+   "peak_rss_mb": 252.15625,
+   "outcome": "empty"
+  },
+  "0214.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/바탕쪽.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.0009607409999998709,
+   "peak_rss_mb": 252.15625,
+   "outcome": "ok"
+  },
+  "0213.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/문단번호 1-10 수준.hwp",
+   "ok": true,
+   "chars": 69,
+   "seconds": 0.0014034110000000054,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0215.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/새번호지정.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.0009836319999999433,
+   "peak_rss_mb": 252.15625,
+   "outcome": "ok"
+  },
+  "0216.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/선-사각형-타원.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.0025326010000001134,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0217.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/수식.hwp",
+   "ok": true,
+   "chars": 67,
+   "seconds": 0.0026248330000000807,
+   "peak_rss_mb": 252.53125,
+   "outcome": "ok"
+  },
+  "0218.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/숨은설명.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.0007457449999999426,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0220.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/차트.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.001356665000000021,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "empty"
+  },
+  "0221.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/책갈피.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.0007165279999999256,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0219.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/이미지추가.hwp",
+   "ok": true,
+   "chars": 49,
+   "seconds": 0.0033042330000000674,
+   "peak_rss_mb": 252.78125,
+   "outcome": "ok"
+  },
+  "0222.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/페이지숨김.hwp",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.0007951590000000124,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0224.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/필드-누름틀.hwp",
+   "ok": true,
+   "chars": 3569,
+   "seconds": 0.0036682510000000546,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0223.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/표.hwp",
+   "ok": true,
+   "chars": 158,
+   "seconds": 0.005588445000000093,
+   "peak_rss_mb": 252.78125,
+   "outcome": "ok"
+  },
+  "0225.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/필드.hwp",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.0007015349999999216,
+   "peak_rss_mb": 219.52734375,
+   "outcome": "ok"
+  },
+  "0226.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/basic/호-곡선.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.008019158000000061,
+   "peak_rss_mb": 252.78125,
+   "outcome": "ok"
+  },
+  "0228.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/blank.hwp",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.003774541999999883,
+   "peak_rss_mb": 252.78125,
+   "outcome": "ok"
+  },
+  "0229.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/changing-image.hwp",
+   "ok": true,
+   "chars": 125,
+   "seconds": 0.002903279999999995,
+   "peak_rss_mb": 252.90625,
+   "outcome": "ok"
+  },
+  "0230.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/changing-paragraph-text.hwp",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.000917466000000104,
+   "peak_rss_mb": 252.90625,
+   "outcome": "ok"
+  },
+  "0231.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/distribution.hwp",
+   "ok": true,
+   "chars": 2436,
+   "seconds": 0.021089981999999962,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0232.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/extracting_ParaHead.hwp",
+   "ok": true,
+   "chars": 1490,
+   "seconds": 0.004308113999999932,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0233.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/finding-all-field.hwp",
+   "ok": true,
+   "chars": 824,
+   "seconds": 0.0017114039999999021,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0234.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/finding-control.hwp",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.0014018700000001446,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0235.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/getting_clickhere_text.hwp",
+   "ok": true,
+   "chars": 3569,
+   "seconds": 0.0036345229999999447,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0236.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/inserting_image_cell.hwp",
+   "ok": true,
+   "chars": 92,
+   "seconds": 0.0010566679999999451,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0237.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/making_caption.hwp",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0033205820000000584,
+   "peak_rss_mb": 253.03125,
+   "outcome": "empty"
+  },
+  "0238.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/merging-cell.hwp",
+   "ok": true,
+   "chars": 351,
+   "seconds": 0.002819001999999955,
+   "peak_rss_mb": 253.03125,
+   "outcome": "ok"
+  },
+  "0239.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/removing-row.hwp",
+   "ok": true,
+   "chars": 73,
+   "seconds": 0.002642610999999988,
+   "peak_rss_mb": 253.15625,
+   "outcome": "ok"
+  },
+  "0240.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/setting-celltext-by-field.hwp",
+   "ok": true,
+   "chars": 148,
+   "seconds": 0.0011065180000000509,
+   "peak_rss_mb": 253.15625,
+   "outcome": "ok"
+  },
+  "0241.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/setting-fields.hwp",
+   "ok": true,
+   "chars": 47,
+   "seconds": 0.0014208430000001045,
+   "peak_rss_mb": 253.15625,
+   "outcome": "ok"
+  },
+  "0242.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/source.hwp",
+   "ok": true,
+   "chars": 59,
+   "seconds": 0.0009669420000000173,
+   "peak_rss_mb": 253.15625,
+   "outcome": "ok"
+  },
+  "0243.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/target.hwp",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.0007562090000001263,
+   "peak_rss_mb": 253.15625,
+   "outcome": "ok"
+  },
+  "0244.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230413/test.hwpx",
+   "ok": true,
+   "chars": 725,
+   "seconds": 0.018236460999999964,
+   "peak_rss_mb": 254.28125,
+   "outcome": "ok"
+  },
+  "0245.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230426/HwpxTest1.hwpx",
+   "ok": true,
+   "chars": 1949,
+   "seconds": 0.022295743000000128,
+   "peak_rss_mb": 258.90625,
+   "outcome": "ok"
+  },
+  "0246.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230728/test.hwpx",
+   "ok": true,
+   "chars": 30428,
+   "seconds": 0.22708087999999998,
+   "peak_rss_mb": 302.65625,
+   "outcome": "ok"
+  },
+  "0247.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230809/test.hwpx",
+   "ok": true,
+   "chars": 75,
+   "seconds": 0.01228860399999985,
+   "peak_rss_mb": 302.65625,
+   "outcome": "ok"
+  },
+  "0248.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20230818/test.hwpx",
+   "ok": true,
+   "chars": 9503,
+   "seconds": 0.03671627699999999,
+   "peak_rss_mb": 303.90625,
+   "outcome": "ok"
+  },
+  "0249.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20231219/test1.hwpx",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.010634214999999813,
+   "peak_rss_mb": 304.03125,
+   "outcome": "ok"
+  },
+  "0250.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240305/2022.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.003948962000000165,
+   "peak_rss_mb": 304.03125,
+   "outcome": "empty"
+  },
+  "0251.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240416/presentation오류.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.007008780999999999,
+   "peak_rss_mb": 304.03125,
+   "outcome": "empty"
+  },
+  "0252.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240626/no_manifest.hwpx",
+   "ok": true,
+   "chars": 1527,
+   "seconds": 0.008238939000000074,
+   "peak_rss_mb": 304.28125,
+   "outcome": "ok"
+  },
+  "0253.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20240919/테스트문서.hwpx",
+   "ok": true,
+   "chars": 271,
+   "seconds": 0.014537038999999823,
+   "peak_rss_mb": 311.40625,
+   "outcome": "ok"
+  },
+  "0254.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20241104/mot.hwpx",
+   "ok": true,
+   "chars": 1367,
+   "seconds": 0.014513897999999926,
+   "peak_rss_mb": 311.90625,
+   "outcome": "ok"
+  },
+  "0255.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20250523/프로젝트 계획서.hwpx",
+   "ok": true,
+   "chars": 1211,
+   "seconds": 0.009289114000000154,
+   "peak_rss_mb": 312.15625,
+   "outcome": "ok"
+  },
+  "0164.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/bug65649.docx",
+   "ok": true,
+   "chars": 494702,
+   "seconds": 1.4337293129999997,
+   "peak_rss_mb": 517.41796875,
+   "outcome": "ok"
+  },
+  "0257.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20251107/test.hwpx",
+   "ok": true,
+   "chars": 26697,
+   "seconds": 0.11837623399999984,
+   "peak_rss_mb": 525.41796875,
+   "outcome": "ok"
+  },
+  "0258.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20251107/test_re.hwpx",
+   "ok": true,
+   "chars": 26697,
+   "seconds": 0.07570468500000016,
+   "peak_rss_mb": 525.9921875,
+   "outcome": "ok"
+  },
+  "0259.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20260805/고정폭빈칸_문서.hwpx",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.003731163999999808,
+   "peak_rss_mb": 526.1171875,
+   "outcome": "ok"
+  },
+  "0260.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20260806/표전체 형광색인 경우 오류.hwpx",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.02120185900000024,
+   "peak_rss_mb": 526.7421875,
+   "outcome": "ok"
+  },
+  "0261.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/ChangeTrack.hwpx",
+   "ok": true,
+   "chars": 6,
+   "seconds": 0.003691822999999658,
+   "peak_rss_mb": 526.7421875,
+   "outcome": "ok"
+  },
+  "0262.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/HeaderFooter.hwpx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.005109405000000152,
+   "peak_rss_mb": 526.7421875,
+   "outcome": "ok"
+  },
+  "0256.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/error/20250808/2015년_12월_재난안전종합상황_분석_및_전망.hwpx",
+   "ok": true,
+   "chars": 72959,
+   "seconds": 0.7056552560000002,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0263.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/MultiColumn.hwpx",
+   "ok": true,
+   "chars": 390,
+   "seconds": 0.012918283999999858,
+   "peak_rss_mb": 526.8671875,
+   "outcome": "ok"
+  },
+  "0264.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/PageFunctions.hwpx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.01120202700000027,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0266.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleArc.hwpx",
+   "ok": true,
+   "chars": 7,
+   "seconds": 0.005591032000000268,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0267.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleButtons.hwpx",
+   "ok": true,
+   "chars": 17,
+   "seconds": 0.0075978479999998854,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0265.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/PageSize_Margin.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.013485453000000234,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "empty"
+  },
+  "0268.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleComboBox.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.005239278999999897,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "empty"
+  },
+  "0269.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleCompose.hwpx",
+   "ok": true,
+   "chars": 4,
+   "seconds": 0.0065148220000000945,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0270.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleConnectLine.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.00407996200000025,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "empty"
+  },
+  "0272.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleCurve.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.002458875999999691,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "empty"
+  },
+  "0273.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleDutmal.hwpx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.005514880000000176,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0271.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleContainer.hwpx",
+   "ok": true,
+   "chars": 49,
+   "seconds": 0.006695983000000069,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0274.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleEdit.hwpx",
+   "ok": true,
+   "chars": 4,
+   "seconds": 0.0032111379999996644,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0275.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleEllipse.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.005545779999999922,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "empty"
+  },
+  "0276.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleEquation.hwpx",
+   "ok": true,
+   "chars": 67,
+   "seconds": 0.0032998750000001564,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0277.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleLine.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0028059800000000907,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "empty"
+  },
+  "0278.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleOLE.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.005609645000000001,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "empty"
+  },
+  "0279.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimplePicture.hwpx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.004930683999999928,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0281.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleRectangle.hwpx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.0034304860000002007,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0280.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimplePolygon.hwpx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.003895316999999977,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0282.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleTable.hwpx",
+   "ok": true,
+   "chars": 132,
+   "seconds": 0.002662814000000253,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0283.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleTextArt.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0036553509999998823,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "empty"
+  },
+  "0285.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/sample1.hwpx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.0037949329999996733,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0286.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/blank.hwpx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0036414979999999557,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "empty"
+  },
+  "0284.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/reader_writer/SimpleVideo.hwpx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.01557426200000009,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0287.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/finder/TestFinder.hwpx",
+   "ok": true,
+   "chars": 223,
+   "seconds": 0.006408552999999756,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0289.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/RectInPara.hwpx",
+   "ok": true,
+   "chars": 145,
+   "seconds": 0.00392819099999997,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0288.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/ParaHead.hwpx",
+   "ok": true,
+   "chars": 269,
+   "seconds": 0.005200942999999824,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0290.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/RectInRect.hwpx",
+   "ok": true,
+   "chars": 35,
+   "seconds": 0.0032849449999998795,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0291.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/Table.hwpx",
+   "ok": true,
+   "chars": 166,
+   "seconds": 0.004415449999999964,
+   "peak_rss_mb": 530.9921875,
+   "outcome": "ok"
+  },
+  "0292.hwpx": {
+   "path": "/home/runner/work/_temp/corpus/hwpxlib/testFile/tool/textextractor/multipara.hwpx",
+   "ok": true,
+   "chars": 1136,
+   "seconds": 0.006090905000000021,
+   "peak_rss_mb": 405.97265625,
+   "outcome": "ok"
+  },
+  "0227.hwp": {
+   "path": "/home/runner/work/_temp/corpus/hwplib/sample_hwp/big_file.hwp",
+   "ok": true,
+   "chars": 1923051,
+   "seconds": 1.5599628010000002,
+   "peak_rss_mb": 508.125,
+   "outcome": "ok"
+  },
+  "0293.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/ag-energy-round-up-2017-02-24.pdf",
+   "ok": true,
+   "chars": 5943,
+   "seconds": 0.419041937,
+   "peak_rss_mb": 565.8203125,
+   "outcome": "ok"
+  },
+  "0294.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/background-checks.pdf",
+   "ok": true,
+   "chars": 11504,
+   "seconds": 0.474820299,
+   "peak_rss_mb": 423.7578125,
+   "outcome": "ok"
+  },
+  "0296.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/san-jose-pd-firearm-sample.pdf",
+   "ok": true,
+   "chars": 4773,
+   "seconds": 0.06973565299999973,
+   "peak_rss_mb": 570.8203125,
+   "outcome": "ok"
+  },
+  "0298.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/2023-06-20-PV.pdf",
+   "ok": true,
+   "chars": 2136,
+   "seconds": 0.12895056399999977,
+   "peak_rss_mb": 578.9453125,
+   "outcome": "ok"
+  },
+  "0297.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/150109DSP-Milw-505-90D.pdf",
+   "ok": true,
+   "chars": 9402,
+   "seconds": 0.21153898199999957,
+   "peak_rss_mb": 432.8828125,
+   "outcome": "ok"
+  },
+  "0300.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-rotated-180.pdf",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.04411520500000006,
+   "peak_rss_mb": 436.2578125,
+   "outcome": "ok"
+  },
+  "0301.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-rotated-270.pdf",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.03740525400000024,
+   "peak_rss_mb": 438.2578125,
+   "outcome": "ok"
+  },
+  "0302.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-rotated-90.pdf",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.026604719000000387,
+   "peak_rss_mb": 442.3828125,
+   "outcome": "ok"
+  },
+  "0303.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations-unicode-issues.pdf",
+   "ok": true,
+   "chars": 70,
+   "seconds": 0.02981744600000002,
+   "peak_rss_mb": 445.2578125,
+   "outcome": "ok"
+  },
+  "0304.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/annotations.pdf",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.030863190999999915,
+   "peak_rss_mb": 449.6328125,
+   "outcome": "ok"
+  },
+  "0295.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/examples/pdfs/ca-warn-report.pdf",
+   "ok": true,
+   "chars": 67855,
+   "seconds": 2.0451059010000003,
+   "peak_rss_mb": 509.03515625,
+   "outcome": "ok"
+  },
+  "0299.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/WARN-Report-for-7-1-2015-to-03-25-2016.pdf",
+   "ok": true,
+   "chars": 67855,
+   "seconds": 1.7449030289999996,
+   "peak_rss_mb": 587.8203125,
+   "outcome": "ok"
+  },
+  "0307.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/empty.pdf",
+   "ok": false,
+   "error": "빈 버퍼이거나 유효하지 않은 입력입니다.",
+   "seconds": 0.003900056999999833,
+   "peak_rss_mb": 587.8203125,
+   "outcome": "error"
+  },
+  "0308.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/extra-attrs-example.pdf",
+   "ok": true,
+   "chars": 13,
+   "seconds": 0.011063720999999532,
+   "peak_rss_mb": 587.8203125,
+   "outcome": "ok"
+  },
+  "0306.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/cupertino_usd_4-6-16.pdf",
+   "ok": true,
+   "chars": 3020,
+   "seconds": 0.08212244800000007,
+   "peak_rss_mb": 509.03515625,
+   "outcome": "ok"
+  },
+  "0310.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/figure_structure.pdf",
+   "ok": true,
+   "chars": 127,
+   "seconds": 0.04194994399999996,
+   "peak_rss_mb": 509.03515625,
+   "outcome": "ok"
+  },
+  "0311.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/hello_structure.pdf",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.04485980800000016,
+   "peak_rss_mb": 509.03515625,
+   "outcome": "ok"
+  },
+  "0312.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/image_structure.pdf",
+   "ok": true,
+   "chars": 111,
+   "seconds": 3.9995990409999993,
+   "peak_rss_mb": 886.1796875,
+   "outcome": "ok"
+  },
+  "0313.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1054-example.pdf",
+   "ok": true,
+   "chars": 227,
+   "seconds": 0.14071691699999975,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0314.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1114-dedupe-chars.pdf",
+   "ok": true,
+   "chars": 114,
+   "seconds": 0.021661224999999833,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0315.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1147-example.pdf",
+   "ok": true,
+   "chars": 2160,
+   "seconds": 0.32087245900000017,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0316.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1181.pdf",
+   "ok": true,
+   "chars": 270,
+   "seconds": 0.048983971999999994,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0317.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-1279-example.pdf",
+   "ok": true,
+   "chars": 3052,
+   "seconds": 0.18504907900000034,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0318.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-13-151201DSP-Fond-581-90D.pdf",
+   "ok": true,
+   "chars": 7624,
+   "seconds": 0.11137426799999957,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0319.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-140-example.pdf",
+   "ok": true,
+   "chars": 2057,
+   "seconds": 0.10954837899999983,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0320.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-192-example.pdf",
+   "ok": true,
+   "chars": 2509,
+   "seconds": 0.17843954300000042,
+   "peak_rss_mb": 887.3046875,
+   "outcome": "ok"
+  },
+  "0321.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-203-decimalize.pdf",
+   "ok": true,
+   "chars": 245,
+   "seconds": 14.673541151,
+   "peak_rss_mb": 1012.32421875,
+   "outcome": "ok"
+  },
+  "0322.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-297-example.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 1.5383717340000003,
+   "peak_rss_mb": 1012.32421875,
+   "outcome": "empty"
+  },
+  "0323.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-316-example.pdf",
+   "ok": true,
+   "chars": 50386,
+   "seconds": 20.526573885,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0324.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-33-lorem-ipsum.pdf",
+   "ok": true,
+   "chars": 4811,
+   "seconds": 0.17328083199999675,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0325.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-336-example.pdf",
+   "ok": true,
+   "chars": 2440,
+   "seconds": 0.26081616999999824,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0326.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-461-example.pdf",
+   "ok": true,
+   "chars": 1001,
+   "seconds": 0.06712515900000289,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0327.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-463-example.pdf",
+   "ok": true,
+   "chars": 1724,
+   "seconds": 0.06781429400000343,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0328.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-466-example.pdf",
+   "ok": true,
+   "chars": 1086,
+   "seconds": 0.038059539000001676,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0329.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-53-example.pdf",
+   "ok": true,
+   "chars": 12882,
+   "seconds": 0.9299879490000021,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0330.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-598-example.pdf",
+   "ok": true,
+   "chars": 1462,
+   "seconds": 0.017497118000006594,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0331.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-67-example.pdf",
+   "ok": true,
+   "chars": 19365,
+   "seconds": 0.49822372899999756,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0332.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-71-duplicate-chars-2.pdf",
+   "ok": true,
+   "chars": 44249,
+   "seconds": 1.4367131850000006,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0333.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-71-duplicate-chars.pdf",
+   "ok": true,
+   "chars": 1486,
+   "seconds": 0.12289320500000031,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0334.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-842-example.pdf",
+   "ok": true,
+   "chars": 197,
+   "seconds": 0.07955083900000318,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0335.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-848.pdf",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.0007884540000013658,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "error"
+  },
+  "0336.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-90-example.pdf",
+   "ok": true,
+   "chars": 2497,
+   "seconds": 0.10476013500000408,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0337.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-905.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 1.929908153999997,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "empty"
+  },
+  "0338.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-912.pdf",
+   "ok": true,
+   "chars": 1365,
+   "seconds": 0.1665168210000047,
+   "peak_rss_mb": 1178.79296875,
+   "outcome": "ok"
+  },
+  "0339.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-982-example.pdf",
+   "ok": true,
+   "chars": 30964,
+   "seconds": 28.410826068000002,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0340.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/issue-987-test.pdf",
+   "ok": true,
+   "chars": 21,
+   "seconds": 0.018969610000000102,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0341.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/la-precinct-bulletin-2014-p1.pdf",
+   "ok": true,
+   "chars": 2278,
+   "seconds": 0.05644190599999274,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0342.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/line-char-render-example.pdf",
+   "ok": true,
+   "chars": 35,
+   "seconds": 0.023750364999999874,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0343.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/malformed-from-issue-932.pdf",
+   "ok": true,
+   "chars": 61,
+   "seconds": 3.657984540000005,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0344.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/mcid_example.pdf",
+   "ok": true,
+   "chars": 127,
+   "seconds": 0.019311797000002115,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0345.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/nics-background-checks-2015-11-rotated.pdf",
+   "ok": true,
+   "chars": 11504,
+   "seconds": 0.3955767999999953,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0346.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/nics-background-checks-2015-11.pdf",
+   "ok": true,
+   "chars": 11504,
+   "seconds": 0.20293789099999412,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0347.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/page-boxes-example.pdf",
+   "ok": true,
+   "chars": 28,
+   "seconds": 0.005588864000004833,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0348.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/password-example.pdf",
+   "ok": false,
+   "error": "암호로 보호된 PDF 파일입니다 (PDF 열기 암호는 지원하지 않습니다)",
+   "seconds": 0.00533278500000597,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "error"
+  },
+  "0349.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pdf_structure.pdf",
+   "ok": true,
+   "chars": 1162,
+   "seconds": 0.018948004999998373,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0350.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pdffill-demo.pdf",
+   "ok": true,
+   "chars": 2535,
+   "seconds": 7.399673598000009,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0309.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/federal-register-2020-17221.pdf",
+   "ok": true,
+   "chars": 76045,
+   "seconds": 90.314247521,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0352.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pr-138-example.pdf",
+   "ok": true,
+   "chars": 14034,
+   "seconds": 0.4100273540000053,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0353.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pr-88-example.pdf",
+   "ok": true,
+   "chars": 247,
+   "seconds": 0.036781761999998705,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0354.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/scotus-transcript-p1.pdf",
+   "ok": true,
+   "chars": 1007,
+   "seconds": 0.017390780000001542,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0355.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/senate-expenditures.pdf",
+   "ok": true,
+   "chars": 4494,
+   "seconds": 0.11548519699998724,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0356.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/table-curves-example.pdf",
+   "ok": true,
+   "chars": 2959,
+   "seconds": 0.12478671800000302,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0357.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/test-punkt.pdf",
+   "ok": true,
+   "chars": 107,
+   "seconds": 0.01689759100000083,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0358.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/word365_structure.pdf",
+   "ok": true,
+   "chars": 249,
+   "seconds": 0.04432589300000109,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0359.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/119877_all type background_save_by_AOO.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0026230990000040036,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0360.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/2100a8d44da546f97ab7795c500a58bed6cb655d.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00030347800000163263,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0361.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/23884_defense_FINAL_OOimport_edit.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.002570357000004151,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0362.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/2cade576206d5bf9a89479446973deeda5a9b549.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004929850000044098,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0363.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/38256.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003000759999995353,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0364.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/41071.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00025619099999312314,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0365.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/41246-1.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005020370000129333,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0366.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/41246-2.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00036951099999714643,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0367.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42474-1.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00020678000000771136,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0368.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42474-2.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0008164400000096066,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0369.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42485.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002756930000032298,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0370.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/42486.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005611990000033984,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0371.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/43781.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003816990000050282,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0372.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/44296.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00037830400001257657,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0373.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/44770.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006703430000052321,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0374.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45537_Header.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002469750000018394,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0375.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45543.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000514417999991565,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0376.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45776.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003481990000000223,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0377.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/47261.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005948740000021644,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0378.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/49648.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00033266800000274086,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0379.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/51731.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005000100000033854,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0380.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/52244.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00033438200000091456,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0381.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/52599.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002595790000050329,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0382.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54111.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00033644900000945197,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0383.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54332a.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00030196799999976067,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0384.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54332b.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002689859999954933,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0385.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54541_cropped_bitmap2.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003812810000090394,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0386.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54722.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003348259999911534,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0387.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54880_chinese.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003655220000073314,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0388.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/56260.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006217299999989336,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0389.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/59302.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00032430399999429935,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0390.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60003.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0009400290000048699,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0391.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60294.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00030510499999218156,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0392.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60f557c0a46bcb0068b1c3e15589dac383307bc8.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00022920600000361446,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0393.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/6afff8111a22b118d1ed4eba5007c153de0b0ad7.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003142819999920903,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0394.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/7ffe3cabb976ebc593dfe2f9461bdeac980a626c.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004768610000028275,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0395.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/PPT95.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.001825264999992214,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0396.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ParagraphStylesShorterThanCharStyles.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00044977900000230873,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0397.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Password_Protected-hello.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002483340000035241,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0398.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Password_Protected-np-hello.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003323939999972936,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0399.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/PictureTypeZero.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002683870000037132,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0400.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/SimpleMacro.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00029157200000190644,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0401.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Single_Coloured_Page.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0001958920000033686,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0402.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Single_Coloured_Page_With_Fonts_and_Alignments.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00015257599999313242,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0403.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithComments.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00015152600000146776,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0404.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithMacros.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00019004499999573455,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0405.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithMaster.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0008547659999894677,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0406.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/alterman_security.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0009550770000059856,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0407.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/backgrounds.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00024201299999549518,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0408.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/basic_test_ppt_file.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00020045699999900535,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0409.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/br.com.diversas.palestras_Nelson_20-_20Temas_20Diversos_20XXXVI_pmrg_462538ba7a204-programa_alianca_12-04-2007.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0017388340000034077,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0410.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/br.com.tvcamboriu.www_pps_Pensar_5b1_5d.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00039071100000001027,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0411.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug45088.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000528558999998495,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0412.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug45124.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0010975109999999404,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0413.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug45908.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002630539999954635,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0414.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug46441.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00020067600000766105,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0415.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug52297.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003423310000071069,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0416.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug53192.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003147809999936726,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0417.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug55030.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00023383899999316783,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0418.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug55732.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002519929999980377,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0419.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug56240.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0019037249999964844,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0420.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug57820-initTableNullRefrenceException.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.000599010999998427,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0421.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58144-headers-footers-2003.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00021094900000025518,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0422.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58159_headers-and-footers.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00046408099999825934,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0423.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58516.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002450129999924684,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0424.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58718_008495.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0011577889999898616,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0425.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58718_008524.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00037922999999136665,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0426.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58718_349008.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00018464200000744313,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0427.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58733_671884.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00041837699999450705,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0428.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60345_Jankovic_final_Retreat_2002.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.002300621999995201,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0429.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60345_paperfigures.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006070239999971818,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0430.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60993.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003371340000012424,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0431.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug61881.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002565440000034869,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0432.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62092.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003761519999970915,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0433.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62591.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003782459999929415,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0434.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bullets.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00026668400000198745,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0435.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/cf5f6fde99a8b3ea5a4946c258b7abad6f30b0c5.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00037864899999112824,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0436.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/cryptoapi-proc2356.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0013689829999930226,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0437.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/datetime.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00032147000000986735,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0438.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/empty.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00021668500000669155,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0439.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/empty_textbox.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00021986300000571645,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0440.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/headers_footers.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004433379999973113,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0441.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/iisd_report.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0023720439999888186,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0442.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/incorrect_slide_order.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0002463189999980386,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0443.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/master_text.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00034464399999706074,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0444.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/missing-moveto.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003025820000038948,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0445.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/next_test_ppt_file.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.002598027000000002,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0446.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/npe.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.001260813999993843,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0447.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/numbers.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003945850000018254,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0448.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/numbers3.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0018327470000076573,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0449.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ole2-embedding-2003.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00046306100000219883,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0450.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pictures.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00035735799999383745,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0451.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pp40only.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004929520000005141,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0452.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ppt_with_png.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003126570000022184,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0453.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ppt_with_png_encrypted.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.00034666999999899417,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0454.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/slide_master.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003056219999998575,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0455.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/sound.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003270699999993667,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0456.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/testPPT_oleWorkbook.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0013768569999956526,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0457.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/text-margins.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0004416149999888148,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0458.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/text_shapes.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0003220750000036787,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0459.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/2411-Performance_Up.pptx",
+   "ok": true,
+   "chars": 8429,
+   "seconds": 0.13572255900000163,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0460.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45541_Footer.pptx",
+   "ok": true,
+   "chars": 2393,
+   "seconds": 0.0326165389999951,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0461.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45541_Header.pptx",
+   "ok": true,
+   "chars": 2393,
+   "seconds": 0.0353584520000004,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0462.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/45545_Comment.pptx",
+   "ok": true,
+   "chars": 2379,
+   "seconds": 0.021744711000006647,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0463.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/49386-null_dates.pptx",
+   "ok": true,
+   "chars": 8,
+   "seconds": 0.004156606000004104,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0464.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/51187.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.008377352999988943,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0465.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/54542_cropped_bitmap.pptx",
+   "ok": true,
+   "chars": 153,
+   "seconds": 0.004732466000001295,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0466.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/56812.pptx",
+   "ok": true,
+   "chars": 100,
+   "seconds": 0.004382107999990694,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0467.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60042.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.015120517999996082,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0468.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/60810.pptx",
+   "ok": true,
+   "chars": 18641,
+   "seconds": 0.0575226110000076,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0469.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/61515.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0056370129999995695,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0470.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/63200.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.005596071000007214,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0471.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ArtisticEffectSample.pptx",
+   "ok": true,
+   "chars": 134,
+   "seconds": 0.017742957000009482,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0472.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/Divino_Revelado.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.02168403799999214,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0473.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/EmbeddedAudio.pptx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.006630498999991687,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0474.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/EmbeddedVideo.pptx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.006418306999999913,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0475.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/KEY02.pptx",
+   "ok": true,
+   "chars": 119,
+   "seconds": 0.026180466000005252,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0476.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/LIBRE_OFFICE-100610-0.pptx",
+   "ok": true,
+   "chars": 2648,
+   "seconds": 0.03733055400000012,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0477.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/OverlappingRelations.pptx",
+   "ok": true,
+   "chars": 127,
+   "seconds": 0.006472976999997627,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0478.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/SampleShow.pptx",
+   "ok": true,
+   "chars": 357,
+   "seconds": 0.006552729000002728,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0479.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/SmartArt.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.005515002000000095,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0480.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/WithMaster.pptx",
+   "ok": true,
+   "chars": 69,
+   "seconds": 0.005184068999995361,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0481.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/aascu.org_hbcu_leadershipsummit_cooper_.pptx",
+   "ok": true,
+   "chars": 9786,
+   "seconds": 0.03816051299999526,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0482.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/aascu.org_workarea_downloadasset.aspx_id=5864.pptx",
+   "ok": true,
+   "chars": 13229,
+   "seconds": 0.0576027929999982,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0483.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ae.ac.uaeu.faculty_nafaachbili_GeomLec1.pptx",
+   "ok": true,
+   "chars": 2780,
+   "seconds": 0.015268583999990369,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0484.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/alterman_security.pptx",
+   "ok": true,
+   "chars": 8714,
+   "seconds": 0.030961556000009296,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0485.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/aptia.pptx",
+   "ok": true,
+   "chars": 2576,
+   "seconds": 0.007688613999998779,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0486.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/at.ecodesign.www_downloads_Vertiefungsvortrag_elektronik.pptx",
+   "ok": true,
+   "chars": 11083,
+   "seconds": 0.039811681999999564,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0487.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/au.asn.aes.www_conferences_2011_presentations_Fri_20Room4Level4_20930_20Maloney.pptx",
+   "ok": true,
+   "chars": 20702,
+   "seconds": 0.056753758999999265,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0488.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/backgrounds.pptx",
+   "ok": true,
+   "chars": 185,
+   "seconds": 0.0090801930000016,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0489.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bar-chart.pptx",
+   "ok": true,
+   "chars": 15,
+   "seconds": 0.0035234500000078696,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0490.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug54570.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0035213309999962803,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0491.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug58144-headers-footers-2007.pptx",
+   "ok": true,
+   "chars": 53,
+   "seconds": 0.0022660199999954785,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0492.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60499.pptx",
+   "ok": true,
+   "chars": 57,
+   "seconds": 0.003731702999997651,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0493.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60715.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0017413809999998193,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0494.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug60993.pptx",
+   "ok": true,
+   "chars": 287,
+   "seconds": 0.0026182669999980134,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0495.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62513.pptx",
+   "ok": true,
+   "chars": 4637,
+   "seconds": 0.014743391000010889,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0496.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug62736.pptx",
+   "ok": true,
+   "chars": 88,
+   "seconds": 0.001789814000003389,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0497.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug63290.pptx",
+   "ok": true,
+   "chars": 42,
+   "seconds": 0.002240925999998581,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0498.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug64693.pptx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.005201004999995348,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0499.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65228.pptx",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.0033375939999968976,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0500.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65523.pptx",
+   "ok": true,
+   "chars": 42,
+   "seconds": 0.004284788999997545,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0501.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65551.pptx",
+   "ok": true,
+   "chars": 17,
+   "seconds": 0.0015864529999962541,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0502.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug65673.pptx",
+   "ok": true,
+   "chars": 47,
+   "seconds": 0.004281642999994801,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0503.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/bug68703.pptx",
+   "ok": true,
+   "chars": 581,
+   "seconds": 0.004642900999999256,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0504.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ca.ubc.cs.people_~emhill_presentations_HowWeRefactor.pptx",
+   "ok": true,
+   "chars": 12192,
+   "seconds": 0.3972774999999965,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0505.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/chart-picture-bg.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.009209166000000551,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0506.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/chart-slide-bg.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.001717205000008107,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0507.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/chart-texture-bg.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0016100830000068526,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0508.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/copy-slide-demo.pptx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.001515638000011677,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0509.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crop-to-0.pptx",
+   "ok": true,
+   "chars": 75,
+   "seconds": 0.004412744999994175,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0510.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/customGeo.pptx",
+   "ok": true,
+   "chars": 23092,
+   "seconds": 0.05673009399999864,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0511.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/ececapstonespring2012.pptx",
+   "ok": true,
+   "chars": 4200,
+   "seconds": 0.012518343999996432,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0512.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/highlight-test-case.pptx",
+   "ok": true,
+   "chars": 91,
+   "seconds": 0.004117139000009047,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0513.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/keyframes.pptx",
+   "ok": true,
+   "chars": 6454,
+   "seconds": 0.01948329200000444,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0514.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/layouts.pptx",
+   "ok": true,
+   "chars": 811,
+   "seconds": 0.022435687999997754,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0515.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/line-chart.pptx",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.0018322340000013356,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0516.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/minimal-gradient-fill-issue.pptx",
+   "ok": true,
+   "chars": 125,
+   "seconds": 0.0018854100000025938,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0517.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/missing-blip-fill.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.003257861000005505,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0518.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/picture-transparency.pptx",
+   "ok": true,
+   "chars": 101,
+   "seconds": 0.0024497540000011212,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0519.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pie-chart.pptx",
+   "ok": true,
+   "chars": 15,
+   "seconds": 0.00417446700000437,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0520.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/placeholder-layout-color.pptx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.002695170999999391,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0521.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/pptx2svg.pptx",
+   "ok": true,
+   "chars": 732,
+   "seconds": 0.0038556320000061534,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0522.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/prProps.pptx",
+   "ok": true,
+   "chars": 28,
+   "seconds": 0.0015785919999907491,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0523.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/present1.pptx",
+   "ok": true,
+   "chars": 4,
+   "seconds": 0.001540487000005669,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0524.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/radar-chart.pptx",
+   "ok": true,
+   "chars": 17,
+   "seconds": 0.0022853349999932106,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0525.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/rain.pptx",
+   "ok": true,
+   "chars": 6,
+   "seconds": 0.0021505800000013553,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0526.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/sample.pptx",
+   "ok": true,
+   "chars": 155,
+   "seconds": 0.0023275600000051784,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0527.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/sample_pptx_grouping_issues.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0029716539999935774,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0528.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/scatter-chart.pptx",
+   "ok": true,
+   "chars": 19,
+   "seconds": 0.0028412050000042655,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0529.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/shapes.pptx",
+   "ok": true,
+   "chars": 684,
+   "seconds": 0.005808863999991445,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0530.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/smartart-rotated-text.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.0013377960000070742,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "empty"
+  },
+  "0531.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/smartart-simple.pptx",
+   "ok": true,
+   "chars": 284,
+   "seconds": 0.0025099760000011884,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0532.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table-with-different-font-colors.pptx",
+   "ok": true,
+   "chars": 370,
+   "seconds": 0.002213296999994782,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0533.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table-with-no-theme.pptx",
+   "ok": true,
+   "chars": 11,
+   "seconds": 0.0018764740000042366,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0534.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table-with-theme.pptx",
+   "ok": true,
+   "chars": 23,
+   "seconds": 0.0015600009999907343,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0535.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table_test.pptx",
+   "ok": true,
+   "chars": 85,
+   "seconds": 0.0016994449999911013,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0536.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/table_test2.pptx",
+   "ok": true,
+   "chars": 810,
+   "seconds": 0.004359690000012051,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0537.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/templatePPTWithOnlyOneText.pptx",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.001457247999991523,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0538.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/testPPT.pptx",
+   "ok": true,
+   "chars": 293,
+   "seconds": 0.002014273000007961,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0539.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/text-highlight.pptx",
+   "ok": true,
+   "chars": 116,
+   "seconds": 0.0015007359999872278,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0540.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/themes.pptx",
+   "ok": true,
+   "chars": 723,
+   "seconds": 0.007414258999997401,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0541.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/tika-2605.pptx",
+   "ok": true,
+   "chars": 309,
+   "seconds": 0.01874585799999477,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0542.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/with_japanese.pptx",
+   "ok": true,
+   "chars": 685,
+   "seconds": 0.004826992999995127,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0543.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/12561-1.xls",
+   "ok": true,
+   "chars": 8709,
+   "seconds": 0.012137788000007277,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0544.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/13224.xls",
+   "ok": true,
+   "chars": 38,
+   "seconds": 0.0021700569999957226,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0545.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/14460.xls",
+   "ok": true,
+   "chars": 134,
+   "seconds": 0.000850999000002048,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0546.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/15573.xls",
+   "ok": true,
+   "chars": 123,
+   "seconds": 0.0005404419999977108,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0547.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/19599-2.xls",
+   "ok": true,
+   "chars": 13018,
+   "seconds": 0.006315744999999879,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0548.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/25695.xls",
+   "ok": true,
+   "chars": 110,
+   "seconds": 0.000932213000007323,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0549.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/27349-vlookupAcrossSheets.xls",
+   "ok": true,
+   "chars": 163,
+   "seconds": 0.001295838999998523,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0550.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/27933.xls",
+   "ok": true,
+   "chars": 2464,
+   "seconds": 0.0013088189999980386,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0551.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/29942.xls",
+   "ok": true,
+   "chars": 25892,
+   "seconds": 0.04507405200001085,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0552.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/30978-alt.xls",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.003180749999999534,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0553.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/31979.xls",
+   "ok": true,
+   "chars": 21,
+   "seconds": 0.0010173290000093402,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0554.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/35564.xls",
+   "ok": true,
+   "chars": 11431,
+   "seconds": 0.009622004999997444,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0555.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/37376.xls",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.00040834300000278746,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0556.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/37684.xls",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.0030083599999925353,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0557.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/3dFormulas.xls",
+   "ok": true,
+   "chars": 159,
+   "seconds": 0.001141518000003998,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0558.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/42016.xls",
+   "ok": true,
+   "chars": 48,
+   "seconds": 0.0004744160000118427,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0559.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/42844.xls",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.0002716070000024047,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0560.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/43902.xls",
+   "ok": true,
+   "chars": 207,
+   "seconds": 0.0004031430000031833,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0561.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44200.xls",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.0002956689999991795,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0562.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44593.xls",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.02311813099999563,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0563.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44840.xls",
+   "ok": true,
+   "chars": 42,
+   "seconds": 0.012940753000002587,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0564.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/44958_1.xls",
+   "ok": true,
+   "chars": 300,
+   "seconds": 0.003599000999995042,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0565.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45365-2.xls",
+   "ok": true,
+   "chars": 102089,
+   "seconds": 0.10615609899999981,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0566.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45538_classic_Header.xls",
+   "ok": true,
+   "chars": 10987,
+   "seconds": 0.008828659000006156,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0567.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45672.xls",
+   "ok": true,
+   "chars": 528,
+   "seconds": 0.0037841979999939214,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0568.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46136-NoWarnings.xls",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.004128546000007191,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0569.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46368.xls",
+   "ok": true,
+   "chars": 65632,
+   "seconds": 0.007192484999992302,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0570.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46670_local.xls",
+   "ok": true,
+   "chars": 15,
+   "seconds": 0.0026438329999946292,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0571.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47154.xls",
+   "ok": true,
+   "chars": 39,
+   "seconds": 0.0021605799999961164,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0572.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47701.xls",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.00043595099999220113,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0573.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48026.xls",
+   "ok": true,
+   "chars": 18651,
+   "seconds": 0.01143714500000351,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0574.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48968.xls",
+   "ok": true,
+   "chars": 641,
+   "seconds": 0.0015188229999912436,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0575.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49237.xls",
+   "ok": true,
+   "chars": 8,
+   "seconds": 0.0003032260000036331,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0576.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49581.xls",
+   "ok": true,
+   "chars": 525,
+   "seconds": 0.0009871940000011818,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0577.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49896.xls",
+   "ok": true,
+   "chars": 201,
+   "seconds": 0.0007088460000086343,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0578.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50298.xls",
+   "ok": true,
+   "chars": 109,
+   "seconds": 0.00048594800000137183,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0579.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50779_2.xls",
+   "ok": true,
+   "chars": 4115,
+   "seconds": 0.0012617239999963203,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0580.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51262.xls",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.00036140500000328754,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0581.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51670.xls",
+   "ok": true,
+   "chars": 2968,
+   "seconds": 0.0014886910000059287,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0582.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/52527.xls",
+   "ok": true,
+   "chars": 526,
+   "seconds": 0.0008861069999984466,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0583.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53404.xls",
+   "ok": true,
+   "chars": 130,
+   "seconds": 0.00037896099999488797,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0584.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53691.xls",
+   "ok": true,
+   "chars": 31,
+   "seconds": 0.00033847699999751057,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0351.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/pr-136-example.pdf",
+   "ok": true,
+   "chars": 5606,
+   "seconds": 4.988418462000001,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0586.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55341_CellStyleBorder.xls",
+   "ok": true,
+   "chars": 39,
+   "seconds": 0.007168827999994392,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0587.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56325.xls",
+   "ok": true,
+   "chars": 30,
+   "seconds": 0.0008512449999980163,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0588.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56563a.xls",
+   "ok": true,
+   "chars": 328143,
+   "seconds": 0.4739331339999917,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0589.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57074.xls",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.0026463519999961136,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0590.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57798.xls",
+   "ok": true,
+   "chars": 76,
+   "seconds": 0.005107304999997723,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0591.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59830.xls",
+   "ok": true,
+   "chars": 29309,
+   "seconds": 0.01376584599999478,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0592.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/60405.xls",
+   "ok": true,
+   "chars": 370,
+   "seconds": 0.00652878399999463,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0593.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/61287.xls",
+   "ok": true,
+   "chars": 4145,
+   "seconds": 0.004360922000007122,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0594.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/64261.xls",
+   "ok": true,
+   "chars": 21,
+   "seconds": 0.0008531480000092415,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0595.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/AreaErrPtg.xls",
+   "ok": true,
+   "chars": 40,
+   "seconds": 0.0006191450000042096,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0596.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/CodeFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1760,
+   "seconds": 0.0009823039999901084,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0597.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ComplexFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1920,
+   "seconds": 0.001995344000009936,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0598.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/DBCSSheetName.xls",
+   "ok": true,
+   "chars": 25,
+   "seconds": 0.0005155769999983022,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0599.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/DateTimeToNumberTestCases.xls",
+   "ok": true,
+   "chars": 2386,
+   "seconds": 0.0018339839999971445,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0600.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/EmbeddedChartHeaderTest.xls",
+   "ok": true,
+   "chars": 125,
+   "seconds": 0.0005123739999980899,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0601.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ForShifting.xls",
+   "ok": true,
+   "chars": 588,
+   "seconds": 0.0011075779999955558,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0602.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/FormulaEvalTestData.xls",
+   "ok": true,
+   "chars": 336846,
+   "seconds": 0.1601068490000034,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0603.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/IfFormulaTest.xls",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.0006810479999985546,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0604.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ImaginaryFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1865,
+   "seconds": 0.0034034390000015264,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0605.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/IntersectionPtg.xls",
+   "ok": true,
+   "chars": 108,
+   "seconds": 0.0004927260000113165,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0606.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/LookupFunctionsTestCaseData.xls",
+   "ok": true,
+   "chars": 25523,
+   "seconds": 0.02247107299999334,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0607.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/MissingBits.xls",
+   "ok": true,
+   "chars": 285,
+   "seconds": 0.0036662319999886677,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0608.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/PercentPtg.xls",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.0004997409999923548,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0609.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ReferencePtg.xls",
+   "ok": true,
+   "chars": 132,
+   "seconds": 0.0012645169999887002,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0610.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/RowFunctionTestCaseData.xls",
+   "ok": true,
+   "chars": 1828,
+   "seconds": 0.001081592999995337,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0611.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SheetWithDrawing.xls",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.0003638839999912307,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0612.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleMacro.xls",
+   "ok": true,
+   "chars": 59,
+   "seconds": 0.0004067840000061551,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0613.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleWithChoose.xls",
+   "ok": true,
+   "chars": 149,
+   "seconds": 0.0004716730000072857,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0614.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleWithFormula.xls",
+   "ok": true,
+   "chars": 73,
+   "seconds": 0.0006307460000098217,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0615.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleWithPrintArea.xls",
+   "ok": true,
+   "chars": 55,
+   "seconds": 0.00037052100000437347,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0616.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SolverContainerAfterSPGR.xls",
+   "ok": true,
+   "chars": 30,
+   "seconds": 0.00032094700000016017,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0617.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SubtotalsNested.xls",
+   "ok": true,
+   "chars": 291,
+   "seconds": 0.00072835699999996,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0618.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/Trend.xls",
+   "ok": true,
+   "chars": 12838,
+   "seconds": 0.009688918000014382,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0619.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/UncalcedRecord.xls",
+   "ok": true,
+   "chars": 36,
+   "seconds": 0.0004398350000119535,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0620.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WeekNumFunctionTestCaseData2013.xls",
+   "ok": true,
+   "chars": 1964,
+   "seconds": 0.0010100630000088131,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0621.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithEmbeddedObjects.xls",
+   "ok": true,
+   "chars": 43,
+   "seconds": 0.00048793499999737834,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0622.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithThreeCharts.xls",
+   "ok": true,
+   "chars": 181,
+   "seconds": 0.0006232719999970869,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0623.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/XRefCalc.xls",
+   "ok": true,
+   "chars": 177,
+   "seconds": 0.0005194789999950444,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0585.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54016.xls",
+   "ok": true,
+   "chars": 762437,
+   "seconds": 1.0777694869999979,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0625.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug66319.xls",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.004519281000000774,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0626.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/chinese-provinces.xls",
+   "ok": true,
+   "chars": 119,
+   "seconds": 0.002408886999997776,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0627.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/countblankExamples.xls",
+   "ok": true,
+   "chars": 365,
+   "seconds": 0.0007852829999901587,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0628.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/duprich1.xls",
+   "ok": true,
+   "chars": 3935,
+   "seconds": 0.0034397549999994224,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0629.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex41187-19267.xls",
+   "ok": true,
+   "chars": 37,
+   "seconds": 0.0004047040000004927,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0630.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex42570-20305.xls",
+   "ok": true,
+   "chars": 1918,
+   "seconds": 0.0031430990000080785,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0631.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex45672.xls",
+   "ok": true,
+   "chars": 84,
+   "seconds": 0.0006228479999990668,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0632.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ex47747-sharedFormula.xls",
+   "ok": true,
+   "chars": 122,
+   "seconds": 0.000555607999995118,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0633.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/external_image.xls",
+   "ok": true,
+   "chars": 16242,
+   "seconds": 0.00627920799999265,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0634.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/intercept.xls",
+   "ok": true,
+   "chars": 261,
+   "seconds": 0.000498637000011513,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0635.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/moodle.iamm.fr_pluginfile.php_2971_mod_resource_content_4_evaluation_module_decouverte_qesamed.xls",
+   "ok": true,
+   "chars": 3557,
+   "seconds": 0.0014643749999959255,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0636.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/named-cell-in-formula-test.xls",
+   "ok": true,
+   "chars": 71,
+   "seconds": 0.0004303059999947436,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0637.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ole2-embedding.xls",
+   "ok": true,
+   "chars": 40,
+   "seconds": 0.0003897959999885643,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0638.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/rde.imf.ru_sites_default_files_rde_documents_vodootvedenie_2020.xlsb.xls",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.011101167000000715,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "error"
+  },
+  "0624.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/at.gv.land-oberoesterreich.www_cps_rde_xbcr_SID-4A1B954F-5C07F98E_ooe_stat_download_bp10.xls",
+   "ok": true,
+   "chars": 305113,
+   "seconds": 0.17325578900000255,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0640.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/testArraysAndTables.xls",
+   "ok": true,
+   "chars": 1215,
+   "seconds": 0.0019510409999929834,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0641.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/testEXCEL_95.xls",
+   "ok": false,
+   "error": "XLS: BIFF8(0x0600)만 지원 — 본 파일은 0x500",
+   "seconds": 0.0006743359999964014,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "error"
+  },
+  "0642.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/text.xls",
+   "ok": true,
+   "chars": 30,
+   "seconds": 0.00043867699999827894,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0643.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/123233_charts.xlsx",
+   "ok": true,
+   "chars": 1284,
+   "seconds": 0.009450681999995141,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0639.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/styles-3563.xls",
+   "ok": true,
+   "chars": 45685,
+   "seconds": 0.03445029699998849,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0644.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45540_classic_Footer.xlsx",
+   "ok": true,
+   "chars": 11205,
+   "seconds": 0.023257038000010652,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0646.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/46536.xlsx",
+   "ok": true,
+   "chars": 141,
+   "seconds": 0.002570115999988047,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0647.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47737.xlsx",
+   "ok": true,
+   "chars": 717,
+   "seconds": 0.0037693290000024716,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0648.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/47862.xlsx",
+   "ok": true,
+   "chars": 123,
+   "seconds": 0.0019865710000012767,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0645.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/45540_form_Header.xlsx",
+   "ok": true,
+   "chars": 7491,
+   "seconds": 0.014139248999999837,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0649.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48539.xlsx",
+   "ok": true,
+   "chars": 1588,
+   "seconds": 0.004401081999996677,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0651.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49325.xlsx",
+   "ok": true,
+   "chars": 80,
+   "seconds": 0.0016162230000045384,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0652.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/49872.xlsx",
+   "ok": true,
+   "chars": 114,
+   "seconds": 0.0021038790000020525,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0650.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/48962.xlsx",
+   "ok": true,
+   "chars": 1164,
+   "seconds": 0.00818344700000307,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0654.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50786-indexed_colours.xlsx",
+   "ok": true,
+   "chars": 10,
+   "seconds": 0.004117533999989973,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0655.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50867_with_table.xlsx",
+   "ok": true,
+   "chars": 99,
+   "seconds": 0.0017276080000010552,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0653.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/50299.xlsx",
+   "ok": true,
+   "chars": 5092,
+   "seconds": 0.01620443100000557,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0657.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51710.xlsx",
+   "ok": true,
+   "chars": 76445,
+   "seconds": 0.1518817560000025,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0656.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51585.xlsx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.15920112199999858,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0658.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/51998.xlsx",
+   "ok": true,
+   "chars": 161,
+   "seconds": 0.0038864489999978105,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0660.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53282.xlsx",
+   "ok": true,
+   "chars": 231,
+   "seconds": 0.0026432239999994635,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0661.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/53734.xlsx",
+   "ok": true,
+   "chars": 50,
+   "seconds": 0.002051113000008627,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0659.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/52716.xlsx",
+   "ok": true,
+   "chars": 3700,
+   "seconds": 0.006043331999986549,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0662.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54071.xlsx",
+   "ok": true,
+   "chars": 404,
+   "seconds": 0.002089105999999447,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0664.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54436.xlsx",
+   "ok": true,
+   "chars": 360,
+   "seconds": 0.002134686999997939,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0665.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54764.xlsx",
+   "ok": true,
+   "chars": 155,
+   "seconds": 0.003250671000001603,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0666.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55745.xlsx",
+   "ok": true,
+   "chars": 114,
+   "seconds": 0.002453536000000895,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0667.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55864.xlsx",
+   "ok": true,
+   "chars": 120,
+   "seconds": 0.002098476999992272,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0668.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/55926.xlsx",
+   "ok": true,
+   "chars": 92,
+   "seconds": 0.002260913999998593,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0669.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56017.xlsx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.0017721069999970496,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0670.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56274.xlsx",
+   "ok": true,
+   "chars": 102,
+   "seconds": 0.0021693820000073176,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0671.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56420.xlsx",
+   "ok": true,
+   "chars": 105,
+   "seconds": 0.0019439379999967058,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0672.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56514.xlsx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.001649822999999742,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0673.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56644.xlsx",
+   "ok": true,
+   "chars": 3863,
+   "seconds": 0.012972899000000326,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0674.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56688_4.xlsx",
+   "ok": true,
+   "chars": 80,
+   "seconds": 0.0016121559999883175,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0663.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/54288-ref.xlsx",
+   "ok": true,
+   "chars": 31602,
+   "seconds": 0.03971753299998818,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0675.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/56737.xlsx",
+   "ok": true,
+   "chars": 178,
+   "seconds": 0.0015896860000066226,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0677.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57362.xlsx",
+   "ok": true,
+   "chars": 69,
+   "seconds": 0.00156879299999855,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0676.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57171_57163_57165.xlsx",
+   "ok": true,
+   "chars": 159,
+   "seconds": 0.0030899590000044554,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0679.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57826.xlsx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.001138428999998723,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0678.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57523.xlsx",
+   "ok": true,
+   "chars": 29227,
+   "seconds": 0.03026418199999898,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0681.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/58315.xlsx",
+   "ok": true,
+   "chars": 20,
+   "seconds": 0.0016210419999988517,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0682.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/58616.xlsx",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0006665799999900628,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "error"
+  },
+  "0683.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/58760.xlsx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.001964145999998436,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0684.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59026.xlsx",
+   "ok": true,
+   "chars": 207,
+   "seconds": 0.0024094760000007228,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0685.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59264.xlsx",
+   "ok": true,
+   "chars": 836,
+   "seconds": 0.003011161999995238,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0686.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/59746_NoRowNums.xlsx",
+   "ok": true,
+   "chars": 7133,
+   "seconds": 0.008834252000000561,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0687.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/60289.xlsx",
+   "ok": true,
+   "chars": 73,
+   "seconds": 0.0011739249999955063,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0688.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/60709.xlsx",
+   "ok": true,
+   "chars": 24,
+   "seconds": 0.001334086999995634,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0689.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/61063.xlsx",
+   "ok": true,
+   "chars": 95,
+   "seconds": 0.0014282549999916228,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0690.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/61652.xlsx",
+   "ok": true,
+   "chars": 260,
+   "seconds": 0.002665469999992638,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0691.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/62629_toMerge.xlsx",
+   "ok": true,
+   "chars": 51,
+   "seconds": 0.002236610000007204,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0692.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/64508.xlsx",
+   "ok": true,
+   "chars": 458,
+   "seconds": 0.0018825199999992037,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0693.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/64759.xlsx",
+   "ok": true,
+   "chars": 115,
+   "seconds": 0.0016506610000069485,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0694.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/70005-countifs.xlsx",
+   "ok": true,
+   "chars": 112,
+   "seconds": 0.0017216689999913796,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0695.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/BrNotClosed.xlsx",
+   "ok": true,
+   "chars": 33,
+   "seconds": 0.0012350549999973737,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0696.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/CustomXMLMapping-singleattributenamespace.xlsx",
+   "ok": true,
+   "chars": 217,
+   "seconds": 0.0016267920000100275,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0697.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/CustomXmlMappings-inverse-order.xlsx",
+   "ok": true,
+   "chars": 202,
+   "seconds": 0.0016934379999875091,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0698.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/DataValidations-49244.xlsx",
+   "ok": true,
+   "chars": 3032,
+   "seconds": 0.002694550000000163,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0699.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ElapsedFormatTests.xlsx",
+   "ok": true,
+   "chars": 6058,
+   "seconds": 0.008175410000010742,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0700.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/Excel_file_with_trash_item.xlsx",
+   "ok": true,
+   "chars": 50280,
+   "seconds": 0.06585615099999996,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0701.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/FormatConditionTests.xlsx",
+   "ok": true,
+   "chars": 2293,
+   "seconds": 0.00676475100000971,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0702.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/FormulaEvalTestData_Copy.xlsx",
+   "ok": true,
+   "chars": 286210,
+   "seconds": 0.16406937899999322,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0703.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/GroupTest.xlsx",
+   "ok": true,
+   "chars": 213,
+   "seconds": 0.004904250999999931,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0704.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/InlineStrings.xlsx",
+   "ok": true,
+   "chars": 299,
+   "seconds": 0.002411492999992333,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0705.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/LIBRE_OFFICE-128382-0.xlsx",
+   "ok": true,
+   "chars": 3522,
+   "seconds": 0.008685360999996191,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0706.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/NewStyleConditionalFormattings.xlsx",
+   "ok": true,
+   "chars": 2120,
+   "seconds": 0.00448173100000713,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0707.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/RepeatingRowsCols.xlsx",
+   "ok": true,
+   "chars": 426,
+   "seconds": 0.00253279699999257,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0708.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SheetTabColors.xlsx",
+   "ok": true,
+   "chars": 44,
+   "seconds": 0.0014478040000103648,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0709.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SimpleNormal.xlsx",
+   "ok": true,
+   "chars": 286,
+   "seconds": 0.005012865999990027,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0710.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/SingleCellTable.xlsx",
+   "ok": true,
+   "chars": 13,
+   "seconds": 0.0012288259999913862,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0711.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/Tables.xlsx",
+   "ok": true,
+   "chars": 51290,
+   "seconds": 0.03759382999999798,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0712.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/TextFormatTests.xlsx",
+   "ok": true,
+   "chars": 1238,
+   "seconds": 0.007428532000005362,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0713.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/TwoSheetsOneHidden.xlsx",
+   "ok": true,
+   "chars": 41,
+   "seconds": 0.001401826000001165,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0714.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WidthsAndHeights.xlsx",
+   "ok": true,
+   "chars": 108,
+   "seconds": 0.00127109599999676,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0715.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithConditionalFormatting.xlsx",
+   "ok": true,
+   "chars": 156,
+   "seconds": 0.0017450339999923016,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0716.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithTable.xlsx",
+   "ok": true,
+   "chars": 71,
+   "seconds": 0.0013797190000041156,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0717.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/WithThreeCharts.xlsx",
+   "ok": true,
+   "chars": 181,
+   "seconds": 0.001579488000003039,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0718.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/XSSFSheet.copyRows.xlsx",
+   "ok": true,
+   "chars": 2398,
+   "seconds": 0.0021658109999989393,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0719.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug60848_sumproduct_unary_minus.xlsx",
+   "ok": true,
+   "chars": 12,
+   "seconds": 0.003301569000002928,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0720.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug63189.xlsx",
+   "ok": true,
+   "chars": 65,
+   "seconds": 0.001663249999997788,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0721.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug65464.xlsx",
+   "ok": true,
+   "chars": 1331,
+   "seconds": 0.00864291699999012,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0722.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug67784.xlsx",
+   "ok": true,
+   "chars": 164,
+   "seconds": 0.003469264999992447,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0723.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/bug70146.xlsx",
+   "ok": true,
+   "chars": 42,
+   "seconds": 0.0014644369999878108,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0724.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/chartTitle_withTitleFormula.xlsx",
+   "ok": true,
+   "chars": 119,
+   "seconds": 0.0021800999999977647,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0725.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/comments.xlsx",
+   "ok": true,
+   "chars": 88,
+   "seconds": 0.0013627510000078474,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0726.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/conditional_formatting_with_formula_on_second_sheet.xlsx",
+   "ok": true,
+   "chars": 47,
+   "seconds": 0.0023846020000055433,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0680.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/57893-many-merges.xlsx",
+   "ok": true,
+   "chars": 9,
+   "seconds": 0.6433631719999976,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0728.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/evaluate_formula_with_structured_table_references.xlsx",
+   "ok": true,
+   "chars": 73,
+   "seconds": 0.05311167299999215,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0729.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/headerFooterTest.xlsx",
+   "ok": true,
+   "chars": 38,
+   "seconds": 0.0026840939999965485,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0730.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/link-external-workbook-b.xlsx",
+   "ok": true,
+   "chars": 13,
+   "seconds": 0.0013273820000031264,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0731.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/picture-and-shape-same-size.xlsx",
+   "ok": true,
+   "chars": 61,
+   "seconds": 0.00133375600000727,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0732.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/ref-56737.xlsx",
+   "ok": true,
+   "chars": 181,
+   "seconds": 0.0013974720000114757,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0733.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/resize_compare.xlsx",
+   "ok": true,
+   "chars": 80,
+   "seconds": 0.001402405999993789,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0734.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/sample.xlsx",
+   "ok": true,
+   "chars": 423,
+   "seconds": 0.005008808999991743,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0735.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/sheetProtection_allLocked.xlsx",
+   "ok": true,
+   "chars": 36,
+   "seconds": 0.0010685729999968317,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0736.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/simple-table-named-range.xlsx",
+   "ok": true,
+   "chars": 84,
+   "seconds": 0.0012826709999935702,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0737.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/tableStyle.xlsx",
+   "ok": true,
+   "chars": 166,
+   "seconds": 0.001424962000004598,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0738.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/testSharedFormulasSetBlank.xlsx",
+   "ok": true,
+   "chars": 54,
+   "seconds": 0.0016062239999882876,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0739.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/unicodeSheetName.xlsx",
+   "ok": true,
+   "chars": 29,
+   "seconds": 0.001179017999995267,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0740.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/workbookProtection_not_protected.xlsx",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.0020537340000009864,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0741.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/workbookProtection_workbook_windows_protected.xlsx",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.0013823450000054437,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0742.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/xlsx-corrupted.xlsx",
+   "ok": true,
+   "chars": 223,
+   "seconds": 0.002061888000011095,
+   "peak_rss_mb": 1448.58984375,
+   "outcome": "ok"
+  },
+  "0727.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/dataValidationTableRange.xlsx",
+   "ok": true,
+   "chars": 232928,
+   "seconds": 0.4058397569999943,
+   "peak_rss_mb": 1315.4453125,
+   "outcome": "ok"
+  },
+  "0305.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/chelsea_pdta.pdf",
+   "ok": false,
+   "outcome": "timeout",
+   "seconds": 120.27385654699992
+  }
+ }
+}

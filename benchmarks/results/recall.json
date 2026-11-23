@@ -1,0 +1,356 @@
+{
+ "docling": {
+  "DOCX": {
+   "documents": 97,
+   "read": 87,
+   "words": 84454,
+   "missing": 171,
+   "joined": 1,
+   "where": {
+    "footnotes footnote/p/r/t": 58,
+    "footer ftr/p/r/t": 37,
+    "header hdr/p/r/t": 32,
+    "header tc/p/r/t": 10,
+    "footer tc/p/r/t": 7,
+    "header sdt/sdtContent/r/t": 5,
+    "comments comment/p/r/t": 5,
+    "document body/p/r/t": 5
+   }
+  },
+  "HWP": {
+   "documents": 43,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "HWPX": {
+   "documents": 49,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "PPTX": {
+   "documents": 83,
+   "read": 71,
+   "words": 23459,
+   "missing": 1545,
+   "joined": 0,
+   "where": {
+    "notesSlide txBody/p/r/t": 1270,
+    "notesSlide txBody/p/fld/t": 131,
+    "slide txBody/p/r/t": 89,
+    "slide txBody/p/fld/t": 55
+   }
+  },
+  "XLSX": {
+   "documents": 99,
+   "read": 88,
+   "words": 28185,
+   "missing": 46,
+   "joined": 0,
+   "where": {
+    "Sheet c[t=s]": 45,
+    "sheet c[t=s]": 1
+   }
+  }
+ },
+ "kordoc": {
+  "DOCX": {
+   "documents": 97,
+   "read": 90,
+   "words": 84476,
+   "missing": 16,
+   "joined": 9,
+   "where": {
+    "comments comment/p/r/t": 5,
+    "endnotes endnote/p/r/t": 2,
+    "footer sdtContent/p/r/t": 2,
+    "document p/hyperlink/r/t": 2,
+    "footer ftr/p/r/t": 1,
+    "footer tc/p/r/t": 1,
+    "endnotes sdt/sdtContent/r/t": 1,
+    "footer p/fldSimple/r/t": 1
+   }
+  },
+  "HWP": {
+   "documents": 43,
+   "read": 40,
+   "words": 297606,
+   "missing": 43,
+   "joined": 0,
+   "where": {
+    "Section body": 35,
+    "Section tcmt": 4,
+    "Section secd": 2,
+    "Section eqed": 2
+   }
+  },
+  "HWPX": {
+   "documents": 49,
+   "read": 38,
+   "words": 32166,
+   "missing": 915,
+   "joined": 0,
+   "where": {
+    "section subList/p/run/t": 905,
+    "section sec/p/run/t": 10
+   }
+  },
+  "PPTX": {
+   "documents": 83,
+   "read": 70,
+   "words": 23460,
+   "missing": 426,
+   "joined": 0,
+   "where": {
+    "notesSlide txBody/p/r/t": 164,
+    "notesSlide txBody/p/fld/t": 117,
+    "slide txBody/p/r/t": 88,
+    "slide txBody/p/fld/t": 57
+   }
+  },
+  "XLSX": {
+   "documents": 99,
+   "read": 99,
+   "words": 28343,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  }
+ },
+ "kreuzberg": {
+  "DOCX": {
+   "documents": 97,
+   "read": 86,
+   "words": 84455,
+   "missing": 123,
+   "joined": 2,
+   "where": {
+    "footer ftr/p/r/t": 37,
+    "header hdr/p/r/t": 32,
+    "footnotes footnote/p/r/t": 14,
+    "header tc/p/r/t": 10,
+    "footer tc/p/r/t": 7,
+    "header sdt/sdtContent/r/t": 5,
+    "document p/hyperlink/r/t": 5,
+    "comments comment/p/r/t": 5
+   }
+  },
+  "HWP": {
+   "documents": 43,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "HWPX": {
+   "documents": 49,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "PPTX": {
+   "documents": 83,
+   "read": 81,
+   "words": 23454,
+   "missing": 1417,
+   "joined": 0,
+   "where": {
+    "notesSlide txBody/p/r/t": 1248,
+    "notesSlide txBody/p/fld/t": 117,
+    "slide txBody/p/fld/t": 52
+   }
+  },
+  "XLSX": {
+   "documents": 99,
+   "read": 88,
+   "words": 28322,
+   "missing": 1,
+   "joined": 0,
+   "where": {
+    "sheet c[t=inlineStr]": 1
+   }
+  }
+ },
+ "markitdown": {
+  "DOCX": {
+   "documents": 97,
+   "read": 85,
+   "words": 84452,
+   "missing": 104,
+   "joined": 1,
+   "where": {
+    "footer ftr/p/r/t": 37,
+    "header hdr/p/r/t": 32,
+    "header tc/p/r/t": 10,
+    "footer tc/p/r/t": 7,
+    "header sdt/sdtContent/r/t": 5,
+    "comments comment/p/r/t": 5,
+    "document p/hyperlink/r/t": 2,
+    "document txbxContent/p/r/t": 2
+   }
+  },
+  "HWP": {
+   "documents": 43,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "HWPX": {
+   "documents": 49,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "PPTX": {
+   "documents": 83,
+   "read": 83,
+   "words": 23464,
+   "missing": 141,
+   "joined": 0,
+   "where": {
+    "notesSlide txBody/p/r/t": 94,
+    "notesSlide txBody/p/fld/t": 47
+   }
+  },
+  "XLSX": {
+   "documents": 99,
+   "read": 97,
+   "words": 28185,
+   "missing": 294,
+   "joined": 0,
+   "where": {
+    "sheet c[t=s]": 294
+   }
+  }
+ },
+ "opendockit": {
+  "DOCX": {
+   "documents": 97,
+   "read": 87,
+   "words": 84464,
+   "missing": 319,
+   "joined": 0,
+   "where": {
+    "document sdtContent/p/r/t": 134,
+    "document tc/p/r/t": 85,
+    "footer ftr/p/r/t": 37,
+    "header hdr/p/r/t": 32,
+    "header tc/p/r/t": 10,
+    "footer tc/p/r/t": 7,
+    "header sdt/sdtContent/r/t": 5,
+    "document p/hyperlink/r/t": 4
+   }
+  },
+  "HWP": {
+   "documents": 43,
+   "read": 28,
+   "words": 297600,
+   "missing": 35,
+   "joined": 0,
+   "where": {
+    "Section body": 35
+   }
+  },
+  "HWPX": {
+   "documents": 49,
+   "read": 40,
+   "words": 32166,
+   "missing": 40,
+   "joined": 0,
+   "where": {
+    "section subList/p/run/t": 36,
+    "section sec/p/run/t": 4
+   }
+  },
+  "PPTX": {
+   "documents": 83,
+   "read": 83,
+   "words": 23464,
+   "missing": 163,
+   "joined": 0,
+   "where": {
+    "notesSlide txBody/p/r/t": 97,
+    "notesSlide txBody/p/fld/t": 47,
+    "slide txBody/p/r/t": 19
+   }
+  },
+  "XLSX": {
+   "documents": 99,
+   "read": 92,
+   "words": 28339,
+   "missing": 47,
+   "joined": 0,
+   "where": {
+    "Sheet c[t=s]": 45,
+    "sheet c[t=inlineStr]": 1,
+    "sheet c[t=s]": 1
+   }
+  }
+ },
+ "unstructured": {
+  "DOCX": {
+   "documents": 97,
+   "read": 85,
+   "words": 84454,
+   "missing": 228,
+   "joined": 0,
+   "where": {
+    "document sdtContent/p/r/t": 141,
+    "footnotes footnote/p/r/t": 58,
+    "document sdt/sdtContent/r/t": 6,
+    "document txbxContent/p/r/t": 6,
+    "comments comment/p/r/t": 5,
+    "document tc/p/r/t": 3,
+    "footer txbxContent/p/r/t": 2,
+    "endnotes endnote/p/r/t": 2
+   }
+  },
+  "HWP": {
+   "documents": 43,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "HWPX": {
+   "documents": 49,
+   "read": 0,
+   "words": 0,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  },
+  "PPTX": {
+   "documents": 83,
+   "read": 62,
+   "words": 23458,
+   "missing": 1369,
+   "joined": 0,
+   "where": {
+    "notesSlide txBody/p/r/t": 1271,
+    "notesSlide txBody/p/fld/t": 98
+   }
+  },
+  "XLSX": {
+   "documents": 99,
+   "read": 88,
+   "words": 28185,
+   "missing": 0,
+   "joined": 0,
+   "where": {}
+  }
+ }
+}
