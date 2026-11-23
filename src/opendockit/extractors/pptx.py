@@ -262,6 +262,12 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
     # OLE objects left as a bare placeholder with no preview picture. Their count is reported as a warning once everything is read
     unread_ole: list[object] = []
     authors = _comment_authors(part)
+    # A slide part is read once, however often the list names it (by one relationship or by several): PowerPoint writes each slide
+    # once, and a list naming one slide of 20,000 shapes 50 times (a 98 KB file) took 68 s, since shapes without text never reach the
+    # character limit. The workbook reader does the same for a sheet named twice
+    # (Pinned by: test_office_robustness.py::TestSlideListedMoreThanOnce).
+    read_parts: set[object] = set()
+    listed_again = False
     for index, slide_id in enumerate(slide_ids.sldId_lst if slide_ids is not None else [], start=1):
         # An entry without r:id is an InvalidXmlError (Pinned by: test_audit_office.py::
         # TestPptxSlideListEntryWithoutARelationship::test_entry_without_a_relationship_id_skips_only_that_slide).
@@ -270,6 +276,10 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
         except (KeyError, AttributeError, InvalidXmlError):
             extraction.warnings.append(f"Slide {index}: skipped because its part could not be read.")
             continue
+        if slide.part in read_parts:
+            listed_again = True
+            continue
+        read_parts.add(slide.part)
         # A slide whose root is not p:sld (`p:sldX`) rejected the whole document with an AttributeError when asked for its shape list.
         # Errors of one shape or one set of notes are caught separately inside, so what reaches here is a slide that cannot be read at
         # all (Pinned by:
@@ -283,6 +293,8 @@ def extract_pptx(data: bytes, options: ConvertOptions) -> Extraction:
         if extraction.count(solid_length(section.text), options):
             break
 
+    if listed_again:
+        extraction.warnings.append("The presentation lists the same slide more than once, so it was read only once.")
     if unread_ole:
         extraction.warnings.append(unread_ole_warning(len(unread_ole)))
     extraction.metadata["slide_count"] = str(len(extraction.sections))
