@@ -350,6 +350,29 @@ class TestLinks:
         assert "xhtml" not in text and "#local" not in text and "#sec" not in text
 
 
+class TestNoteReferences:
+    """The digits of a note reference ran into the figure before them: `1,200` and note 1 read `1,2001`. A link that says it is
+    a note reference, or a raised link, with a number for its text is written `[n]`; the links of a book have lost their
+    targets by then, so a raised link without one counts as well."""
+
+    def test_reference_marks_are_set_apart_from_the_figures_before_them(self) -> None:
+        body = ('<p>Revenue was 1,200<a epub:type="noteref" href="#fn1">1</a> in 2019<a role="doc-noteref" href="notes.xhtml#fn2">2</a>; '
+                'see Smith<a class="fnref" href="notes.xhtml#n3"><sup>3</sup></a> and GDP 2.5<sup><a href="notes.xhtml#n4">4</a></sup>.</p>')
+
+        text = convert(_epub({"ch1.xhtml": _page(body), "notes.xhtml": _page("<p>Notes</p>")}), "book.epub").text
+
+        assert "Revenue was 1,200[1] in 2019[2]; see Smith[3] and GDP 2.5[4]." in text
+
+    def test_link_that_is_no_reference_and_number_that_is_no_link_stay(self) -> None:
+        """A page number in a table of contents is a link with a number for its text, and a raised number without a link is an
+        exponent."""
+        body = '<p>Chapter 2 <a href="ch2.xhtml">12</a>, area 30 m<sup>2</sup>, edition<sup>2nd</sup></p>'
+
+        text = convert(_epub({"ch1.xhtml": _page(body), "ch2.xhtml": _page("<p>Two</p>")}), "book.epub").text
+
+        assert "Chapter 2 12, area 30 m^2, edition^{2nd}" in text
+
+
 class TestPictures:
     def test_picture_of_the_package_is_extracted_where_it_stands(self) -> None:
         """The chapter is in `text/`, the picture in `images/` under a percent-encoded Korean name with a space: the `src` is

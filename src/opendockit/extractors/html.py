@@ -45,6 +45,7 @@ from opendockit.extractors._html_dom import (
     _keep_expander_buttons,
     _keep_preserved_line_breaks,
     _keep_svg_labels,
+    _mark_note_references,
     _mark_scripts,
     _mark_struck_text,
     _nest_google_docs_lists,
@@ -516,6 +517,7 @@ def _extract(text: str, encoding: str, options: ConvertOptions,
     _put_symbol_fonts(soup)
     _put_form_values(soup)
     _put_quotes(soup)  # before the scripts and rubies, which are turned into text with a `<q>` inside them
+    _mark_note_references(soup)  # before the scripts: a raised reference is no exponent
     _mark_scripts(soup)
     _put_ruby(soup)
     _mark_struck_text(soup, links=options.keep_links, emphasis=options.keep_emphasis)
