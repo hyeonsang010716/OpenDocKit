@@ -670,9 +670,9 @@ def _date_code(style: etree._Element) -> str | None:
     return "".join(codes) if parts - {"text"} else None
 
 
-# How content.xml writes the value type of a date cell, whatever prefix its namespace has. A document that writes it another
-# way (spaces around the equals sign) keeps the displayed text of its dates, as before.
-_DATE_CELL_MARKS = (b'value-type="date"', b"value-type='date'")
+# What the content of a document that holds a date cell must contain: the name of the attribute its value is stored in
+# (`office:date-value`, whatever prefix its namespace has). Looked for once in the bytes, before any sheet is searched.
+_DATE_CELL_MARK = b"date-value"
 # The most date cells of a sheet that are remembered one by one (`_date_cells_of`).
 _MAX_DATE_CELLS = 200_000
 _DATE_CELLS = etree.XPath("(.//t:table-cell[@o:value-type='date'])[position() <= $most]", namespaces={"t": _TABLE, "o": _OFFICE})
@@ -683,7 +683,7 @@ def _date_cells_of(table: etree._Element) -> frozenset[etree._Element] | None:
     `_MAX_DATE_CELLS`: then every cell is asked.
 
     Deliberate: the cells are not asked one by one what they hold, and a sheet is searched only when the bytes of the content
-    name a date cell at all (`_DATE_CELL_MARKS`) and the document has a date format. Asking each displayed cell for its value
+    name a date cell at all (`_DATE_CELL_MARK`) and the document has a date format. Asking each displayed cell for its value
     type cost 8% of the time a sheet takes (240,000 cells without a date: 1.08 s → 1.19 s), and so did the search (80 ms); a
     look through the bytes costs nothing that can be measured, so a workbook without dates takes what it took."""
     cells = _DATE_CELLS(table, most=_MAX_DATE_CELLS + 1)
@@ -771,7 +771,7 @@ class _Renderer:
         self._sheet_cells = _REPEAT_SHEET_CELLS
         self._column_styles: tuple[list[int], list[str | None]] = ([], [])   # of the sheet being read (`_column_cell_styles`)
         self._date_cells: frozenset[etree._Element] | None = frozenset()     # of the sheet being read (`_date_cells_of`)
-        self.dates_written = False   # the document has a date format and its content names a date cell (`_DATE_CELL_MARKS`)
+        self.dates_written = False   # the document has a date format and its content names a date cell (`_DATE_CELL_MARK`)
         self._objects: dict[str, etree._Element | None] = {}   # embedded sub-documents by folder name, parsed once
         self._formulas: dict[str, list[str]] = {}   # … and a formula converted once
         self._charts: dict[str, etree._Element | None] = {}   # … and its chart element found once (None when it has none)
@@ -1414,6 +1414,8 @@ class _Renderer:
         limit = min(self._options.max_sheet_cols, _MAX_COLUMNS)
         self._column_styles = _column_cell_styles(table)
         self._date_cells = _date_cells_of(table) if self.dates_written else frozenset()
+        dated = self._date_cells is None or bool(self._date_cells)
+        sheet_cell = self._sheet_cell_of_a_dated_sheet if dated else self._sheet_cell
         offset = _first_used_column(table)   # leading empty columns: dropped from the rows and not counted against the limit
         merged_down: dict[int, tuple[str, int, int]] = {}   # column → (value, last sheet row, last column spanned horizontally)
         row_number = yielded = 0
@@ -1429,7 +1431,7 @@ class _Renderer:
                 if tag != _CELL and tag != _COVERED:
                     continue
                 columns = _repeat(cell, _COLS_REPEATED)
-                text = self._sheet_cell(cell, row_number, column + offset) if tag == _CELL and (len(cell) or cell.attrib) else ""
+                text = sheet_cell(cell, row_number, column + offset) if tag == _CELL and (len(cell) or cell.attrib) else ""
                 if column < 0:
                     text = ""   # left of the first used column there is no value; the call above only notes comments and drawings
                 if text and column < limit:
@@ -1512,12 +1514,17 @@ class _Renderer:
                 self._comment(child, _cell_reference(row, column))
             elif isinstance(tag, str) and tag.startswith(_DRAW_PREFIX):
                 self.frames.append(child)
-        if not displayed:
-            return _stored_value(cell)
+        return "\n".join(lines) if displayed else _stored_value(cell)
+
+    def _sheet_cell_of_a_dated_sheet(self, cell: etree._Element, row: int, column: int) -> str:
+        """`_sheet_cell` for a sheet that holds date cells: a date cell of one line is written from its stored value
+        (`_date_text`). A sheet without one is read by `_sheet_cell` itself (`sheet_rows` chooses), so nothing is asked of its
+        cells: a look at every displayed cell, even into an empty set, was 1% of the time of a sheet."""
+        text = self._sheet_cell(cell, row, column)
         dates = self._date_cells
-        if len(lines) == 1 and (cell in dates if dates is not None else cell.get(_VALUE_TYPE) == "date"):
-            return self._date_text(cell, column) or lines[0]
-        return "\n".join(lines)
+        if text and "\n" not in text and (cell in dates if dates is not None else cell.get(_VALUE_TYPE) == "date"):
+            return self._date_text(cell, column) or text
+        return text
 
     def _date_text(self, cell: etree._Element, column: int) -> str | None:
         """The date of a date cell written by the rule of the XLSX reader, from the value the cell stores and the format of its
@@ -1678,7 +1685,7 @@ def _extract(data: bytes, options: ConvertOptions, kind: str) -> Extraction:
         styles.add(named)
         styles.add(root.find(f"{{{_OFFICE}}}automatic-styles"))
         renderer = _Renderer(package, options, extraction, styles)
-        renderer.dates_written = styles.has_date_formats and any(mark in content for mark in _DATE_CELL_MARKS)
+        renderer.dates_written = styles.has_date_formats and _DATE_CELL_MARK in content
 
         # The body decides, not the mimetype: a text body in a package that calls itself a spreadsheet is still read as text.
         found = next((name for name in (kind, *_BODIES) if body.find(_BODIES[name]) is not None), None)
