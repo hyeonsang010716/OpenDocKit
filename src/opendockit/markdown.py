@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from itertools import chain
 import re
+import sys
 import unicodedata
 
 from opendockit.models import IMAGE_MARKER
@@ -18,10 +19,14 @@ from opendockit.models import IMAGE_MARKER
 # (U+2066–2069) are what current editors write around a right-to-left name; only the older embeddings were removed and the
 # isolates stayed between the letters
 # (Pinned by: test_markdown.py::TestInvisibleAndControlCharacters::test_removes_bidi_isolates_and_other_invisible_marks).
+# The other format characters of the basic plane that nothing draws go with them: the deprecated controls U+206A–206F, the
+# unassigned U+2065, the interlinear annotation marks U+FFF9–FFFB
+# (Pinned by: test_markdown.py::TestInvisibleAndControlCharacters::test_removes_format_characters_nothing_draws).
 # This class is what a text is searched for to know whether cleaning would change it; the characters are taken out by
-# `without_invisible`, which keeps two of them where they are part of a spelling.
-_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
-_NEVER_SEEN = re.compile("[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u061c\u180e\ufeff\u00ad]")
+# `without_invisible`, which keeps two of them where they are part of a spelling. The invisible characters past the basic
+# plane are taken out of a whole text only (`_without_unseen_plane_14`).
+_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u206f\u061c\u180e\ufeff\u00ad\ufff9-\ufffb]")
+_NEVER_SEEN = re.compile("[\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u180e\ufeff\u00ad\ufff9-\ufffb]")
 # The scripts in which the zero-width non-joiner (U+200C) and joiner (U+200D) are written on purpose: the Arabic script
 # (Persian, Urdu, Kurdish), the scripts of India and Sinhala, Burmese and Khmer — and the pictographs a joiner makes one of.
 _JOINED = ("\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufefc"
@@ -44,6 +49,50 @@ def without_invisible(text: str) -> str:
     text = _NEVER_SEEN.sub("", text)
     if "\u200c" in text or "\u200d" in text:
         text = _STRAY_JOINER.sub("", text)
+    return text
+
+
+# The invisible characters past the basic plane are those of plane 14, all of it: the tag
+# characters U+E0020–E007F, which mirror ASCII and carry a sentence no reader of the document sees but a language model reads
+# ("ignore previous instructions" in a DOCX, a text file and an HTML page came through whole), and the variation selectors
+# U+E0100–E01EF, 240 values that spell bytes the same way. Two uses are writing and stay: a tag sequence that makes a flag of
+# the black flag U+1F3F4 (England, Scotland, Wales; group 1), and one selector directly after an ideograph, which chooses the
+# form of a character in a Japanese name (so a run of selectors keeps its first at most)
+# (Pinned by: test_markdown.py::TestInvisibleAndControlCharacters::test_removes_tag_characters_but_for_a_flag,
+# test_keeps_one_variation_selector_after_an_ideograph). Known accepted gap: the format controls of shorthand (U+1BCA0–1BCA3)
+# and of musical notation (U+1D173–1D17A) stay; each range more to look for is paid by every text that holds a pictograph.
+_IDEOGRAPHS = "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U000323af"
+_UNSEEN_PLANE_14 = re.compile("(\U0001f3f4[\U000e0030-\U000e0039\U000e0061-\U000e007a]{1,8}\U000e007f)"
+                              "|[\U000e0000-\U000e00ff\U000e01f0-\U000e0fff]+"
+                              f"|(?<![{_IDEOGRAPHS}])[\U000e0100-\U000e01ef]+")
+_PLANE_14 = re.compile("[\U000e0000-\U000e0fff]")
+
+
+# Deliberate: whether a text can hold a character past U+FFFF is asked of its size, not of its characters, and only of a whole
+# text (`clean_characters`, `clean_line`), not of every piece, cell and count on the way there. CPython stores a string in
+# four bytes a character exactly when it holds such a character, so a text of that size or more (`_WIDE_OVERHEAD`) is
+# searched and no other is. The characters are rare, and looking for them cost more than it found: `max(text)` 7.6 ms and a
+# search 1.5 ms on 660,000 Korean characters, of the 54 ms the whole cleaning takes; a range more in the classes the pieces
+# and cells are searched with, 2 ms of the 7.6 ms a count took; the size asked for every piece, 10 ms on 200,000 pieces. So
+# until a text is cleaned whole the characters are in its pieces: a count on the way (`solid_length`) counts them, and
+# emphasis marks around nothing but them are left around nothing. A string that carries a cached UTF-8 copy is larger and is
+# searched needlessly, never skipped. Where the size does not tell (another interpreter), the overhead is below zero and
+# every text is searched (Pinned by: test_markdown.py::TestInvisibleAndControlCharacters::test_size_tells_a_wide_text).
+def _wide_overhead() -> int:
+    try:
+        overhead = sys.getsizeof("\U000e0001") - 4
+        told = sys.getsizeof("\U000e0001" * 64) == overhead + 256 > sys.getsizeof("\uac00" * 64) + 64
+    except TypeError:   # an interpreter that does not measure objects
+        told = False
+    return overhead if told else -sys.maxsize
+
+
+_WIDE_OVERHEAD = _wide_overhead()
+
+
+def _without_unseen_plane_14(text: str) -> str:
+    if sys.getsizeof(text) >= _WIDE_OVERHEAD + 4 * len(text) and _PLANE_14.search(text) is not None:
+        return _UNSEEN_PLANE_14.sub(lambda match: match.group(1) or "", text)
     return text
 
 
@@ -247,7 +296,7 @@ def clean_characters(text: str) -> str:
     # Remove first, then normalize. In the other order, the characters on either side of a removed one become newly combinable
     # and the result is no longer NFC.
     text = text.replace("\r\n", "\n").replace("\r", "\n").translate(_TEXT_LINE_BREAKS)
-    text = without_invisible(text)
+    text = _without_unseen_plane_14(without_invisible(text))
     text = _CONTROL.sub("", text)
     text = _PRIVATE_USE.sub("", text.translate(_SYMBOL_FONT_GLYPHS))
     text = _SPACE_LIKE.sub(" ", text)
@@ -572,7 +621,7 @@ def clean_line(text: str) -> str:
     """`text` as one clean line: the characters `clean_text` removes are removed, NFC, and every run of whitespace (line breaks
     included) is one space, stripped. Without the Markdown handling of `clean_text` (fences, list indentation): for values such
     as document metadata that are not body text."""
-    text = without_invisible(text.translate(_LINE_BREAK_CONTROLS))
+    text = _without_unseen_plane_14(without_invisible(text.translate(_LINE_BREAK_CONTROLS)))
     text = _PRIVATE_USE.sub("", _CONTROL.sub("", text).translate(_SYMBOL_FONT_GLYPHS))
     return " ".join(unicodedata.normalize("NFC", text).split())
 
