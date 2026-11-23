@@ -2499,12 +2499,15 @@ class TestDocxStruckDeletedAndSymbolRuns:
 
     def test_symbol_outside_the_tables_keeps_the_private_use_fallback(self):
         """A character not in the tables is moved to the private use area as before (clean_text converts only those it knows and
-        erases the rest)."""
-        body = "<w:p>" + self._run("앞") + self._symbols("Webdings", "F0FC") + self._symbols("Wingdings", "F0FF") + self._run("뒤") + "</w:p>"
+        erases the rest): FB of Symbol, a piece of a bracket, becomes the cross the shared table knows, FF of Wingdings is
+        erased. A font whose numbers mean something else than in Wingdings does not take that way: FC of Webdings is a globe,
+        and it came out as the check FC is in Wingdings."""
+        body = ("<w:p>" + self._run("앞") + self._symbols("Webdings", "F0FC") + self._symbols("Wingdings", "F0FF")
+                + self._symbols("Symbol", "F0FB") + self._run("뒤") + "</w:p>")
 
         result = convert(_docx_with_body(body), "a.docx")
 
-        assert result.text == "앞✓뒤"
+        assert result.text == "앞✗뒤"
 
     def test_content_of_a_tracked_deletion_is_left_out(self):
         """Text inside w:del is w:delText and is left out, but footnote references and pictures came out as if part of the final

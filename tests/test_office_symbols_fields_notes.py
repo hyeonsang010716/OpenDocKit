@@ -28,6 +28,63 @@ def _slide_text(data: bytes) -> str:
     return convert(data, "a.pptx").text.split("\n\n", 1)[1]
 
 
+class TestSymbolsOfTheOtherSymbolFonts:
+    """Wingdings 3 (arrows and triangles) and Webdings (pictures) had no table, so their numbers were handed to the shared
+    mapping, which holds the Wingdings meaning of each: the down triangle before a fall came out as a box, the right triangle
+    as a diamond, and the check and the cross of a yes / no table as nothing. The tables were read off the glyphs the fonts
+    draw. A number a table does not hold is left out, not given the Wingdings glyph of that number."""
+
+    @staticmethod
+    def _sym(font: str, char: str) -> str:
+        return f'<w:r><w:sym w:font="{font}" w:char="{char}"/></w:r>'
+
+    def test_docx_symbols_of_wingdings_3_and_webdings(self):
+        body = ("<w:p>" + _run("Trend ") + self._sym("Wingdings 3", "F071") + _run(" 1.1% ") + self._sym("Wingdings 3", "F070")
+                + _run(" 3.2% ") + self._sym("Wingdings 3", "F075") + _run(" ") + self._sym("Wingdings 3", "0067") + "</w:p>"
+                + "<w:p>" + _run("Export ") + self._sym("Webdings", "F072") + _run(" Import ") + self._sym("Webdings", "F061")
+                + "</w:p>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "Trend ▼ 1.1% ▲ 3.2% ▶ →\n\nExport ✗ Import ✓"
+
+    def test_docx_run_in_wingdings_3_maps_its_private_use_characters(self):
+        body = "<w:p>" + _run("Sales ") + _run("\uf070", _font("Wingdings 3")) + _run(" Cost ") + _run("\uf071", _font("Wingdings 3")) + "</w:p>"
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "Sales ▲ Cost ▼"
+
+    def test_number_the_table_does_not_hold_is_not_the_wingdings_glyph(self):
+        """Webdings 6C is a compass, Wingdings 2 71 an ornament, Wingdings 3 F5 nothing: the Wingdings glyphs of those numbers
+        (a disc, a box) are not what the document shows. The same numbers in Wingdings itself are read as before."""
+        body = ("<w:p>" + _run("a") + self._sym("Webdings", "F06C") + self._sym("Wingdings 2", "F071")
+                + self._sym("Wingdings 3", "F0F5") + _run("\uf06c\uf071", _font("Webdings")) + _run("b ")
+                + self._sym("Wingdings", "F071") + _run("\uf06c", _font("Wingdings")) + "</w:p>")
+
+        result = convert(_docx_with_body(body), "a.docx")
+
+        assert result.text == "ab ❑●"
+
+    def test_pptx_symbol_typeface_of_wingdings_3_and_webdings(self):
+        def symbol(typeface: str, text: str) -> str:
+            return f'<a:r><a:rPr lang="en-US"><a:sym typeface="{typeface}" pitchFamily="2" charset="2"/></a:rPr><a:t>{text}</a:t></a:r>'
+
+        def plain(text: str) -> str:
+            return f'<a:r><a:rPr lang="en-US"/><a:t>{text}</a:t></a:r>'
+
+        runs = (plain("Cost ") + symbol("Wingdings 3", "\uf071") + plain(" 1.1% Sales ") + symbol("Wingdings 3", "\uf070")
+                + plain(" 3.2% ok ") + symbol("Webdings", "\uf061") + plain(" no ") + symbol("Webdings", "\uf072"))
+
+        assert _slide_text(_pptx_with_runs(runs)) == "Cost ▼ 1.1% Sales ▲ 3.2% ok ✓ no ✗"
+
+    def test_html_text_in_webdings_and_wingdings_3(self):
+        page = ('<html><body><p>Done <span style="font-family:Webdings">a</span> Failed <font face="Webdings">r</font> '
+                'Next <span style="font-family:Wingdings 3">g</span></p></body></html>')
+
+        assert convert(page.encode("utf-8"), "a.html").text == "Done ✓ Failed ✗ Next →"
+
+
 class TestSymbolFontCharactersInText:
     """Private-use-area characters stored as the text (w:t / a:t) of a symbol-font run. Word's Insert Symbol gives w:sym, but pasted
     text, other generators and PowerPoint (a:sym) store them as U+F0xx characters of a run with the font set. The common table
