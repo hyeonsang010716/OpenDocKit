@@ -43,6 +43,7 @@ MAX_PATH = 260
 # What opening a file another program holds open without sharing it fails with.
 _ERROR_SHARING_VIOLATION = 32
 _GENERIC_READ = 0x80000000
+_GENERIC_WRITE = 0x40000000
 _SHARE_EVERYTHING = 0x00000001 | 0x00000002 | 0x00000004   # FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
 _OPEN_EXISTING = 3
 _INVALID_HANDLE = wintypes.HANDLE(-1).value
@@ -75,17 +76,21 @@ def openable(path: str) -> str:
     return long_path(full) if len(full) >= MAX_PATH else path
 
 
-def held_by_another_program(path: str) -> bool:
-    """Whether the file at `path` cannot be opened because another program holds it open without sharing it.
+def held_by_another_program(path: str, *, for_writing: bool = False) -> bool:
+    """Whether the file at `path` cannot be opened — for reading, or `for_writing` — because another program holds it open
+    without sharing that.
 
     Asked of the file system again, after an open failed: Python opens a file through the C runtime, which reports a
     sharing violation as EACCES, the same as a missing permission, and keeps no Windows error to tell them apart. The
-    second open shares everything and only reads, so it is in nobody's way; a folder or a missing permission fails with
-    another error, and a file that opens now is not held. Nothing raises: an answer that cannot be had is False.
+    second open shares everything and changes nothing — an existing file only, never created or cut — so it is in nobody's
+    way; a folder or a missing permission fails with another error, and a file that opens now is not held. Writing is
+    asked apart because an editor commonly lets others read its file and not write it. Nothing raises: an answer that
+    cannot be had is False.
     """
+    access = _GENERIC_WRITE if for_writing else _GENERIC_READ
     try:
         library = _kernel32()
-        handle = library.CreateFileW(openable(path), _GENERIC_READ, _SHARE_EVERYTHING, None, _OPEN_EXISTING, 0, None)
+        handle = library.CreateFileW(openable(path), access, _SHARE_EVERYTHING, None, _OPEN_EXISTING, 0, None)
         if handle in (None, _INVALID_HANDLE):
             return ctypes.get_last_error() == _ERROR_SHARING_VIOLATION
         library.CloseHandle(handle)

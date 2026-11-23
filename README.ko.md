@@ -137,6 +137,7 @@ async with IsolatedConverter(workers=2) as converter:      # 기본값: 파일�
 opendockit report.pdf                 # Markdown은 표준 출력, 경고는 표준 오류로
 opendockit report.pdf --json          # 섹션, 메타데이터, 경고, 이미지
 opendockit report.pdf --count         # 글자 수만
+opendockit report.pdf -o report.md    # 파일로 바로 저장 (UTF-8, Windows PowerShell에서는 이 방법으로)
 opendockit scan.pdf --describe        # 비전 모델로 이미지 설명 (OPENAI_API_KEY 사용)
 ```
 

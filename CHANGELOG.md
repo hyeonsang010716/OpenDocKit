@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **`opendockit FILE -o OUT`** writes the output to OUT instead of standard output: the same bytes, UTF-8 with LF line
+  ends, whatever the shell. Windows PowerShell 5.1 re-encodes what a program prints, and under cp949, the Korean
+  default, `opendockit report.hwp > report.md` garbled the Korean text. A conversion that fails leaves OUT as it
+  was, and OUT may not be the document itself.
 - **A report of what a change does to real documents** (`evals/changes.py`): it converts folders of documents with the
   reader before and after a change and lists the texts that changed, the words that are gone, the headings that
   appeared or went, the documents refused now and the HWP and HWPX twins that no longer convert alike.

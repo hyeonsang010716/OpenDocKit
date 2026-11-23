@@ -29,8 +29,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   on every platform, and `cmd.exe` and other programs get those bytes. PowerShell 5.1 does not pass them on: a
   redirect (`opendockit report.hwp > report.md`), a pipe and a variable (`$text = opendockit report.hwp`) decode the
   output with the console's code page and write it again, with CR LF. Under a code page that is not UTF-8 — cp949,
-  the Korean default — Korean text comes out garbled (`글머리` becomes `湲癒몃━`). Run
-  `[Console]::OutputEncoding = [Text.Encoding]::UTF8` in the session first, or redirect from `cmd.exe`.
+  the Korean default — Korean text comes out garbled (`글머리` becomes `湲癒몃━`). Write the file with
+  `-o report.md` instead, which the program writes itself; or run `[Console]::OutputEncoding = [Text.Encoding]::UTF8`
+  in the session first, or redirect from `cmd.exe`. A pipe or a variable needs the second.
 
 ## Integrations
 

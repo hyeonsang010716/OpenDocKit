@@ -12,10 +12,12 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
 import errno
+import io
 import json
 import os
 from pathlib import Path
 import sys
+from typing import TextIO
 
 from opendockit import (
     ConversionError,
@@ -54,6 +56,9 @@ def main() -> int:
     parser.add_argument("--describe", action="store_true",
                         help="describe the images with an OpenAI vision model and fill the descriptions into the text")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"model to use for --describe (default {DEFAULT_MODEL})")
+    parser.add_argument("-o", "--output", metavar="FILE",
+                        help="write the output to FILE instead of standard output, as UTF-8 with LF line ends whatever the "
+                             "shell (Windows PowerShell 5.1 re-encodes what a program prints)")
     # As `opendockit-mcp` and `opendockit-open-webui` have it; the bug report form asks for the version
     # (Pinned by: test_cli.py::TestArguments::test_version_is_printed_without_a_file).
     parser.add_argument("--version", action=_Version, nargs=0, help="show program's version number and exit")
@@ -63,6 +68,14 @@ def main() -> int:
         _flush_errors()   # argparse's usage error: it ignores a failed write, and the message was flushed only at exit
 
     path = Path(args.path)
+    target = Path(args.output) if args.output is not None else None
+    if target is not None and _same_file(path, target):
+        # Checked before converting: the output would replace the document it was made from
+        # (Pinned by: test_cli.py::TestOutputFile::test_the_document_itself_is_never_the_output).
+        try:
+            parser.error("argument -o/--output: names the document being converted, which it would replace")
+        finally:
+            _flush_errors()
     describer = OpenAIImageDescriber(model_name=args.model) if args.describe else None
     try:
         # convert_file refuses a regular file over the limit from its size before reading it, and reads anything else (a
@@ -93,7 +106,50 @@ def main() -> int:
             _error(f"Could not read the file (it may be a directory, or permission may be missing): {path}")
         return 1
 
+    if target is not None:
+        return _write_file(target, lambda stream: _print_result(result, args, stream))
     return _write(lambda: _print_result(result, args))
+
+
+def _openable(path: Path) -> str:
+    """`path` as the file system is asked for it: its long form on Windows when it is too long as it is."""
+    return _windows.openable(str(path)) if _windows is not None else str(path)
+
+
+def _same_file(document: Path, target: Path) -> bool:
+    """Whether `target` is the document itself, by what the files are rather than how their names are spelled (a second
+    name, another case, a link). False when either cannot be looked at: the conversion or the write reports that."""
+    try:
+        return os.path.samefile(_openable(document), _openable(target))
+    except (OSError, ValueError):
+        return False
+
+
+def _write_file(target: Path, print_output: Callable[[TextIO], None]) -> int:
+    """Write the output to `target`: what standard output would have got, byte for byte, as UTF-8 with LF line ends.
+
+    A redirect is the shell's to make, and Windows PowerShell 5.1 does not keep a program's bytes: it decodes them with the
+    console's code page and writes them again, so under cp949, the Korean default, the Korean text of `> report.md` came
+    out garbled (docs/limitations.md). The file is written by this program instead. It is opened only once the output is
+    ready, so a conversion that fails leaves a file of that name as it was, where `>` empties it first; and it is written
+    in place, as `>` writes it, so a link still leads to its target and the file keeps its permissions
+    (Pinned by: test_cli.py::TestOutputFile). The warnings go to standard error as without the option.
+    """
+    buffer = io.StringIO()
+    print_output(buffer)
+    try:
+        with open(_openable(target), "w", encoding="utf-8", errors="replace", newline="\n") as stream:
+            stream.write(buffer.getvalue())
+    except FileNotFoundError:
+        _error(f"Could not write the output file (its folder does not exist): {target}")
+        return 1
+    except OSError:
+        if _windows is not None and _windows.held_by_another_program(str(target), for_writing=True):
+            _error(f"Could not write the output file (another program has it open; close it there and try again): {target}")
+        else:
+            _error(f"Could not write the output file (it may be a directory, or permission may be missing): {target}")
+        return 1
+    return 0
 
 
 def _write(print_output: Callable[[], None]) -> int:
@@ -199,9 +255,10 @@ def _write_output_as_utf8_lines() -> None:
             pass
 
 
-def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
+def _print_result(result: ConversionResult, args: argparse.Namespace, out: TextIO | None = None) -> None:
+    """Print the output to `out`, standard output when it is None, and the warnings to standard error."""
     if args.count:
-        print(f"{result.char_count}{' exceeded' if result.exceeded else ''}")
+        print(f"{result.char_count}{' exceeded' if result.exceeded else ''}", file=out)
         if result.images and not args.describe:
             _error(f"[warning] The text in {len(result.images)} picture(s) was not counted. Add --describe to include it.")
         for warning in result.warnings:
@@ -218,9 +275,9 @@ def _print_result(result: ConversionResult, args: argparse.Namespace) -> None:
             # (Pinned by: test_cli.py::test_json_output_summarizes_picture_tiles_like_picture_data).
             image["data"] = f"<{len(image['data'])} bytes>"
             image["tiles"] = [f"<{len(tile)} bytes>" for tile in image["tiles"]]
-        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str), file=out)
     else:
-        print(result.text)
+        print(result.text, file=out)
         for warning in result.warnings:
             _error(f"[warning] {warning}")
 

@@ -135,6 +135,7 @@ One bad file ends one worker; your server and the next upload carry on. In a scr
 opendockit report.pdf                 # Markdown on stdout, warnings on stderr
 opendockit report.pdf --json          # sections, metadata, warnings, images
 opendockit report.pdf --count         # just the character count
+opendockit report.pdf -o report.md    # write it to a file instead (UTF-8; use it in Windows PowerShell)
 opendockit scan.pdf --describe        # describe images with a vision model (uses OPENAI_API_KEY)
 ```
 

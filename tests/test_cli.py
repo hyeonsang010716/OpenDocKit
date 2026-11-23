@@ -431,3 +431,113 @@ def test_json_output_summarizes_picture_tiles_like_picture_data(tmp_path, monkey
     assert code == 0
     assert len(image["tiles"]) >= 2
     assert all(tile.startswith("<") and tile.endswith(" bytes>") for tile in image["tiles"])
+
+
+class TestOutputFile:
+    """`-o FILE` writes what standard output would have got, byte for byte, as UTF-8 with LF line ends, whatever the shell.
+    Windows PowerShell 5.1 does not keep a program's bytes: it decodes them with the console's code page and writes them
+    again, so under cp949, the Korean default, the Korean text of `> report.md` came out garbled."""
+
+    @pytest.mark.parametrize("flags", [[], ["--json"], ["--count"]], ids=["text", "json", "count"])
+    def test_the_file_holds_what_standard_output_would_get(self, tmp_path, flags):
+        """Read the two ways from a process of its own, so that the bytes standard output gets are the real ones."""
+        (tmp_path / "보고서.pdf").write_bytes(builder.docx_bytes())   # a DOCX named as a PDF, for a warning
+        command = [sys.executable, "-m", "opendockit", "보고서.pdf", *flags]
+
+        printed = subprocess.run(command, cwd=tmp_path, capture_output=True, timeout=60)
+        written = subprocess.run([*command, "-o", "결과.md"], cwd=tmp_path, capture_output=True, timeout=60)
+
+        content = (tmp_path / "결과.md").read_bytes()
+        assert printed.returncode == written.returncode == 0, written.stderr
+        assert content == printed.stdout
+        assert b"\r" not in content and not content.startswith(b"\xef\xbb\xbf")
+        assert written.stdout == b""
+        assert written.stderr == printed.stderr
+        if "--json" not in flags:   # JSON carries the warnings inside it
+            assert b"[warning] The file extension (.pdf) does not match" in written.stderr
+
+    def test_a_file_of_that_name_is_replaced_whole(self, tmp_path, monkeypatch):
+        (tmp_path / "a.txt").write_text("짧은 문서\n", encoding="utf-8")
+        (tmp_path / "out.md").write_text("이전에 있던 훨씬 더 긴 내용입니다.\n" * 50, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["opendockit", "a.txt", "--output", "out.md"])
+
+        code = main()
+
+        assert code == 0
+        assert (tmp_path / "out.md").read_text(encoding="utf-8") == "짧은 문서\n"
+
+    @pytest.mark.parametrize("document", ["깨진.docx", "없는 파일.docx"], ids=["corrupted", "missing"])
+    def test_a_conversion_that_fails_leaves_the_file_as_it_was(self, tmp_path, monkeypatch, capsys, document):
+        """`>` empties its file before the program runs; the file is opened here only once the output is ready."""
+        (tmp_path / "깨진.docx").write_bytes(b"PK\x03\x04" + b"\x00" * 64)
+        (tmp_path / "out.md").write_text("이전 내용\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["opendockit", document, "-o", "out.md"])
+
+        code = main()
+
+        assert code == 1
+        assert capsys.readouterr().err
+        assert (tmp_path / "out.md").read_text(encoding="utf-8") == "이전 내용\n"
+
+    def test_the_document_itself_is_never_the_output(self, tmp_path, monkeypatch, capsys):
+        """`opendockit notes.md -o notes.md` would replace the document with its own conversion: refused before converting,
+        however the same file is spelled."""
+        document = tmp_path / "메모.md"
+        document.write_text("# 제목\n\n원본 문서입니다.\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        spellings = ["메모.md", "./메모.md", str(document)] + (["메모.MD"] if os.name == "nt" else [])
+        for spelling in spellings:
+            monkeypatch.setattr("sys.argv", ["opendockit", "메모.md", "-o", spelling])
+
+            with pytest.raises(SystemExit) as stopped:
+                main()
+
+            assert stopped.value.code == 2
+            assert "argument -o/--output: names the document being converted" in capsys.readouterr().err
+            assert document.read_text(encoding="utf-8") == "# 제목\n\n원본 문서입니다.\n"
+
+    @pytest.mark.parametrize("where", ["missing folder", "folder"])
+    def test_a_file_that_cannot_be_written_is_said_why(self, tmp_path, monkeypatch, capsys, where):
+        (tmp_path / "a.txt").write_text("본문\n", encoding="utf-8")
+        target = tmp_path / "없는 폴더" / "out.md" if where == "missing folder" else tmp_path
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["opendockit", "a.txt", "-o", str(target)])
+
+        code = main()
+
+        reason = "its folder does not exist" if where == "missing folder" else "it may be a directory, or permission may be missing"
+        assert code == 1
+        assert capsys.readouterr().err == f"Could not write the output file ({reason}): {target}\n"
+
+    @pytest.mark.skipif(os.name != "nt", reason="the 260-character limit of a path is Windows")
+    def test_a_file_at_a_long_path_is_written(self, tmp_path, monkeypatch):
+        target = file_at_length(tmp_path, 320, b"old", suffix=".md")
+        (tmp_path / "a.txt").write_text("긴 경로의 결과\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["opendockit", "a.txt", "-o", str(target)])
+
+        code = main()
+
+        assert code == 0
+        with open("\\\\?\\" + str(target), encoding="utf-8") as handle:
+            assert handle.read() == "긴 경로의 결과\n"
+
+    @pytest.mark.skipif(os.name != "nt", reason="sharing modes that refuse a writer are Windows")
+    @pytest.mark.parametrize("sharing_reads", [False, True], ids=["no sharing", "reads shared"])
+    def test_a_file_another_program_holds_open_says_so(self, tmp_path, monkeypatch, capsys, sharing_reads):
+        """An editor that has the file open commonly lets others read it and not write it, so the check asks for writing."""
+        (tmp_path / "a.txt").write_text("본문\n", encoding="utf-8")
+        target = tmp_path / "out.md"
+        target.write_text("이전 내용\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["opendockit", "a.txt", "-o", str(target)])
+
+        with held_open(target, sharing_reads=sharing_reads):
+            code = main()
+
+        assert code == 1
+        assert capsys.readouterr().err == (
+            f"Could not write the output file (another program has it open; close it there and try again): {target}\n")
+        assert target.read_text(encoding="utf-8") == "이전 내용\n"
