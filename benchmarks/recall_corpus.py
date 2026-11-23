@@ -6,16 +6,28 @@ A DOCX, PPTX, XLSX or HWPX states its text in its own XML, and an HWP 5 file in 
 words read from there (`evals/recall.py::source_units`) are looked for in each tool's output of the `ordinary` suite: a
 word that is nowhere in it was lost. Nobody has to know the right Markdown for that. It counts only the documents a tool
 returned text for, and says how many those were. Writes <results-dir>/recall.json.
+
+Beside the counts it keeps where the missing words sit in the source (the part and the last elements above the text,
+`header hdr/p/r/t`), never a word: a tool that leaves page headers out on purpose and one that loses the text of a table
+show the same number, and only the place tells them apart.
 """
 
+from collections import Counter
 import json
 from pathlib import Path
+import re
 import sys
 
 from evals.recall import SUFFIXES, compare_text, source_units
 
 
 NAMES = {".docx": "DOCX", ".pptx": "PPTX", ".xlsx": "XLSX", ".hwpx": "HWPX", ".hwp": "HWP"}
+
+
+def place(part: str, where: str) -> str:
+    """`word/header2.xml` and `hdr/sdt/sdtContent/p/r/t` as `header sdtContent/p/r/t`."""
+    name = re.sub(r"\d+$", "", Path(part).stem)
+    return f"{name} {'/'.join(where.split('/')[-4:])}"
 
 
 def main() -> None:
@@ -36,7 +48,8 @@ def main() -> None:
         for item in files:
             if item["id"] not in sources:
                 continue
-            bucket = per_format.setdefault(NAMES[Path(item["path"]).suffix.lower()], {"documents": 0, "read": 0, "words": 0, "missing": 0, "joined": 0})
+            bucket = per_format.setdefault(NAMES[Path(item["path"]).suffix.lower()],
+                                           {"documents": 0, "read": 0, "words": 0, "missing": 0, "joined": 0, "where": Counter()})
             bucket["documents"] += 1
             output = results / "ordinary" / tool / f"{item['id']}.md"
             if replies.get(item["id"], {}).get("outcome") != "ok" or not output.exists():
@@ -46,8 +59,11 @@ def main() -> None:
             bucket["words"] += counted["words"]
             bucket["missing"] += len(counted["missing"])
             bucket["joined"] += len(counted["joined"])
+            bucket["where"].update(place(part, where) for _, part, where in counted["missing"])
+        for bucket in per_format.values():
+            bucket["where"] = dict(bucket["where"].most_common(8))
         summary[tool] = per_format
-        print(f"{tool:13}", per_format, flush=True)
+        print(f"{tool:13}", {name: {key: value for key, value in bucket.items() if key != "where"} for name, bucket in per_format.items()}, flush=True)
     (results / "recall.json").write_text(json.dumps(summary, indent=1))
 
 
