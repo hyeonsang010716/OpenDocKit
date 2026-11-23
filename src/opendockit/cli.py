@@ -28,6 +28,12 @@ from opendockit import (
 from opendockit.describe import DEFAULT_MODEL
 
 
+if os.name == "nt":
+    from opendockit import _windows
+else:
+    _windows = None
+
+
 def main() -> int:
     if sys.stderr is None:
         # File descriptor 2 is closed (`2>&-`): `print(file=None)` and argparse's usage errors wrote to standard output, so
@@ -79,7 +85,12 @@ def main() -> int:
         _error(f"File not found: {path}")
         return 1
     except OSError:
-        _error(f"Could not read the file (it may be a directory, or permission may be missing): {path}")
+        if _windows is not None and _windows.held_by_another_program(str(path)):
+            # The likeliest reason on Windows, which the generic sentence left out: another program holds the file open
+            # without sharing it (Pinned by: test_cli.py::TestFileErrors::test_a_file_another_program_holds_open_says_so).
+            _error(f"Could not read the file (another program has it open; close it there and try again): {path}")
+        else:
+            _error(f"Could not read the file (it may be a directory, or permission may be missing): {path}")
         return 1
 
     return _write(lambda: _print_result(result, args))

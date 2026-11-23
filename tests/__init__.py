@@ -1,5 +1,7 @@
 """Test suite. Sample documents are built in memory by `tests.builder`."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import ctypes
 import os
 from pathlib import Path
@@ -75,6 +77,25 @@ def file_at_length(folder: Path, length: int, data: bytes, suffix: str = ".docx"
     with open("\\\\?\\" + path, "wb") as handle:
         handle.write(data)
     return Path(path)
+
+
+@contextmanager
+def held_open(path: Path) -> Iterator[None]:
+    """Hold `path` open without sharing it, as an editor that locks its document does (Windows). Opened through the long
+    form, so that a path of any length can be held."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                                     wintypes.DWORD, wintypes.HANDLE]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    generic_read, no_sharing, open_existing = 0x80000000, 0, 3
+    handle = kernel32.CreateFileW("\\\\?\\" + os.path.abspath(path), generic_read, no_sharing, None, open_existing, 0, None)
+    if handle in (None, wintypes.HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        yield
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def wait_until_gone(pid: int, seconds: float = 5.0) -> bool:

@@ -44,6 +44,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   such a path was "File not found" on the command line, a `FileNotFoundError` from `convert_file` and "No file at
   that path." from the MCP server, for a file that was there: a document deep in a synchronised folder with long
   names. A root of the MCP server may be that long as well.
+- **Windows: a file another program holds open is said to be.** The command line said the file might be a folder or
+  lack a permission, and the MCP server only that it could not be read.
 - **PDF: the characters of an embedded TrueType font without a `ToUnicode` map.** The font's own character table was
   read wrongly past its first segment: of the 2,691 glyphs Arial names, 1,261 came out as another character, and
   `25°C ± 2, price £ 10` read `25±C¡²¡2,¡price¡¤¡10`.

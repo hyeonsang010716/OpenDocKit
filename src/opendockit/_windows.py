@@ -24,7 +24,8 @@ LibreOffice that could not be put in one is not ended with the process that star
 fail, which is why neither is treated as an error worth ending a conversion for. Known accepted gap: nothing in the result
 says that a limit was not applied.
 
-The long form of a path belongs here as well (`long_path`, `openable`).
+Two things about files belong here as well: the long form of a path (`long_path`, `openable`), and telling a file another
+program holds open from one this user may not read (`held_by_another_program`).
 """
 
 import ctypes
@@ -39,6 +40,12 @@ import uuid
 # off by default on Windows 10 and 11. The limit counts the terminating NUL: measured on Windows 11, a file at a full path
 # of 259 characters opens and one of 260 is "not found".
 MAX_PATH = 260
+# What opening a file another program holds open without sharing it fails with.
+_ERROR_SHARING_VIOLATION = 32
+_GENERIC_READ = 0x80000000
+_SHARE_EVERYTHING = 0x00000001 | 0x00000002 | 0x00000004   # FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+_OPEN_EXISTING = 3
+_INVALID_HANDLE = wintypes.HANDLE(-1).value
 
 
 def long_path(path: str) -> str:
@@ -66,6 +73,25 @@ def openable(path: str) -> str:
         return path
     full = os.path.abspath(path)
     return long_path(full) if len(full) >= MAX_PATH else path
+
+
+def held_by_another_program(path: str) -> bool:
+    """Whether the file at `path` cannot be opened because another program holds it open without sharing it.
+
+    Asked of the file system again, after an open failed: Python opens a file through the C runtime, which reports a
+    sharing violation as EACCES, the same as a missing permission, and keeps no Windows error to tell them apart. The
+    second open shares everything and only reads, so it is in nobody's way; a folder or a missing permission fails with
+    another error, and a file that opens now is not held. Nothing raises: an answer that cannot be had is False.
+    """
+    try:
+        library = _kernel32()
+        handle = library.CreateFileW(openable(path), _GENERIC_READ, _SHARE_EVERYTHING, None, _OPEN_EXISTING, 0, None)
+        if handle in (None, _INVALID_HANDLE):
+            return ctypes.get_last_error() == _ERROR_SHARING_VIOLATION
+        library.CloseHandle(handle)
+        return False
+    except (OSError, AttributeError, ValueError):
+        return False
 
 
 _JobObjectBasicAccountingInformation = 1
@@ -131,6 +157,9 @@ def _kernel32() -> ctypes.WinDLL:
     library.WaitForSingleObject.restype = wintypes.DWORD
     library.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     library.CloseHandle.argtypes = [wintypes.HANDLE]
+    library.CreateFileW.restype = wintypes.HANDLE
+    library.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                                    wintypes.DWORD, wintypes.HANDLE]
     library.TerminateJobObject.restype = wintypes.BOOL
     library.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     library.QueryInformationJobObject.restype = wintypes.BOOL

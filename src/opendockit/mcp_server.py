@@ -159,6 +159,12 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             # test_a_reader_that_cannot_be_imported_is_a_fixed_sentence)
             raise ToolError(IMPORT_FAILED_MESSAGE) from error
         except OSError as error:   # no permission, a file removed meanwhile
+            # The likeliest reason on Windows, and the one the user can act on: an editor holding the file open without
+            # sharing it (Pinned by: test_mcp_server.py::TestFileHeldOpenByAnotherProgram::test_a_file_another_program_holds_open_says_so).
+            # Asked in a thread, as the path and the read are: it opens the file again.
+            if _windows is not None and await asyncio.to_thread(_windows.held_by_another_program, str(file)):
+                raise ToolError("The file is open in another program, which does not let it be read. "
+                                "Close it there and try again.") from error
             raise ToolError("The file could not be read.") from error
         # A result a wall-clock limit cut short (the PDF time budget on a busy machine) is not kept: the next call may get the
         # full reading. A worker that ran out of time raises and is never kept either

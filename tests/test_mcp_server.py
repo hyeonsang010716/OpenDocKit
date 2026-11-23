@@ -13,7 +13,7 @@ import pytest
 
 from opendockit import mcp_server
 from opendockit.exceptions import ConversionError
-from tests import builder, file_at_length
+from tests import builder, file_at_length, held_open
 
 
 if mcp_server.MCPServer is None:
@@ -529,6 +529,18 @@ class TestFilesAtALongPath:
         assert started == [[root]]
         monkeypatch.undo()
         assert "본문 첫 문단입니다." in call("convert_document", {"path": str(path)}, roots=[root])
+
+
+@pytest.mark.skipif(os.name != "nt", reason="sharing modes that refuse a reader are Windows")
+class TestFileHeldOpenByAnotherProgram:
+    def test_a_file_another_program_holds_open_says_so(self, tmp_path):
+        """An editor that holds its document open without sharing it is the likeliest reason a file cannot be read on
+        Windows; the answer said only that it could not be read."""
+        path = tmp_path / "열린 문서.docx"
+        path.write_bytes(builder.docx_bytes())
+
+        with held_open(path), pytest.raises(ToolError, match="open in another program"):
+            call("convert_document", {"path": str(path)})
 
 
 @pytest.mark.skipif(os.name != "posix", reason="symbolic links and FIFOs are made without privilege only on POSIX")
