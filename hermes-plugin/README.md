@@ -77,7 +77,7 @@ pages, slides or sheets has nothing to ask for, and its note says to raise `max_
 
 ## Limits
 
-- No OCR. A scanned PDF or a photo comes back as a placeholder with a warning; the skill tells the agent to say so.
+- No OCR. A scanned PDF page comes back empty and a photo as a placeholder, each with a warning; the skill tells the agent to say so.
 - Pictures are `[Image]` placeholders. Charts built from data in an Office file come back as data tables.
 - The full list is in [docs/limitations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md).
 

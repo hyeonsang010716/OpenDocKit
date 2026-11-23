@@ -20,7 +20,9 @@ Section unit: page (`<!-- Page N -->`). Design notes: [decisions/pdf.md](decisio
 Text flow:
 
 - Reading order, including two-column layouts, two-column layouts with wide line or paragraph spacing, and side-by-side text boxes.
-- Paragraphs, and headings inferred from font size.
+- Paragraphs, and headings inferred from font size and weight (a short bold line at about the body size, such as
+  `5. The dynamics`, is a heading too).
+- A Korean word that a PDF made by Hangul broke across two lines is written as one word again.
 - Repeated page headers and page numbers are removed.
 - Printer's marks outside the trim area (outside the CropBox) are removed, except on rotated pages.
 - Diagonal watermarks, fake bold and shadow duplicates are removed.
@@ -34,7 +36,9 @@ Text flow:
 Tables:
 
 - Ruled tables, including tables without left and right borders, dotted cell boundaries, vertically merged values repeated on every row, tables that fill the whole page, and text written rotated inside a cell.
-- Borderless tables, including splitting two cells that touch because the gap between them is narrow.
+- Borderless tables, including splitting two cells that touch because the gap between them is narrow, and tables
+  drawn with horizontal rules only (a rule above, under the header and below, as papers set them).
+- In a tagged PDF (an export of Word or LibreOffice), a table the tags state is read from them where the page agrees.
 - Striped (row-shaded) tables, including vertically merged cells and an unshaded header and first row.
 - A table continued on the next page gets the header row of the previous page.
 - A table inside a table is flattened into one table by repeating the outer table's label on every row.
@@ -129,8 +133,9 @@ CSV:
 Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp.md).
 
 - "개요 N" (Outline N) styles and paragraphs with an outline number (개요 번호) → headings; a numbered clause that is a
-  sentence (`1. 갑은 … 지급한다.`) stays a numbered paragraph. In a document without them, a short paragraph set clearly
-  larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading; dates, table-of-contents lines,
+  sentence (`1. 갑은 … 지급한다.`) stays a numbered paragraph. Beside them, a short paragraph set clearly
+  larger than the body (1.15 / 1.3 / 1.5 times) becomes a level 3 / 2 / 1 heading, whether or not the document has
+  outline headings; dates, table-of-contents lines,
   signature lines, quoted lines, typed bullet items, captions of figures and tables, contact lines and sentences written
   large stay text.
 - Paragraph numbering and bullets; lower levels become indented lists.
@@ -284,7 +289,8 @@ Section unit: document (ODT), sheet (ODS), slide (ODP). Read directly from the p
 - **ODT**: headings, bulleted and numbered lists with nesting, tables with merged cells and nested tables,
   footnotes and endnotes, links, bold / italic, superscripts and subscripts, strikethrough, pictures, charts (title and
   values), formulas (LaTeX) and comments. Headers and footers with `include_headers_footers`. Tracked deletions are left out.
-- **ODS**: one section per sheet with the cell text as displayed. Several tables on a sheet are split as for XLSX;
+- **ODS**: one section per sheet with the cell text as displayed; a date is written from its stored value, as for
+  XLSX (`2024-01-05`, where the sheet shows `05/01/24`). Several tables on a sheet are split as for XLSX;
   merged cells are filled the same way. Hidden sheets are skipped with a warning unless `include_hidden_sheets`. Chart
   titles, pictures, the text of drawn shapes and cell comments follow the cells. The column limit counts from the first
   used column, as for XLSX.

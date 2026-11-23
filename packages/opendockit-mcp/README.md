@@ -44,7 +44,7 @@ the server may read. Without it the server can read any file your user can read.
 
 ## Limits
 
-- No OCR: a scanned PDF or a photo comes back as a placeholder with a warning.
+- No OCR: a scanned PDF page comes back empty and a photo as a placeholder, each with a warning.
 - Legacy `.doc` / `.ppt` need LibreOffice installed.
 
 Everything else — the tools in detail, the design notes, the limits — is in the

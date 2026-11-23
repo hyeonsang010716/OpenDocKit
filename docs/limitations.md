@@ -37,7 +37,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ## General
 
-- **Charts and shapes drawn as vectors** (PDF charts drawn with lines rather than as images, Office shapes) cannot be extracted as pictures. Native charts of PPTX, DOCX, HWPX, XLSX sheets and chart sheets are converted to data tables (XLS charts are not converted; a chart sheet, and an otherwise empty sheet holding only a chart, give a warning). New chart types (waterfall, treemap and other chartex types) are handed over as the fallback picture stored in the file when their values cannot be read (not verified with real files). However, a PDF page with no characters at all and only curves (a design PDF whose text was converted to outlines) is sent to the vision model as a whole page, like a scanned page.
+- **Charts and shapes drawn as vectors** (PDF charts drawn with lines rather than as images, Office shapes) cannot be extracted as pictures. Native charts of PPTX, DOCX, HWP, HWPX, ODT, ODP, XLSX sheets and chart sheets are converted to data tables (XLS charts are not converted; a chart sheet, and an otherwise empty sheet holding only a chart, give a warning). New chart types (waterfall, treemap and other chartex types) are handed over as the fallback picture stored in the file when their values cannot be read (not verified with real files). However, a PDF page with no characters at all and only curves (a design PDF whose text was converted to outlines) is sent to the vision model as a whole page, like a scanned page.
 - **WMF and EMF pictures** (common in HWP and legacy Office) cannot be rendered on macOS and Linux. They stay as `[Image]`, and a warning reports how many there were.
 - **Superscripts and subscripts** are written as `10^6`, `10^{-3}`, `H_2O`. An ordinal suffix after a number (21st) and a superscript containing Hangul or Hanja ('1,000원') are left as they are. In PDF they are inferred from font size and baseline position, so they can be wrong, and they are not marked inside table cells. In Excel only scripts on part of a cell's text are marked (not in large XLSX read in streaming mode).
 - **Unsupported formats**: SVG, Word XML (Word 2003 XML and the like), ODF single-file XML (.fodt, .fods, .fodp) and Hangul XML (HWPML, .hml) raise `UnsupportedFormatError`, as do Excel Binary Workbooks (.xlsb), Hangul 3.x, PowerPoint files saved as Strict Open XML (a Word document or an Excel workbook saved that way is read from a copy with the Transitional names; checked against one file Word saved and three Excel saved, while the tests build their Strict files themselves) and the other OpenDocument kinds (drawings, formulas, databases). Save Hangul XML as HWPX and upload that. Outlook messages (.msg) are not read either: save the mail in Outlook as MHT, HTML or text. A UTF-8 note that merely contains `%PDF-` and PDF structure words is read as text when it cannot be read as a PDF (known accepted gap: a CP949 note is still reported as a corrupted PDF).
@@ -49,7 +49,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ### Tables
 
-- **Borderless tables** are restored only when 3 or more short cells line up in columns over 3 or more lines.
+- **Borderless tables** are restored when 3 or more short cells line up in columns over 3 or more lines, when the table
+  is set between horizontal rules (two columns and three rows are enough there), or when a tagged PDF states the table
+  and the page agrees with its tags. For the first kind:
   - A row with one wide cell is attached above that table.
   - Table-like rows that do not qualify as a table, and two short rows with aligned columns (such as `적용일 | 유예기간` in an official notice), are read one line per row.
   - A row whose cell text wraps onto a second line keeps the table by joining the lines with `<br>` inside the cell (including rows whose other cells are vertically centered or bottom-aligned).
@@ -80,7 +82,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   — an unlinked note was judged safer than a wrong one. So does a page after one that left a mark with the same number
   unlinked (its note may have moved to the next page). The end of a note carried over from the previous page stays as plain
   text above the notes of the page. `include_footnotes=False` does not remove PDF notes.
-- **Line breaks inside a PDF paragraph are not joined with a space.** Korean PDFs often break lines at any character, so joining with a space would split words.
+- **Line breaks inside a PDF paragraph are not joined with a space.** Korean PDFs often break lines at any character, so joining with a space would split words. In a PDF made by Hangul, where the file itself shows that a line ended inside a word, the two lines are written as one; any other PDF keeps its lines.
 - **Word-spacing restoration is an estimate.** For text placed word by word, the actual gap where the font changes is estimated and a space is inserted. A thin space before a symbol (a parenthesis and the like) following Hangul is not restored (`Test(*) 진행` → `Test (*)진행`).
 - **Slanted text** (about 6 degrees or more) is treated as a watermark and removed from the body. Small slanted labels inside figures are removed with it.
 - **Text drawn rotated 90 degrees within a page** (identifiers in the margin of a paper, a table laid sideways on a portrait page) is read rotated and placed at the end of that page as line-by-line text. Table structure is not restored. Text written rotated inside a cell of a ruled table is read as that cell's text (except cells mixed with horizontal text).
@@ -194,8 +196,10 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   beyond that it is cut, with a warning. Columns beyond 16,384 are never read. An object shown by several frames gives its values once.
   Hidden text is left out; for text hidden by a condition the state saved in the file is used (conditions are not evaluated).
 - **RTF**: equations, comments and the contents of embedded OLE objects are not read (an OLE preview picture is kept).
-  Text in symbol fonts (Symbol, Wingdings) is dropped. Letter and roman list numbers are written as `1.`, `2.`, and the
-  automatic number of a numbered heading is not reproduced. Underline and strikethrough are not kept. HTML
+  Text in a symbol font (Symbol, Wingdings) written as plain bytes comes out as the Latin letters of those bytes (`abc`
+  where the page shows `αβχ`), without a warning; written as private-use characters, Wingdings is read and Symbol is
+  dropped. Letter and roman list numbers are written as `1.`, `2.`, and the automatic number of a numbered heading is
+  not reproduced. Underline and strikethrough are not kept (raised and lowered text is: `10^6`, `H_2O`). HTML
   mail bodies wrapped in RTF by Outlook yield only their plain-text rendering. A document cut off mid-file is converted
   up to the cut, with a warning. A table keeps at most 500,000 cells; the cells after that are left out with a warning.
   After 50,000 runs of formatting in one paragraph the rest of it is written without bold, italic or links. Groups
@@ -228,8 +232,9 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - Relative addresses, `#fragment`, `javascript:` and other schemes stay plain text. The address of a link that wraps
   only a picture, or several blocks, is not kept. PPTX slide titles and speaker notes, DOCX comments and WordArt are read
   as plain text.
-- Emphasis is read from direct run formatting and the Strong / Emphasis character styles (DOCX), run `b` / `i` (PPTX)
-  and `<b> <strong> <i> <em>` (HTML). Bold from other styles or CSS is not marked. Bold over a whole paragraph or cell,
+- Emphasis is read from direct run formatting and the Strong / Emphasis character styles (DOCX), run `b` / `i` (PPTX),
+  `<b> <strong> <i> <em>` (HTML, mail, EPUB), the character shape (HWP, HWPX) and the text properties of ODT and RTF.
+  Bold from other styles or CSS is not marked. Bold over a whole paragraph or cell,
   emphasis that starts inside a word, and a single emphasized character glued to its word are not marked.
 - A span that ends in punctuation directly followed by a letter (`**…)**에`) is shown literally by strict CommonMark
   renderers. `*` and `_` typed elsewhere in the document text are not escaped.

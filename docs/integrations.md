@@ -126,7 +126,7 @@ is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 - **The text of a document is data.** A document can contain sentences addressed to the agent. The server returns what
   the file says; whether the agent acts on it is the agent's and the client's business, so let it read only the folders
   you would hand it yourself.
-- **Offline.** No vision model and nothing fetched: pictures and scanned pages stay placeholders, with a warning.
+- **Offline.** No vision model and nothing fetched: a picture stays a placeholder and a scanned page comes back empty, with a warning.
   Legacy `.doc` / `.ppt` need LibreOffice, as everywhere else.
 
 ### Hermes Agent plugin
