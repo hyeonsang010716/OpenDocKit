@@ -9,6 +9,7 @@ import struct
 import pytest
 
 from opendockit import convert
+from opendockit.extractors import _lists
 from tests import builder
 from tests.test_hwp import (
     _CHART_XML,
@@ -215,6 +216,54 @@ class TestLowerLevelNumbers:
         result = convert(data, "a.hwp")
 
         assert result.text == "# 가. 세부 계획"
+
+
+class TestCaretsOfHangulNumberText:
+    """Two carets of a Hangul number text were written out as they stand. `^:` is level 10, the character after `9`: a file of
+    Hancom Office 12 holds `^1.^2.^3.^4.^5.^6.^7.^8.^9.^:.` there and reads `1.1.1.1.1.1.1.1.1.1.` in its own fallback text. A `^`
+    that names no level draws nothing: a press release whose list marks are typed into the number text (`^  □`, `^   ㅇ`,
+    `^     -`) reads `□ 시중에 유통 중인…` in Hancom's PDF, and came out as `^ □ 시중에 유통 중인…`."""
+
+    _MARKS = ("^  □", "^   ㅇ", "^     -")
+    _ITEMS = [(1, "추진 배경"), (2, "소비자 설문조사"), (3, "상위 8개 브랜드"), (1, "시험 결과")]
+    _EXPECTED = "□ 추진 배경\n\n  - ㅇ 소비자 설문조사\n    - 상위 8개 브랜드\n\n□ 시험 결과"
+
+    def test_level_ten_is_written_as_a_colon(self):
+        levels = [_lists.NumberLevel("".join(f"^{upper}." for upper in range(1, level + 1))) for level in range(1, 10)]
+        numbering = _lists.Numbering([*levels, _lists.NumberLevel("^1.^2.^3.^4.^5.^6.^7.^8.^9.^:.")])
+
+        assert [numbering.advance(level) for level in range(10)][-2:] == ["1.1.1.1.1.1.1.1.1.", "1.1.1.1.1.1.1.1.1.1."]
+        assert numbering.advance(9) == "1.1.1.1.1.1.1.1.1.2."
+
+    def test_level_ten_in_two_digits_is_read_as_before(self):
+        numbering = _lists.Numbering([_lists.NumberLevel("^1.")] * 9 + [_lists.NumberLevel("(^10)")])
+
+        assert [numbering.advance(9), numbering.advance(9)] == ["(1)", "(2)"]
+
+    @pytest.mark.parametrize(("template", "written"), [("^  □", "□"), ("^1^", "1"), ("^", ""), ("^^2)", "1)"), ("^-^N.", "-1.")])
+    def test_a_caret_that_names_no_level_writes_nothing(self, template, written):
+        assert _lists.Numbering([_lists.NumberLevel(template)] * 2).advance(1) == written
+
+    def test_a_percent_sign_of_a_docx_number_text_stays(self):
+        assert _lists.Numbering([_lists.NumberLevel("100% %1: 50%")], mark="%").advance(0) == "100% 1: 50%"
+
+    def test_hwpx_marks_typed_into_the_number_text(self):
+        heads = _HWPX_HEADS
+        for number, mark in zip(("^1.", "^2.", "^3)"), self._MARKS, strict=True):
+            heads = heads.replace(f">{number}<", f">{mark}<")
+        body = "".join(_hwpx_paragraph(text, shape) for shape, text in self._ITEMS)
+        data = builder.zip_with(builder.hwpx_bytes(body), edit={
+            "Contents/header.xml": lambda xml: xml.replace("</hh:refList>", heads + "</hh:refList>")})
+
+        assert convert(data, "a.hwpx").text == self._EXPECTED
+
+    def test_hwp_marks_typed_into_the_number_text(self, monkeypatch):
+        heads = (builder.hwp_record(TAG_NUMBERING, 0, _numbering(*((mark, 0) for mark in self._MARKS)))
+                 + b"".join(builder.hwp_record(TAG_PARA_SHAPE, 0, shape)
+                            for shape in (_para_shape(), _para_shape(2, 0, 1), _para_shape(2, 1, 1), _para_shape(2, 2, 1))))
+        section = b"".join(_hwp_paragraph(text, shape) for shape, text in self._ITEMS)
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section], docinfo_extra=heads), "a.hwp").text == self._EXPECTED
 
 
 class TestChartInsideATableCell:

@@ -269,7 +269,7 @@ def _roman(value: int) -> str:
 # (`_charts._MAX_FORMAT_CHARS`). A longer one is the level's own number and a period, as when DOCX writes no lvlText
 # (Pinned by: test_audit_core.py::TestLongNumberText).
 _MAX_NUMBER_TEXT = 255
-_NUMBER_TOKENS = {"^": re.compile(r"\^(\d+|[Nn])"), "%": re.compile(r"%(\d+)")}
+_NUMBER_TOKENS = {"^": re.compile(r"\^(\d+|[Nn:])?"), "%": re.compile(r"%(\d+)")}
 
 
 def _number_pieces(template: str, mark: str) -> tuple[str | int | None, ...] | None:
@@ -281,6 +281,10 @@ def _number_pieces(template: str, mark: str) -> tuple[str | int | None, ...] | N
     `^N` / `^n` (the number of the level itself) is Hangul (HWP) notation only. Read for DOCX too, `%N` made '100%Note %1.' come
     out as '1001ote 1.' (Pinned by: test_audit_core.py::TestLetterAfterAPercentSignInNumberText).
 
+    Hangul also writes level 10 as `^:`, the character after `9` (beside `^10`), and draws nothing for a `^` that names no
+    level, as in the head `^  □` of a list whose mark is typed into the number text: they came out as `1.1.1.1.1.1.1.1.1.^:.`
+    and `^ □` (Pinned by: test_hwp_heads_and_shapes.py::TestCaretsOfHangulNumberText).
+
     The text was substituted again for every numbered paragraph, empty ones included (they still count): a 100 KB lvlText of
     level numbers that are empty at that level, on 300 empty numbered paragraphs (a 36 KB file), took 2.3 s. Each list keeps the
     split of its levels (`Numbering._pieces`), so nothing of a document outlives its conversion."""
@@ -289,7 +293,8 @@ def _number_pieces(template: str, mark: str) -> tuple[str | int | None, ...] | N
     position = 0
     for match in _NUMBER_TOKENS[mark].finditer(template):
         token = match.group(1)
-        target = None if token in ("N", "n") else decimal_int(token, 0) - 1
+        # a `^` alone (Hangul only: the `%` pattern always has its digits) names no level, like a level below 1
+        target = None if token in ("N", "n") else 9 if token == ":" else decimal_int(token, 0) - 1 if token else -1
         literal = template[position:match.start()]
         position = match.end()
         size += len(literal) + (target is None or target >= 0)
