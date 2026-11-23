@@ -8,6 +8,7 @@ import struct
 import time
 import zlib
 
+from lxml import etree
 import pytest
 
 from opendockit import (
@@ -17,6 +18,7 @@ from opendockit import (
     EncryptedDocumentError,
     convert,
 )
+from opendockit.extractors import hwpx as hwpx_module
 from opendockit.extractors.hwp import (
     TAG_BIN_DATA,
     TAG_BULLET,
@@ -665,6 +667,34 @@ class TestHangulDrawsTheSoftHyphen:
 
     def test_other_formats_still_remove_it(self):
         assert convert(f"infor{self._SHY}mation {self._SHY}7".encode(), "a.txt").text == "information 7"
+
+
+class TestLocalNames:
+    """The name of an HWPX element without its namespace is looked up for every element read, and is remembered by its tag
+    (`hwpx._LOCAL_NAMES`): what is remembered is bounded, and the answer is the same whether it is or not."""
+
+    def test_names_with_and_without_a_namespace_and_of_a_comment(self):
+        root = etree.fromstring('<hp:p xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph"><hp:run/><plain/><!-- note --><?pi x?></hp:p>')
+
+        assert [hwpx_module._local(node) for node in [root, *root]] == ["p", "run", "plain", "", ""]
+        assert [hwpx_module._local(node) for node in [root, *root]] == ["p", "run", "plain", "", ""]   # and from the memory
+
+    def test_only_so_many_tags_are_remembered(self, monkeypatch):
+        monkeypatch.setattr(hwpx_module, "_LOCAL_NAMES", {})
+        monkeypatch.setattr(hwpx_module, "_LOCAL_NAMES_MAX", 3)
+        root = etree.fromstring("<r>" + "".join(f"<n{index}/>" for index in range(10)) + "</r>")
+
+        assert [hwpx_module._local(node) for node in root] == [f"n{index}" for index in range(10)]
+        assert len(hwpx_module._LOCAL_NAMES) == 3
+        assert [hwpx_module._local(node) for node in root] == [f"n{index}" for index in range(10)]
+
+    def test_a_long_tag_is_answered_and_not_remembered(self, monkeypatch):
+        monkeypatch.setattr(hwpx_module, "_LOCAL_NAMES", {})
+        name = "n" * 200
+        root = etree.fromstring(f'<x:{name} xmlns:x="urn:x"/>')
+
+        assert hwpx_module._local(root) == name
+        assert hwpx_module._LOCAL_NAMES == {}
 
 
 class TestHwpxMarksBesideTheText:
