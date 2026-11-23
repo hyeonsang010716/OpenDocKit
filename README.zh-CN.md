@@ -167,6 +167,8 @@ opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等�
 使用 `mode="sections"` 时，每一页、每张幻灯片或每个工作表各成为一个 Document，其编号保存在元数据中，可用于标注出处。
 详见 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)。
 
+[![hyeonsang010716/OpenDocKit MCP server](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit/badges/score.svg)](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit)
+
 ### Hermes Agent
 
 OpenDocKit 已收录于 [Hermes Agent 插件目录](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)。目录中的每个插件都经过 Hermes 维护者审核，并固定到一个提交：
