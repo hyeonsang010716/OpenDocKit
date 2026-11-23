@@ -792,7 +792,8 @@ def _set_on_its_letter(objs: list) -> None:
 
 # Symbol font PostScript name (subset prefix, ',Bold' and '-Regular' removed; lower case without spaces) → font name in
 # `_symbols.SYMBOL_GLYPHS`.
-_SYMBOL_FONT_NAMES = {"symbol": "symbol", "symbolmt": "symbol", "wingdings": "wingdings", "wingdings2": "wingdings 2"}
+_SYMBOL_FONT_NAMES = {"symbol": "symbol", "symbolmt": "symbol", "wingdings": "wingdings", "wingdings2": "wingdings 2",
+                      "wingdings3": "wingdings 3", "webdings": "webdings"}
 
 
 @lru_cache(maxsize=256)
@@ -822,8 +823,8 @@ def _symbol_font_glyph(char: LTChar, font: object) -> None:
         return
     if 0xF020 <= ord(text) <= 0xF0FF:
         glyph = symbol_glyph(name, ord(text))
-    elif name.startswith("wingdings"):
-        # A Wingdings font holds no letters: where a character of it comes out as one — 'm' for the circle Hangul's PDF
+    elif name != "symbol":
+        # A Wingdings font holds no letters, nor does Webdings: where a character of it comes out as one — 'm' for the circle Hangul's PDF
         # sets before an item, '§' and 'ž' for its small squares and dots — the PDF named the glyph by its number read as
         # Windows-1252, and the number is looked up as it is for the private use area. A number the table does not hold
         # is left as it came (Pinned by: test_pdf_fonts.py::TestWingdingsGlyphsReadAsLetters).

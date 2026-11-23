@@ -102,6 +102,21 @@ class TestWingdingsGlyphsReadAsLetters:
 
         assert "Venue of the event" in text and mark in text and "m Venue" not in text
 
+    @pytest.mark.parametrize(("font", "code", "mark"), [(b"ABCDEF+Wingdings3", b"(q)", "▼"), (b"Wingdings3", b"(g)", "→"),
+                                                        (b"ABCDEF+Webdings", b"(a)", "✓"), (b"Webdings", b"(r)", "✗")],
+                             ids=["down", "arrow", "check", "cross"])
+    def test_a_letter_of_wingdings_3_or_webdings_is_the_symbol_of_its_number(self, font, code, mark):
+        """Wingdings 3 and Webdings hold no letters either, and their numbers mean something else than in Wingdings: 'q' is
+        the down triangle of Wingdings 3 and 'a' the check of Webdings."""
+        content = b"BT /W 11 Tf 72 720 Td %s Tj ET BT /F1 11 Tf 90 720 Td (Venue of the event) Tj ET" % code
+        symbols = (b"<< /Type /Font /Subtype /TrueType /BaseFont /%s /Encoding /WinAnsiEncoding"
+                   b" /FirstChar 32 /LastChar 255 /Widths [%s] >>" % (font, b" ".join([b"800"] * 224)))
+        data = _page_pdf(content, {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", b"W": symbols})
+
+        text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == f"{mark} Venue of the event"
+
     def test_a_letter_of_another_font_stays_a_letter(self):
         content = b"BT /F1 11 Tf 72 720 Td (m) Tj ET BT /F1 11 Tf 90 720 Td (Venue of the event) Tj ET"
         data = _page_pdf(content, {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"})

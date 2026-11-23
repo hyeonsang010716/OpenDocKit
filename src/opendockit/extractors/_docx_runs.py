@@ -30,7 +30,7 @@ from opendockit.extractors._notation import (
 )
 from opendockit.extractors._omml import render_omml
 from opendockit.extractors._package import decimal_int, measure_int, parse_part
-from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, symbol_font_text, symbol_glyph
+from opendockit.extractors._symbols import SYMBOL_FONTS, SYMBOL_GLYPHS, has_other_meanings, symbol_font_text, symbol_glyph
 
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -865,6 +865,8 @@ def _symbol_char(symbol: etree._Element) -> str:
     glyph = symbol_glyph(font, code)
     if glyph is not None:
         return glyph
+    if has_other_meanings(font):
+        return ""   # not the Wingdings glyph of that number (`_symbols._OTHER_MEANINGS`)
     if code < 0x100 and font.startswith(SYMBOL_FONTS):
         code += 0xF000
     return chr(code) if 0x20 <= code <= 0x10FFFF and not 0xD800 <= code <= 0xDFFF else ""
