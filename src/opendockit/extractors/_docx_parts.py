@@ -20,7 +20,7 @@ class _Style:
     name: str
     outline_level: int | None
     num_id: str | None
-    ilvl: int
+    ilvl: int | None   # the level the style writes in its own numPr; None when it writes none
     based_on: str | None
     indent: dict[str, int]  # left indent written directly on the style (`_indent_values`)
     size: int | None  # font size written directly on the style (w:sz, half-points). The paragraph size follows basedOn (`_paragraph_size`)
@@ -92,13 +92,14 @@ def _load_styles(document: object) -> dict[str, _Style]:
         outline = style.find(f"{_w('pPr')}/{_w('outlineLvl')}")
         num_pr = style.find(f"{_w('pPr')}/{_w('numPr')}")
         num_id = num_pr.find(_w("numId")) if num_pr is not None else None
+        level = num_pr.find(_w("ilvl")) if num_pr is not None else None
         based_on = style.find(_w("basedOn"))
         styles[style_id] = _Style(
             style_id=style_id,
             name=name.get(_w("val"), "") if name is not None else "",
             outline_level=_int_attr(outline, 9) if outline is not None else None,
             num_id=num_id.get(_w("val")) if num_id is not None else None,
-            ilvl=_int_attr(num_pr.find(_w("ilvl")) if num_pr is not None else None, 0),
+            ilvl=_int_attr(level, 0) if level is not None else None,
             based_on=based_on.get(_w("val")) if based_on is not None else None,
             indent=_indent_values(style.find(f"{_w('pPr')}/{_w('ind')}")),
             size=_half_points(style.find(f"{_w('rPr')}/{_w('sz')}"), 0) or None,

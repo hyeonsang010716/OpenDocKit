@@ -1035,12 +1035,22 @@ class _DocxRenderer:
             return num_id_element.get(_w("val")), _int_attr(num_pr.find(_w("ilvl")), 0)
         direct_level = num_pr.find(_w("ilvl")) if num_pr is not None else None
 
+        # The list is that of the nearest style that names one; the level is that of the nearest style that has one, from the
+        # paragraph's own style up to that style — a style has the level a number level binds to it (w:lvl/w:pStyle), else
+        # the one its own numPr writes. A style based on a numbered one usually writes only its level (`<w:ilvl w:val="1"/>`,
+        # the list inherited): looked up with the id of the style that named the list, every such heading was counted at
+        # that style's level, so '2.1 Evaluation' under '2 Another heading' came out as '3 Evaluation' and the headings after
+        # it counted on from there (Pinned by: test_office.py::TestDocxNumbering::test_level_of_a_style_based_on_a_numbered_style).
+        derived: list[_Style] = []
         seen = 0
         while style is not None and seen < 10:
             if style.num_id:
                 number_list = self._number_lists.get(style.num_id)
-                level = (number_list.style_levels if number_list else {}).get(style.style_id, style.ilvl)
+                bound = number_list.style_levels if number_list else {}
+                level = next((bound.get(nearer.style_id, nearer.ilvl) for nearer in (*derived, style)
+                              if nearer.style_id in bound or nearer.ilvl is not None), 0)
                 return style.num_id, _int_attr(direct_level, level)
+            derived.append(style)
             # A level that names a style with no numPr of its own (w:lvl/w:pStyle, ECMA-376 17.9.23) does not number it
             # (**deliberate**): real documents keep such links after the numbering was switched off (Heading 1 named by a level of
             # a heading numbering since removed), and numbered by it, `서론` came out as `# 1. 서론` and the list sharing the
