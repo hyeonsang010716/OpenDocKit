@@ -320,7 +320,10 @@ class _Parser:
 
     def _term(self, *, scripts: bool = True) -> str:
         """Pieces joined without whitespace (one term). `scripts=False` means the term is the target of a script, so it also stops
-        before `^`/`_` and before a command that takes an argument (the superscript of `^3sqrt x` is `3`)."""
+        before `^`/`_` and before a command that takes an argument (the superscript of `^3sqrt x` is `3`), and before a `{`
+        once it has a piece: the group after a script written without braces is the next term, the C of `_3{rmC}_1`. Read
+        into the script, it made `{}_{3{C}}_{1}`, two subscripts on one term, and the equation fell back to its script
+        (Pinned by: test_equation.py::TestGroupAfterABareScript)."""
         self._skip_space()
         pieces: list[str] = []
         while (token := self._raw()) is not None and not _is_space(token):
@@ -328,7 +331,7 @@ class _Parser:
             if key in ("^", "_") and scripts:
                 self._index += 1
                 pieces.append(f"{key}{{{_bare(self._script())}}}")
-            elif key in _TERM_ENDS or (not scripts and pieces and key in _COMMANDS):
+            elif key in _TERM_ENDS or (not scripts and pieces and (key in _COMMANDS or token == "{")):
                 break
             else:
                 pieces.append(self._piece())
@@ -539,6 +542,11 @@ def _glued_parts(word: str) -> list[str] | None:
     if match is None:
         return None
     lower, tail = match.groups()
+    if lower == "it" and tail:
+        # `itA`: the italic font word before a name in capitals (`rmP(itA capB)`), dropped as `it A` is. Only this shape:
+        # `it` is no glue word, since `limit` is not lim + a font change
+        # (Pinned by: test_equation.py::TestGluedWords::test_italic_word_before_capitals).
+        return ["it", tail]
     # ends[i]: the length of the longest word at i after which the rest splits too; 0 when the rest from i does not split.
     ends = [0] * (len(lower) + 1)
     ends[len(lower)] = -1  # the end of the word
