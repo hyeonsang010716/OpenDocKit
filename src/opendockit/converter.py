@@ -219,7 +219,7 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
         subject = f"the {document_format.value.upper()} document" if document_format else "the file format"
         raise CorruptedDocumentError(f"Could not parse {subject}. The file may be corrupted.") from exc
 
-    warnings = list(extraction.warnings)
+    warnings = _bounded_warnings(extraction.warnings)
     mismatch = extension_mismatch(document_format, filename)
     if mismatch:
         warnings.insert(0, mismatch)
@@ -268,6 +268,24 @@ def _converted(data: bytes, filename: str | None, options: ConvertOptions) -> Co
                               exceeded=exceeded, counted=max(extraction.chars, text_chars) if exceeded else 0,
                               marker_key=key, time_limited=extraction.time_limited)
     return render(result)
+
+
+# The most warnings of the readers a result lists (`_bounded_warnings`).
+_MAX_READER_WARNINGS = 200
+
+
+def _bounded_warnings(warnings: list[str]) -> list[str]:
+    """The warnings a reader gave, the first `_MAX_READER_WARNINGS` of them, and one line that counts the rest.
+
+    A reader warns once for each part it could not read, and a document names as many parts as it likes: a 532 KB deck whose
+    slide list held 200,000 entries without a slide gave no text and 200,001 warnings, 11.3 MB of them, which the loaders
+    join into the metadata of every piece they hand to a vector store. The warnings the converter adds itself afterwards (the
+    character limit, a result without text, pictures) are few and always listed
+    (Pinned by: test_converter.py::TestWarningsAreBounded)."""
+    if len(warnings) <= _MAX_READER_WARNINGS:
+        return list(warnings)
+    left = len(warnings) - _MAX_READER_WARNINGS
+    return [*warnings[:_MAX_READER_WARNINGS], f"{left:,} more warning(s) of the same document are not listed."]
 
 
 def _clean_metadata(metadata: dict[str, str]) -> dict[str, str]:
