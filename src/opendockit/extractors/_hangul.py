@@ -6,7 +6,7 @@ here once, so the two formats cannot drift apart.
 """
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 import re
 
 from opendockit.extractors._hancom_symbols import hancom_symbols
@@ -264,6 +264,56 @@ class _Box(str):
 
     cells: list[list[str]]
     grid: TableGrid
+
+
+# The most cells a table may have to be looked at as a frame (`is_frame`), and the most rows one of its cells may span. The
+# frames of 2,180 documents have 30 cells at most (five rows of six); past this a table is a table, and a table of 65,535
+# rows that each claim to span 65,535 costs nothing to tell so.
+FRAME_MAX_CELLS = 100
+
+
+def is_frame[Cell](cells: Iterable[tuple[int, int, bool, Cell] | None], boxed: Callable[[Cell], bool | None]) -> bool:
+    """Whether a table of two rows and columns or more only sets text in a frame: no row of it holds content in more than
+    one cell, and no cell of it is drawn as a box. Such a table is one column of text, and the extractor reads it as a table
+    of one column.
+
+    Hangul authors draw the box around a summary this way: a table of three rows and columns whose label (`< 요 약 >`) sits
+    across the top line of the box, between two cells that hold nothing but a piece of that line, above one cell with the
+    text. Drawn as the table it is, the box came out as an HTML table with empty cells around its label, where Hancom's own
+    PDF of the same document reads a label and paragraphs.
+
+    `cells` are the cells in document order: (row, rows spanned, whether it holds content, the cell), or None for a cell
+    that settles the answer by itself (one without an address, one that holds a table); `boxed` says of a cell whether it
+    has a visible border on all four sides, None when its borders are not known. The cells are read only as far as the
+    answer needs, so a table whose first row holds two texts, as the header of nearly every table does, costs two cells,
+    and the borders are asked for only once the rows have passed. A table is no frame when
+
+    - two cells with content share a row: it sets things beside each other, which a column of paragraphs cannot say;
+    - it holds no content, or more cells than a frame has (`FRAME_MAX_CELLS`);
+    - a cell of it is boxed on all four sides, or has borders that are not known. An empty cell so drawn is the blank field
+      of a form (`성명 | ____` is a label and its field, not a line of text), and one with content is a cell on paper: the
+      label of a box set in a box of its own is read as a ruled cell from the PDF of the same document, and the two readers
+      no longer agreed where the HWPX reader unfolded it;
+    - a cell of it holds a table: left as it is, the table inside the cell.
+
+    Only the cell's own borders are looked at: in every one of 399 tables with one text to a row they say the same as the
+    borders it shares with its neighbours (Pinned by: test_hwp_frames.py)."""
+    taken: set[int] = set()   # the rows a cell with content covers
+    seen: list[Cell] = []
+    for count, cell in enumerate(cells):
+        if cell is None or count >= FRAME_MAX_CELLS:
+            return False
+        row, row_span, content, token = cell
+        seen.append(token)
+        if not content:
+            continue
+        if not 1 <= row_span <= FRAME_MAX_CELLS:
+            return False
+        for covered in range(row, row + row_span):
+            if covered in taken:
+                return False
+            taken.add(covered)
+    return bool(taken) and all(boxed(token) is False for token in seen)
 
 
 # Characters not counted for the body size (`SizeHeadings.count`): controls and whitespace

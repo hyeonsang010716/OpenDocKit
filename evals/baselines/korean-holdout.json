@@ -1,23 +1,23 @@
 {
  "means": {
   "overall": {
-   "mean": 0.7861,
+   "mean": 0.7867,
    "documents": 60
   },
   "nid": {
-   "mean": 0.9345,
+   "mean": 0.9348,
    "documents": 60
   },
   "nid_s": {
-   "mean": 0.9593,
+   "mean": 0.9628,
    "documents": 60
   },
   "teds": {
-   "mean": 0.5796,
+   "mean": 0.5812,
    "documents": 55
   },
   "teds_s": {
-   "mean": 0.7064,
+   "mean": 0.707,
    "documents": 55
   },
   "mhs": {
@@ -465,12 +465,12 @@
    "words": 0.9135
   },
   "156731837": {
-   "overall": 0.4674,
-   "nid": 0.8157,
-   "nid_s": 0.7437,
-   "teds": 0.3828,
-   "teds_s": 0.4903,
-   "mhs": 0.2038,
+   "overall": 0.5037,
+   "nid": 0.8354,
+   "nid_s": 0.9585,
+   "teds": 0.4711,
+   "teds_s": 0.5231,
+   "mhs": 0.2045,
    "mhs_s": 0.3333,
    "words": 0.9254
   },
