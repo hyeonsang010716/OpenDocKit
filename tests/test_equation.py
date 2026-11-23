@@ -255,6 +255,27 @@ class TestGluedWords:
     def test_word_ending_on_a_word_that_takes_an_operand_is_not_split(self, script, latex):
         assert equation_to_latex(script) == latex
 
+    @pytest.mark.parametrize("script, latex", [
+        ("rmP(itA capB)", r"P(A \cap B)"),                               # as `it A` reads: the font word is dropped
+        ("rmP LEFT ( itE{cup}F RIGHT )", r"P \left( E{\cup}F \right)"),
+        ("{rmE} LEFT ( itX  ^{2} RIGHT )", r"{E} \left( X^{2} \right)"),
+        ("itAB", "AB"),
+    ])
+    def test_italic_word_before_capitals(self, script, latex):
+        """`itA` is the italic font word glued to a name in capitals, as `rmA` is the roman one: the events of a probability
+        (`rmP(itA capB)`) came out as `P(itA \\cap B)`."""
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.parametrize("script, latex", [
+        ("limit", r"\lim it"),          # `it` is still no word a lowercase word is split into
+        ("itx", "itx"),                 # nor before lowercase letters
+        ("limitA", r"\lim itA"),        # only the word that is `it` and capitals
+        ("it", ""),                     # the font word alone, as before
+        ("unitA", "unitA"),
+    ])
+    def test_other_words_with_it_stay(self, script, latex):
+        assert (equation_to_latex(script) or "") == latex
+
     @pytest.mark.timing
     def test_long_glued_word_takes_linear_time(self):
         small, large = "costheta" * 300, "costheta" * 1_200  # 9,600 characters, within the 10,000 of a script
@@ -265,6 +286,34 @@ class TestGluedWords:
         assert equation_to_latex(unsplittable_large) is not None
         assert (fastest(lambda: equation_to_latex(unsplittable_large))
                 < 8 * fastest(lambda: equation_to_latex(unsplittable_small)) + 0.01)
+
+
+class TestGroupAfterABareScript:
+    """A script written without braces ends before a `{`: the group is the next term. Combinations and permutations are
+    written `_3{rmC}_1`, a subscript on a blank, the letter in its own group, a subscript on the letter; read into the script,
+    the group made `{}_{3{C}}_{1}`, two subscripts on one term, and the whole equation fell back to its script."""
+
+    @pytest.mark.parametrize("script, latex", [
+        ("`_3{rmC}_1", "{}_{3} {C}_{1}"),
+        ("{}_3{rmC}_1", "{}_{3}{C}_{1}"),
+        ("_3{rmC}_1 = 3", "{}_{3} {C}_{1} = 3"),
+        ("`_4{rmH}_3 = _6{rmC}_3 = 20", "{}_{4} {H}_{3} =_{6} {C}_{3} = 20"),
+        ("a_3{rmC}_1", "a_{3}{C}_{1}"),
+        ("`^3{rmC}_1", "{}^{3} {C}_{1}"),
+        ("x^2{y}", "x^{2}{y}"),
+        ("e^-x{y}", "e^{-x}{y}"),
+    ])
+    def test_group_is_the_next_term(self, script, latex):
+        assert equation_to_latex(script) == latex
+
+    @pytest.mark.parametrize("script, latex", [
+        ("x^{2}+y", "x^{2}+y"),                   # a script in braces is that group, as before
+        ("x_{n}{y}", "x_{n}{y}"),
+        ("lim_N->inf a", r"\lim_{N\to\infty} a"),  # pieces up to whitespace are still one script
+        ("{}_3 rmC_1", "{}_{3} C_{1}"),           # the spaced form, read before too
+    ])
+    def test_other_scripts_read_as_before(self, script, latex):
+        assert equation_to_latex(script) == latex
 
 
 class TestAddedWords:
