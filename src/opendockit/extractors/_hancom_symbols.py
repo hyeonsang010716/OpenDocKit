@@ -19,6 +19,13 @@ private-use characters, the middle dot between two words joined them (`미국영
 of a line was lost. They are read with the table DOCX, PPTX and PDF use for a Wingdings run (`_symbols.SYMBOL_GLYPHS`); a number
 that table does not hold is left to the cleaning as before
 (Pinned by: test_hwp.py::TestHancomSymbols::test_wingdings_numbers_in_the_basic_private_use_area_are_the_glyphs_hangul_draws).
+
+U+00AD is a third: in Unicode a soft hyphen, shown only where a word is broken, but Hangul has a control of its own for that
+(HWP code 24, HWPX `hp:hypen`) and draws U+00AD as the hyphen its fonts hold there. Authors type it as a dash: the mark of a
+sub-item (`  [U+00AD] 콜레라 독소가…` under a `∙` item; Hancom's PDF of that press release draws `- 콜레라 독소가…`) and the minus
+of a figure. Removed with the invisible characters, the sub-items lost their mark and a negative figure its sign. It is written
+`-` unless it stands between two letters, the one place where it may be the soft hyphen of text brought in from elsewhere; what
+Hangul draws there was not checked (Pinned by: test_hwp.py::TestHangulDrawsTheSoftHyphen).
 """
 
 import re
@@ -56,8 +63,12 @@ _SYMBOLS = {
 # The Wingdings glyphs Hangul draws for U+F020-F0FF, as the characters of the shared table (see the module docstring).
 _WINGDINGS = {0xF000 | number: glyph for number, glyph in SYMBOL_GLYPHS["wingdings"].items() if 0x20 <= number <= 0xFF}
 _SYMBOL_TEXT = {**_SYMBOLS, **_WINGDINGS}
-# Plane 15 and U+F020-F0FF: the characters `hancom_symbols` looks at
-_SYMBOL_CHARACTER = re.compile(f"[{chr(0xF0000)}-{chr(0xFFFFD)}{chr(0xF020)}-{chr(0xF0FF)}]")
+# Plane 15, U+F020-F0FF and U+00AD: the characters `hancom_symbols` looks at, in one search of a text that has none
+_SYMBOL_CHARACTER = re.compile(f"[{chr(0xF0000)}-{chr(0xFFFFD)}{chr(0xF020)}-{chr(0xF0FF)}{chr(0xAD)}]")
+
+# U+00AD where Hangul's hyphen is written for it: everywhere but between two letters (see the module docstring)
+_SOFT_HYPHEN = "\u00ad"
+_DRAWN_HYPHEN = re.compile("(?<![^\\W\\d_])\u00ad|\u00ad(?![^\\W\\d_])")
 
 # The digits of a number set in a frame by composed characters (글자 겹치기): Hangul writes each digit as a private-use piece of its
 # place. Two-digit pieces of a circle, a reversed circle, a box and a reversed box: tens 1-9 at base + 1-9, ones 0-9 at
@@ -76,9 +87,12 @@ def unfold(text: str) -> str:
 
 def hancom_symbols(text: str) -> str:
     """The text with the known plane-15 Hancom symbols (`_SYMBOLS`) and the Wingdings numbers of U+F020-F0FF (`_WINGDINGS`)
-    written out; other private-use characters are left for the cleaning to remove."""
+    written out, and U+00AD as the hyphen Hangul draws for it (`_DRAWN_HYPHEN`); other private-use characters are left for the
+    cleaning to remove."""
     if not _SYMBOL_CHARACTER.search(text):
         return text
+    if _SOFT_HYPHEN in text:
+        text = _DRAWN_HYPHEN.sub("-", text)
     return text.translate(_SYMBOL_TEXT)
 
 
