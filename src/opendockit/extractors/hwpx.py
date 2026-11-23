@@ -67,6 +67,7 @@ _SKIP_OBJECTS = {"pic", "ole", "video", "chart", "linesegarray", "secPr", "shape
 _TEXT_MARKS = {"tab": "\t", "lineBreak": "\n", "nbSpace": " ", "fwSpace": " "}
 # Sides where the caption comes before the object (hp:caption side)
 _CAPTION_BEFORE = {"TOP", "LEFT"}
+_CAPTION_AFTER = {"BOTTOM", "RIGHT"}
 # Line break marks in the text attribute of text art (hp:textart). Hangul writes control picture symbols (␍␊) instead of CR/LF.
 _TEXTART_BREAKS = re.compile("␍␊|␍|␊")
 # Auto-number kinds (hp:autoNum numType) that write the number in place in the text — the number in a caption's "표 1" ("Table 1").
@@ -285,13 +286,13 @@ class HwpxRenderer:
             text = render_equation(script.text or "") if script is not None else ""
             buffer.append(self._with_caption(node, text))
         elif name == "pic":
-            buffer.append(self._with_caption(node, self._picture_marker(node)))
+            self._with_caption_blocks(node, self._picture_marker(node), buffer, blocks, flush)
         elif name in _UNREAD_OBJECTS:
             # OLE object (pasted Excel sheet or chart) and video: the content is not read and only a placeholder is left. They used to
             # vanish without a trace, so there was no telling what was missing
             # (Pinned by: test_hwp.py::TestEmbeddedObjects).
             self._unread[name] = self._unread.get(name, 0) + 1
-            buffer.append(self._with_caption(node, f" {_UNREAD_OBJECTS[name][0]} "))
+            self._with_caption_blocks(node, f" {_UNREAD_OBJECTS[name][0]} ", buffer, blocks, flush)
         elif name == "chart":
             flush()
             caption, before = self._caption(node)
@@ -409,8 +410,27 @@ class HwpxRenderer:
         text = " ".join(" ".join(block.split()) for sub in _top_sublists(caption) for block in self.render_paragraphs(sub))
         return text, caption.get("side", "BOTTOM") in _CAPTION_BEFORE
 
+    def _with_caption_blocks(self, node: etree._Element, marker: str, buffer: list[str], blocks: list[str],
+                             flush: Callable[[], None]) -> None:
+        """A picture or an object that is not read, and its caption: the paragraphs of the caption are blocks of their own,
+        above the object for a top or left caption and under it otherwise, as the HWP reader writes them. Set inside the
+        paragraph the picture hangs on, the caption ran into the sentence before it ('… 순서였음. 그림 32. EU 국가의 …') and
+        the picture came after both (Pinned by: test_hwp_captions.py)."""
+        caption = _child(node, "caption")
+        captions = [block for sub in _top_sublists(caption) for block in self.render_paragraphs(sub)] if caption is not None else []
+        if not captions:
+            buffer.append(marker)
+        elif caption.get("side", "BOTTOM") in _CAPTION_BEFORE:
+            flush()
+            blocks.extend(captions)
+            buffer.append(marker)
+        else:
+            buffer.append(marker)
+            flush()
+            blocks.extend(captions)
+
     def _with_caption(self, node: etree._Element, content: str) -> str:
-        """Attach the caption before or after an object inside a paragraph (picture placeholder, equation)."""
+        """Attach the caption before or after an object inside a paragraph (an equation)."""
         text, before = self._caption(node)
         if not text:
             return content
@@ -682,8 +702,16 @@ class HwpxRenderer:
 
     def _render_table(self, table: etree._Element) -> str:
         caption = _child(table, "caption")
-        caption_text = join_blocks(block for sub in _top_sublists(caption) for block in self.render_paragraphs(sub)) \
-            if caption is not None else ""
+        # The caption stands above the table unless the document sets it under or right of it (`side`), and is read where it
+        # is written, so that the notes and numbers in it count in the order of the output
+        # (Pinned by: test_hwp_captions.py::TestTableCaptions).
+        caption_first = caption is None or caption.get("side", "TOP") not in _CAPTION_AFTER
+
+        def read_caption() -> str:
+            return join_blocks(block for sub in _top_sublists(caption) for block in self.render_paragraphs(sub)) \
+                if caption is not None else ""
+
+        caption_text = read_caption() if caption_first else ""
 
         grid = TableGrid()
         # The top-level table checks the character limit while reading cells (`_notation.TableBudget`). Once exceeded, the remaining rows
@@ -730,12 +758,18 @@ class HwpxRenderer:
         # The caption stays with the table wherever it is. Dropping it loses '표 2' ("Table 2"), and a picture in the caption was only
         # registered with no placeholder, costing a description for nothing
         # (Pinned by: test_hwp.py::TestNestedTables::test_caption_of_an_inner_table_is_kept_with_it).
+        if not caption_first:
+            caption_text = read_caption()
+
+        def captioned(body: str) -> str:
+            return join_blocks([caption_text, body] if caption_first else [body, caption_text])
+
         if self._note_depth:
-            return join_blocks([caption_text, note_table(grid.rows(), self._options.max_chars)])
+            return captioned(note_table(grid.rows(), self._options.max_chars))
         if outer is not None:
-            return join_blocks([caption_text, outer.embed(grid)])
+            return captioned(outer.embed(grid))
         if self._cell_depth:
-            return join_blocks([caption_text, grid.flatten(self._options.max_chars)])
+            return captioned(grid.flatten(self._options.max_chars))
         # A table without a budget (in a header or footer) is drawn with the whole limit as room: what it writes past that is
         # over the limit whatever comes before it (Pinned by:
         # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
@@ -745,7 +779,7 @@ class HwpxRenderer:
             return self.size_headings.box(rendered, box_cells, grid)
         if one_row:
             return self.size_headings.row(rendered, box_cells, grid)
-        return join_blocks([caption_text, rendered])
+        return captioned(rendered)
 
     def _is_frame(self, table: etree._Element) -> bool:
         """Whether a table of the top-level body only frames text (`_hangul.is_frame`): its cells by their address, an empty

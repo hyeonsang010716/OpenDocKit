@@ -1338,7 +1338,8 @@ class TestEmbeddedObjects:
 
         result = convert(builder.hwpx_bytes(body), "a.hwpx")
 
-        assert result.text == "매출 현황: [OLE object] 표 1. 매출\n\n[OLE object] [Video]"
+        # the caption of the object is a block of its own under it, as that of a picture is (`test_hwp_captions.py`)
+        assert result.text == "매출 현황: [OLE object]\n\n표 1. 매출\n\n[OLE object] [Video]"
         assert result.warnings == ["The contents of 2 OLE object(s) (pasted tables, charts, etc.) could not be converted.",
                                    "1 video(s) could not be converted."]
 
