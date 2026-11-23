@@ -24,6 +24,12 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Building an `IsolatedConverter` on Windows needs a `__main__` guard.** Workers are started by spawning a new interpreter
   that re-imports the program, so a converter made at module level builds converters without end. Make it inside
   `if __name__ == "__main__":`, or in a function a server calls.
+- **Windows PowerShell 5.1 re-encodes what the command line prints.** The command line writes UTF-8 with LF line ends
+  on every platform, and `cmd.exe` and other programs get those bytes. PowerShell 5.1 does not pass them on: a
+  redirect (`opendockit report.hwp > report.md`), a pipe and a variable (`$text = opendockit report.hwp`) decode the
+  output with the console's code page and write it again, with CR LF. Under a code page that is not UTF-8 — cp949,
+  the Korean default — Korean text comes out garbled (`글머리` becomes `湲癒몃━`). Run
+  `[Console]::OutputEncoding = [Text.Encoding]::UTF8` in the session first, or redirect from `cmd.exe`.
 
 ## Integrations
 

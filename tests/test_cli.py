@@ -178,6 +178,45 @@ class TestArguments:
         assert exited.value.code == 2
         assert "--json" in capsys.readouterr().err
 
+    @pytest.mark.parametrize("flags", [[], ["--json"], ["--count"]], ids=["text", "json", "count"])
+    def test_output_has_lf_line_ends_on_every_platform(self, tmp_path, flags):
+        """Python writes a text stream with the line end of the platform: on Windows every line of a redirected or piped
+        output ended in CR LF, so the same document gave other bytes than on Linux and macOS. Read here through a pipe, as a
+        redirect or another program reads it: the bytes are the conversion's own text, with LF line ends, everywhere."""
+        import json
+        import subprocess
+        import sys
+
+        from opendockit import convert_file
+
+        path = tmp_path / "보고서.md"
+        path.write_text("# 제목\n\n첫 문단입니다.\n\n- 항목 하나\n- 항목 둘\n", encoding="utf-8")
+
+        process = subprocess.run([sys.executable, "-m", "opendockit", path.name, *flags], cwd=tmp_path, capture_output=True,
+                                 timeout=60)
+
+        assert process.returncode == 0, process.stderr
+        assert b"\r" not in process.stdout
+        if not flags:
+            assert process.stdout == (convert_file(path).text + "\n").encode("utf-8")
+        elif flags == ["--json"]:
+            assert json.loads(process.stdout)["text"] == convert_file(path).text
+
+    def test_messages_and_help_have_lf_line_ends_on_every_platform(self, tmp_path):
+        """Standard error goes the same way, so that `2>&1` does not mix two line ends; so does the help, which is several
+        lines."""
+        import subprocess
+        import sys
+
+        missing = subprocess.run([sys.executable, "-m", "opendockit", "없는 파일.md"], cwd=tmp_path, capture_output=True,
+                                 timeout=60)
+        shown = subprocess.run([sys.executable, "-m", "opendockit", "--help"], cwd=tmp_path, capture_output=True, timeout=60)
+
+        assert missing.stderr == "File not found: 없는 파일.md\n".encode()
+        assert shown.returncode == 0
+        assert shown.stdout.count(b"\n") > 5
+        assert b"\r" not in shown.stdout
+
     @pytest.mark.parametrize("flag", [None, "--json"], ids=["text", "json"])
     def test_output_is_written_as_utf8_even_when_stdout_is_not(self, tmp_path, monkeypatch, flag):
         """Under `PYTHONIOENCODING=ascii` or a Windows redirect (cp949), Korean output ended in a UnicodeEncodeError traceback."""

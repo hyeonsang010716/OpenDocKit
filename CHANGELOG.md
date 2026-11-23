@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Windows: the command line writes LF line ends**, as on Linux and macOS. Redirected or piped, every line of its
+  output and its messages ended in CR LF, so the same document gave other bytes on Windows and a Markdown file for a
+  model carried a CR on every line. A console shows no difference.
 - **ODS: a date is written from its stored value, as for XLSX.** A date cell was written as the sheet shows it:
   `05/01/24`, the fifth of January in one locale and the first of May in another. It is now `2024-01-05`, by the rule of
   the XLSX reader. A workbook of sixteen date formats saved as ODS gives the same table as its XLSX.
