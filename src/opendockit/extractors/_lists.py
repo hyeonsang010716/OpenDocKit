@@ -315,8 +315,10 @@ class NumberLevel:
     shape: str = "DIGIT"
     start: int = 1
     # Legal-style numbering (DOCX w:isLgl): in this level's number text, the numbers of the upper levels are also written in Arabic
-    # digits ('1.1.' under 'I.')
-    # (Pinned by: test_office.py::TestOfficeLineBreaksNestedFieldsAndMetadata::test_docx_legal_numbering_shows_every_level_in_arabic_digits).
+    # digits ('1.1.' under 'I.'). The level's own number keeps its zeros: Word's "Article I / Section 1.01 / (a)" list is a
+    # decimalZero level with w:isLgl, and it came out as 'Section 1.1'
+    # (Pinned by: test_office.py::TestOfficeLineBreaksNestedFieldsAndMetadata::test_docx_legal_numbering_shows_every_level_in_arabic_digits,
+    # test_docx_legal_numbering_keeps_the_zeros_of_its_own_level).
     legal: bool = False
     # The deepest upper level that makes this level count from 1 again (1-based, DOCX w:lvlRestart — ECMA-376 17.9.11). None restarts
     # whenever any shallower level, the one right above included, appears (the default; HWP/HWPX always use this). 0 never restarts —
@@ -355,7 +357,9 @@ class Numbering:
             target = level if target is None else target
             if target > level:
                 return ""
-            shape = "DIGIT" if self.levels[level].legal else self._level(target).shape
+            shape = self._level(target).shape
+            if self.levels[level].legal and not (target == level and shape.startswith("ZERO_PADDED_DIGIT")):
+                shape = "DIGIT"
             return format_number(self.counters.get(target, self._level(target).start), shape)
 
         template = self.levels[level].template
