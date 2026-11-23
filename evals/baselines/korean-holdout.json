@@ -1,27 +1,27 @@
 {
  "means": {
   "overall": {
-   "mean": 0.7861,
+   "mean": 0.7859,
    "documents": 60
   },
   "nid": {
-   "mean": 0.9345,
+   "mean": 0.9352,
    "documents": 60
   },
   "nid_s": {
-   "mean": 0.9593,
+   "mean": 0.9635,
    "documents": 60
   },
   "teds": {
-   "mean": 0.5796,
+   "mean": 0.578,
    "documents": 55
   },
   "teds_s": {
-   "mean": 0.7064,
+   "mean": 0.7048,
    "documents": 55
   },
   "mhs": {
-   "mean": 0.8224,
+   "mean": 0.8225,
    "documents": 54
   },
   "mhs_s": {
@@ -29,7 +29,7 @@
    "documents": 54
   },
   "words": {
-   "mean": 0.9777,
+   "mean": 0.9776,
    "documents": 60
   }
  },
@@ -345,14 +345,14 @@
    "words": 0.9937
   },
   "156675381": {
-   "overall": 0.78,
-   "nid": 0.8369,
-   "nid_s": 0.9074,
-   "teds": 0.5987,
-   "teds_s": 0.7347,
-   "mhs": 0.9043,
+   "overall": 0.7322,
+   "nid": 0.8602,
+   "nid_s": 0.9466,
+   "teds": 0.4229,
+   "teds_s": 0.6102,
+   "mhs": 0.9136,
    "mhs_s": 1.0,
-   "words": 0.9619
+   "words": 0.9563
   },
   "156677785": {
    "overall": 0.8868,
@@ -465,12 +465,12 @@
    "words": 0.9135
   },
   "156731837": {
-   "overall": 0.4674,
-   "nid": 0.8157,
-   "nid_s": 0.7437,
-   "teds": 0.3828,
-   "teds_s": 0.4903,
-   "mhs": 0.2038,
+   "overall": 0.5037,
+   "nid": 0.8354,
+   "nid_s": 0.9585,
+   "teds": 0.4711,
+   "teds_s": 0.5231,
+   "mhs": 0.2045,
    "mhs_s": 0.3333,
    "words": 0.9254
   },

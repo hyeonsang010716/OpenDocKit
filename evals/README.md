@@ -121,6 +121,11 @@ The scores say how far the two readers agree, so read them as a watch for change
   (`docs/decisions/hwp.md`). What still separates the two readers is in the HWPX and not on the page: cells divided
   by borders that are not drawn (the contact table at the end of every release is six columns in the HWPX and four in
   the PDF).
+  It rose again, to 0.568, when the box around a summary — a table of three rows and columns whose label sits across
+  its top line — became a label and paragraphs in the reference (`docs/decisions/hwp.md`), as the PDF of five releases
+  already read it. On the holdout the same change took TEDS from 0.580 to 0.578: where the PDF reader writes such a box
+  as a table, it agreed with the table the reference used to be, and no longer does. That is a finding about the PDF
+  reader, seen on sixty more releases fetched to look at (two of them fell for this reason).
 - **MHS 0.776 over 57 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
   is not known to be wrong. The first run had 5 releases to measure it on: the HWPX reader wrote 11 headings in the 60
   releases and the PDF reader 140, because the title of a release stands in a one-column table in the HWPX, where a
