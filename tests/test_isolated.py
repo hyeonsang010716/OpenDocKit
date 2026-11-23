@@ -43,9 +43,10 @@ def fresh_worker() -> float:
     """Seconds a small file takes in a worker that has to start for it: the fastest of a few (`tests.timing.Fastest`).
 
     A few milliseconds where the fork server is preloaded. On Windows each file starts a whole interpreter and imports
-    this package — measured on Windows 11 at 0.7 s on Python 3.12 and 1.0 s on 3.14, more on a CI runner — and a bound of
-    one second for "the next file is not kept waiting" then measured the start rather than the wait: the Windows 3.14
-    job failed it (Pinned by: TestIsolatedConverter::test_time_limit_kills_that_worker_and_the_next_file_converts).
+    this package — measured on Windows 11 at 0.7 s on Python 3.12 and 1.0 s on 3.14 when this was written, 0.2 s and
+    0.3 s since the readers are imported on first use, more on a CI runner — and a bound of one second for "the next
+    file is not kept waiting" then measured the start rather than the wait: the Windows 3.14 job failed it
+    (Pinned by: TestIsolatedConverter::test_time_limit_kills_that_worker_and_the_next_file_converts).
     """
     async def measure() -> float:
         timer = Fastest()
@@ -209,7 +210,7 @@ class TestIsolatedConverter:
         The file travels to the worker on a queue whose feeder thread writes it into a pipe. A worker that dies before
         draining that pipe leaves the feeder blocked in a write that closing the handles does not cancel on Windows, and the
         pool's manager thread joins that feeder while it breaks the pool — so the pool never finished breaking and the close
-        never returned. Seen on Windows, where a spawned worker takes 0.66 s to be ready and a large file is still in flight;
+        never returned. Seen on Windows, where a spawned worker took 0.66 s to be ready and a large file was still in flight;
         the queue's join is cancelled when the pool is built.
         """
         async def scenario():
