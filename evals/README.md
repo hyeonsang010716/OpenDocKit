@@ -108,12 +108,12 @@ Sixty press releases of Korean ministries that the policy briefing site publishe
 text, so its conversion is the reference for the PDF's: nobody labels anything, and the corpus can grow by a command.
 The scores say how far the two readers agree, so read them as a watch for change, not as a grade:
 
-- **Words 0.977**, from 0.961: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs
+- **Words 0.978**, from 0.961: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs
   came out with a space inside several of its words ('산림 청과' for '산림청과') — 375 words in the 60 releases, which
   NID did not see (0.9115 with them, 0.9125 without). The HWPX of each release says where a space belongs, and against
   it the rule that puts such a word together again (`docs/decisions/pdf-flow.md`) is right 287 times and wrong 22:
   where a line breaks between two runs of different character properties, Hangul's PDF has no space to show.
-- **NID 0.927**: the same text in the same order. This is what caught the first form of the tables drawn with
+- **NID 0.930**: the same text in the same order. This is what caught the first form of the tables drawn with
   horizontal rules, which unfolded the top of 17 releases and lost their titles while the English benchmark stood still.
 - **TEDS 0.559**, from 0.475, by a change to the reference and not to the PDF reader. The low number was a finding
   about the HWPX reader: 126 of its 219 tables in these releases were of one row — the bar an attachment opens with,
@@ -157,10 +157,10 @@ as they are:
 
 | Holdout, 60 releases | Before | Now |
 | :--- | ---: | ---: |
-| Overall | 0.713 | 0.781 |
+| Overall | 0.713 | 0.787 |
 | NID | 0.918 | 0.935 |
-| TEDS | 0.477 | 0.580 |
-| MHS | 0.708 | 0.807 |
+| TEDS | 0.477 | 0.581 |
+| MHS | 0.708 | 0.822 |
 | Words | 0.963 | 0.978 |
 | Line breaks taken out of a word, right / wrong by the HWPX | | 355 / 32 |
 
@@ -230,11 +230,11 @@ a difference between two readers. `--plain` converts without emphasis and links,
 - **A tagged PDF says where its tables are, and that is read now** (`_pdf_tagged_tables.py`, `docs/decisions/pdf-tables.md`).
   LibreOffice and Word write the structure tree of a tagged PDF by default: all 200 twins have one, and none of the 320
   PDFs of the benchmark and the Korean lists do. With the tables read from the tree where the page agrees with it,
-  TEDS on the twins is 0.846 (from 0.489). The same pages saved without tags (`pdf-untagged`) keep the old number and
+  TEDS on the twins is 0.846 (from 0.489). The same pages saved without tags (`pdf-untagged`) stay at 0.487 and
   stay the measure of what is read from the page alone: work on tables without rules is judged there. Outside the
   twins, four tax publications of the IRS (tagged by another program, 61 to 15 tagged tables each) kept every word
   they had and lost none, with their tables of contents and filing tables read as the tables they are tagged as.
-- Headings are easy here (0.966): a heading style is set large. The benchmark's own PDFs, where a heading is often
+- Headings are easy here (0.973 with tags, 0.969 without): a heading style is set large. The benchmark's own PDFs, where a heading is often
   bold at the body size, are the harder measure of headings.
 
 A first form of this corpus took 116 public DOCX test files and pandoc's reading of them as the reference. It measured
@@ -280,7 +280,7 @@ the text a PDF says its glyphs stand for was read and 0.740 before lines were re
   on every measure. On their first run they scored 0.996 on Persian and Bengali, whose zero-width joiners were taken
   out with the characters that cannot be seen; those are part of a spelling and are kept now
   (`docs/decisions/core.md`).
-- **The PDF reader reads the text and the headings of every script nearly as well** (NID 0.985, MHS 0.980), from 0.791
+- **The PDF reader reads the text and the headings of every script nearly as well** (NID 0.992, MHS 0.990 with tags; 0.983 and 0.987 without), from 0.791
   and 0.690 three changes earlier: the four texts written from right to left scored 0.42 to 0.44 on NID read backwards
   and score 0.997 to 1.000 now, and Hindi went from 0.745 to 1.000. Lowest is Burmese (NID 0.938 on its paragraphs),
   and there the twin is at fault, not its reader: LibreOffice draws the vowel sign U+102C in a second font and names

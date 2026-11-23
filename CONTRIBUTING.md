@@ -12,7 +12,7 @@ git clone https://github.com/hyeonsang010716/OpenDocKit.git
 cd OpenDocKit
 uv sync                      # creates .venv with runtime, vision and development dependencies
 uv run pytest -n auto -m "not timing"   # the bulk of the tests in parallel, under a minute
-uv run pytest -m timing                  # ~300 tests that measure time, one at a time, about 5 minutes
+uv run pytest -m timing                  # ~380 tests that measure time, one at a time, about 5 minutes
 uv run ruff check            # lint
 uv run opendockit some.pdf   # try a real document
 ```

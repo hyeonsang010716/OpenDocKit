@@ -68,7 +68,7 @@ listed), so take them from the outline and do not count by hand.
 ## Pitfalls
 
 - **Scanned PDFs and images come back without their text.** The server has no OCR and calls no
-  vision model. A scanned page is a placeholder and a warning says so. Say that to the user and
+  vision model. A scanned page comes back empty and a warning says so. Say that to the user and
   use a vision tool on the page if one is available; do not guess the content.
 - **Pictures are `[Image]` placeholders.** Charts drawn from data in an Office file are returned as
   data tables; charts that are only a picture are not.
@@ -80,7 +80,8 @@ listed), so take them from the outline and do not count by hand.
 - **A file that cannot be converted returns a short fixed message** (encrypted, damaged, too large,
   unsupported format, timed out after 2 minutes). Pass it on as it is; retrying the same call does
   not help.
-- **Tables are Markdown tables.** A cell with several lines uses `<br>`; keep it when quoting.
+- **Tables are Markdown tables**, or an HTML `<table>` where cells are merged across columns. A cell with several lines
+  uses `<br>`; keep it when quoting.
 
 ## Verification
 

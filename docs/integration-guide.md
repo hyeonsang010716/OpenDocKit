@@ -32,7 +32,7 @@ This page is a summary for people building an upload screen on top of OpenDocKit
 
 ### Notation
 
-- Links come out as `[text](url)` and bold / italic as `**bold**` / `*italic*` in Word, PowerPoint, HTML, mail, OpenDocument text and slides, RTF and EPUB (`keep_links`, `keep_emphasis`, both on by default); Hangul (HWP / HWPX) keeps links but not emphasis. **The marks and addresses count toward `char_count`.** Only `http`, `https` and `mailto` addresses are written; other links keep their text. PDF and spreadsheet cells carry neither.
+- Links come out as `[text](url)` and bold / italic as `**bold**` / `*italic*` in Word, PowerPoint, Hangul (HWP / HWPX), HTML, mail, OpenDocument text and slides, RTF and EPUB (`keep_links`, `keep_emphasis`, both on by default). **The marks and addresses count toward `char_count`.** Only `http`, `https` and `mailto` addresses are written; other links keep their text. PDF and spreadsheet cells carry neither.
 - Superscripts and subscripts come out as `10^6`, `10^{-3}`, `H_2O` (an ordinal after a number, `21st`, is left as is).
   - In PDF they are inferred from character size and position, so they can be wrong, and they are not marked inside table cells.
 - A vertically merged table cell repeats its value on every row below. A table with horizontal merges (HWP, HWPX, DOCX, PPTX, HTML, ODT, ODP, RTF, EPUB) comes out as an HTML table (`rowspan`, `colspan`); the tags count toward the character count.
@@ -237,10 +237,11 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 
 ### What is read
 
-- "개요 N" (Outline N) styles and outline-numbered paragraphs → `#` headings; without them, short paragraphs set clearly
-  larger than the body → headings by size.
+- "개요 N" (Outline N) styles and outline-numbered paragraphs → `#` headings; short paragraphs set clearly larger than
+  the body → headings by size, with or without outline headings in the document.
 - Bold and italic → `**bold**` / `*italic*` (not in headings; a paragraph or cell bold throughout is not marked).
-- Letter-spaced form labels are joined (`성   명` → `성명`).
+- Letter-spaced form labels of three to six syllables are joined (`담   당   자` → `담당자`); a label of two syllables
+  stays as it is written (`성 명`).
 - Paragraph numbers and bullets (`1.`, `가.`, `-`).
 - Tables (including merged cells); captions of tables, pictures and equations (including the number of "표 1", "그림 2").
 - Multilevel lists inside a table cell are marked with `└` (level 2) and `└─` (level 3) before the sub-item.
@@ -326,7 +327,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 ### What is read
 
 - **OpenDocument text (`.odt`)**: headings, lists, tables with merged cells, footnotes, comments, pictures, embedded charts as data tables, LibreOffice Math formulas as LaTeX, links and emphasis. Headers and footers follow `include_headers_footers`.
-- **OpenDocument spreadsheet (`.ods`)**: the Excel rules of section 1 — one `## Sheet: name` per sheet, several tables on a sheet kept apart, merged cells, hidden sheets excluded with a warning, at most 100 columns counted from the first used column, text of drawn shapes and cell comments after the table. Cell text is what the cell displayed when the file was saved.
+- **OpenDocument spreadsheet (`.ods`)**: the Excel rules of section 1 — one `## Sheet: name` per sheet, several tables on a sheet kept apart, merged cells, hidden sheets excluded with a warning, at most 100 columns counted from the first used column, text of drawn shapes and cell comments after the table. Cell text is what the cell displayed when the file was saved, but for a date, which is written from its stored value as in Excel files (`2024-01-05`).
 - **OpenDocument presentation (`.odp`)**: one `## Slide N: title` per slide, bullet levels, tables, charts as data tables, speaker notes (`include_speaker_notes`), hidden slides marked `(hidden)`.
 - **RTF**: paragraphs, headings from the style or outline level, lists, tables with merged and nested cells, footnotes, pictures, links and emphasis, text in legacy code pages (CP949 and others).
 - **EPUB**: the chapters in reading order as one document, with the pictures stored in the book; title, author and language go to `metadata`. The navigation page and the cover page are left out.

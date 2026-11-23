@@ -6,8 +6,57 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **A report of what a change does to real documents** (`evals/changes.py`): it converts folders of documents with the
+  reader before and after a change and lists the texts that changed, the words that are gone, the headings that
+  appeared or went, the documents refused now and the HWP and HWPX twins that no longer convert alike.
+
+### Changed
+
+- **ODS: a date is written from its stored value, as for XLSX.** A date cell was written as the sheet shows it:
+  `05/01/24`, the fifth of January in one locale and the first of May in another. It is now `2024-01-05`, by the rule of
+  the XLSX reader. A workbook of sixteen date formats saved as ODS gives the same table as its XLSX.
+- **HTML, EPUB: a note reference is written `[n]`.** The digits of a raised note link ran into what stood before them:
+  `1,200` and note 1 read `1,2001`, and `GDP 2.5` and note 4 read `2.5^4`, an exponent. A raised number that is no link
+  stays an exponent.
+- **HWP, HWPX: a caption is written where the document sets it**, under a table or above it, and the caption of a
+  picture as a block of its own; the two readers now agree. A table's caption was always written above it.
+- **HWP, HWPX: a table that only frames text is read as that text.** The box around a summary is drawn as a table of
+  three rows and columns with the label across its top line; it came out as an HTML table with empty cells.
+- **HWPX converts faster**: the name of an element is remembered by its tag instead of being split each time.
+
+### Security
+
+- **Characters nobody sees are removed in plane 14 too.** The tag characters U+E0020–E007F mirror ASCII and are drawn
+  by nothing: a sentence written in them inside a DOCX, a text file or an HTML page came through whole, read by a
+  language model and by no reader of the document. They are removed with the other invisible characters, but for the
+  two uses that are writing (a flag sequence, a variation selector after an ideograph).
+- **A result lists the first 200 warnings of a reader and counts the rest.** A 532 KB deck whose slide list held
+  200,000 entries gave 200,001 warnings, 11.3 MB of them, which the LangChain and LlamaIndex loaders copy into the
+  metadata of every piece.
+- **PPTX: a slide the slide list names many times is read once**, with a warning. A 98 KB deck listing one slide 50
+  times took 68 s.
+
 ### Fixed
 
+- **PDF: the characters of an embedded TrueType font without a `ToUnicode` map.** The font's own character table was
+  read wrongly past its first segment: of the 2,691 glyphs Arial names, 1,261 came out as another character, and
+  `25°C ± 2, price £ 10` read `25±C¡²¡2,¡price¡¤¡10`.
+- **DOCX: a numbered heading in a style based on another** takes its level from the nearest style that has one:
+  `2.1 Evaluation` under `2 Another heading` came out as `3 Evaluation`.
+- **DOCX: the own number of a legal-style level keeps its zeros** (`Section 1.01`, was `Section 1.1`).
+- **DOCX, PPTX, HTML, PDF: symbols of Wingdings 3 and Webdings** are read by tables of their own; the down triangle
+  before a fall came out as a box, and the check and cross of a Webdings yes / no table as nothing.
+- **RTF: raised and lowered text is written as scripts** (`10^6`, `H_2O`), as in every other format; it was joined to
+  what stood before it (`106`, `H2O`).
+- **HWPX: a line break, a tab or a fixed space written beside the text of a run** (as writers other than Hangul leave
+  them) is read; the two lines came out as one and the words around a tab were joined.
+- **HWP, HWPX: level ten of a number text** (`^:`) is read, and a caret that names no level writes nothing.
+- **HWP, HWPX: U+00AD typed as a dash** is written as the hyphen Hangul draws; the sub-items of a press release lost
+  their marks. Between two letters it is removed as before.
+- **Hancom equations**: the italic word before capitals (`itA`) and the group after a bare script (`{}_3{rmC}_1`) are
+  read; the first came out as `P(itA \cap B)`, the second fell back to its script.
 - **HWP, HWPX: one outline heading no longer hides the titles set large.** A document with any outline heading kept
   those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
   note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
