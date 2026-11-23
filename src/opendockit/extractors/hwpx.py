@@ -9,6 +9,7 @@ from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
+from itertools import islice
 import re
 import unicodedata
 import zipfile
@@ -20,6 +21,7 @@ from opendockit.extractors._charts import embedded_table, package_loader, render
 from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hancom_symbols import framed_number, hancom_symbols
 from opendockit.extractors._hangul import (
+    FRAME_MAX_CELLS,
     CommentRanges,
     ParagraphPieces,
     SizeHeadings,
@@ -31,6 +33,7 @@ from opendockit.extractors._hangul import (
     form_caption,
     has_text,
     header_by_default,
+    is_frame,
     link_end,
     link_start,
     preview_has_words,
@@ -59,6 +62,9 @@ _xml_parser = thread_parser(resolve_entities=False, no_network=True, remove_comm
 # that Hangul inserts automatically.
 # The caption of an object (hp:caption) is read separately by `HwpxRenderer._caption`.
 _SKIP_OBJECTS = {"pic", "ole", "video", "chart", "linesegarray", "secPr", "shapeComment"}
+# The marks that stand for a character: a tab, a forced line break, the fixed-width and the non-breaking space. Hangul writes
+# them inside hp:t (`_t_text`); other writers of HWPX put them beside it, straight under hp:run (`_render_object`).
+_TEXT_MARKS = {"tab": "\t", "lineBreak": "\n", "nbSpace": " ", "fwSpace": " "}
 # Sides where the caption comes before the object (hp:caption side)
 _CAPTION_BEFORE = {"TOP", "LEFT"}
 # Line break marks in the text attribute of text art (hp:textart). Hangul writes control picture symbols (␍␊) instead of CR/LF.
@@ -132,8 +138,13 @@ class HwpxRenderer:
                  load_binary: Callable[[str], bytes | None], heads: ParagraphHeads | None = None,
                  load_part: Callable[[str], bytes | None] | None = None, scripts: dict[str, str] | None = None,
                  struck: frozenset[str] = frozenset(), sizes: dict[str, int] | None = None,
-                 emphasis: dict[str, tuple[bool, bool]] | None = None) -> None:
+                 emphasis: dict[str, tuple[bool, bool]] | None = None,
+                 boxed_fills: Callable[[], dict[str, bool]] | None = None) -> None:
         self._styles = styles
+        # Border fill id → whether it draws all four sides of a cell, read from the header the first time a table is looked
+        # at as a frame (`_is_frame`): most documents never ask
+        self._load_boxed_fills = boxed_fills
+        self._boxed_fills: dict[str, bool] | None = None
         # Character shape id → (bold, italic) for the shapes that have either (`_load_emphasis`; empty without `keep_emphasis`),
         # and that of the run being read
         self._emphasis = emphasis or {}
@@ -245,6 +256,11 @@ class HwpxRenderer:
         elif name == "tbl":
             flush()
             blocks.append(self._render_table(node))
+        elif name in _TEXT_MARKS:
+            # A mark beside hp:t, as writers other than Hangul leave it: read as a shape it left nothing, and the two lines it
+            # stood between became one (Pinned by: test_hwp.py::TestHwpxMarksBesideTheText).
+            self._note_memo_target(_TEXT_MARKS[name])
+            buffer.append(_TEXT_MARKS[name])
         elif name == "ctrl":
             self._render_control(node, buffer)
         elif name == "equation":
@@ -664,11 +680,22 @@ class HwpxRenderer:
         box = layout and table.get("colCnt") == "1"
         # ... and a table of one row sets things beside each other, and is one line of text (`SizeHeadings.row`)
         one_row = layout and not box and table.get("rowCnt") == "1"
+        # ... and a table that only frames text, one cell with content to a row, is one column of text: its cells with text are
+        # read as the cells of a one-column table (`_hangul.is_frame`, `_place_frame_row`). No paragraph of it is a heading by
+        # its size, as none was while it was drawn as a table
+        frame = (layout and not box and not one_row
+                 and _int(table.get("rowCnt"), 0) * _int(table.get("colCnt"), 0) <= FRAME_MAX_CELLS and self._is_frame(table))
+        placed = 0   # the cells of a frame placed so far
         self._grids.append(grid)
         self._cell_depth += 1
         box_cells = self._box_cells = [] if box or one_row else self._box_cells
         try:
             for row_index, row in enumerate(_children(table, "tr")):
+                if frame:
+                    placed, over = self._place_frame_row(grid, row, placed, budget)
+                    if over:
+                        break
+                    continue
                 grid.reach(row_index, 0)  # a row (hp:tr) whose cells are all covered by vertical spans from above is in the table (TableGrid.reach)
                 if self._place_row(grid, row, row_index, budget):
                     break
@@ -703,16 +730,69 @@ class HwpxRenderer:
             return self.size_headings.row(rendered, box_cells, grid)
         return join_blocks([caption_text, rendered])
 
+    def _is_frame(self, table: etree._Element) -> bool:
+        """Whether a table of the top-level body only frames text (`_hangul.is_frame`): its cells by their address, an empty
+        cell being one that holds nothing but empty paragraphs (`_holds_content`)."""
+        # The first row of nearly every table holds two texts, and a table that starts so is none: told from its first two
+        # cells alone, before any address is read, since the question is put to every table of the top level
+        first = _child(table, "tr")
+        if first is not None:
+            head = list(islice(_children(first, "tc"), 2))
+            if len(head) == 2 and _holds_content(head[0]) and _holds_content(head[1]):
+                return False
+
+        def cells() -> Iterator[tuple[int, int, bool, etree._Element] | None]:
+            for row in _children(table, "tr"):
+                for cell in _children(row, "tc"):
+                    address, span = _child(cell, "cellAddr"), _child(cell, "cellSpan")
+                    row_at = _int(address.get("rowAddr"), -1) if address is not None else -1
+                    content = _holds_content(cell)
+                    # a cell without an address, or with a table inside it, settles the answer
+                    yield None if row_at < 0 or (content and next(cell.iter("{*}tbl"), None) is not None) else (
+                        row_at, _int(span.get("rowSpan") if span is not None else None, 1), content, cell)
+
+        def boxed(cell: etree._Element) -> bool | None:
+            if self._boxed_fills is None:
+                self._boxed_fills = self._load_boxed_fills() if self._load_boxed_fills is not None else {}
+            return self._boxed_fills.get(cell.get("borderFillIDRef", ""))
+
+        return is_frame(cells(), boxed)
+
+    def _place_frame_row(self, grid: TableGrid, row: etree._Element, placed: int,
+                         budget: TableBudget | None) -> tuple[int, bool]:
+        """Place the cells of a row of a frame (`_is_frame`): each cell that gives text is the next cell of one column, in
+        the order of the document, after the `placed` before it, and a cell that gives none is left out. A cell taken for
+        empty that gives text after all (the number of an empty numbered paragraph) is a cell of the column like the others,
+        so nothing read is dropped. Returns the cells placed so far, and whether `budget` says the limit is exceeded."""
+        for cell in _children(row, "tc"):
+            text = "\n".join(block for sub in _children(cell, "subList") for block in self.render_paragraphs(sub))
+            if not text.strip():
+                continue
+            grid.place(placed, 0, text)
+            placed += 1
+            if budget is not None and budget.add(placed - 1, 0, text):
+                return placed, True
+        return placed, False
+
     def _place_row(self, grid: TableGrid, row: etree._Element, row_index: int, budget: TableBudget | None) -> bool:
         """Place the cells of a table row (hp:tr) on the grid. True if `budget` says the limit is exceeded — the remaining cells and rows are not
         read."""
         for cell in _children(row, "tc"):
-            blocks = [block for sub in _children(cell, "subList") for block in self.render_paragraphs(sub)]
+            # the parts of the cell in one pass over its children: looked up one name at a time, they were gone over three
+            # times for every cell of every table
+            sublists, address, span = [], None, None
+            for part in cell:
+                name = _local(part)
+                if name == "subList":
+                    sublists.append(part)
+                elif name == "cellAddr":
+                    address = part if address is None else address
+                elif name == "cellSpan":
+                    span = part if span is None else span
+            blocks = [block for sub in sublists for block in self.render_paragraphs(sub)]
             if self._box_cells is not None and self._cell_depth == 1 and self._inner == 0:
                 self._box_cells.append(blocks)
             text = "\n".join(blocks)
-            address = _child(cell, "cellAddr")
-            span = _child(cell, "cellSpan")
             row_span = _int(span.get("rowSpan") if span is not None else None, 1)
             col_span = _int(span.get("colSpan") if span is not None else None, 1)
             if address is None:
@@ -781,7 +861,8 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
                                        "without headings, numbering and character formatting.")
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
                                 _load_scripts(header), _load_struck_shapes(header), _load_char_sizes(header),
-                                _load_emphasis(header) if options.keep_emphasis else None)
+                                _load_emphasis(header) if options.keep_emphasis else None,
+                                lambda: _load_boxed_fills(header))
         blocks = []
         sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
@@ -867,6 +948,24 @@ def _form_value(node: etree._Element) -> str:
     return ""
 
 
+# What an empty cell is made of: its paragraph list, paragraphs, runs and texts, their line layout and its own address and size
+_EMPTY_CELL_PARTS = frozenset({"subList", "p", "run", "t", "linesegarray", "lineseg", "cellAddr", "cellSpan", "cellSz", "cellMargin"})
+
+
+def _holds_content(cell: etree._Element) -> bool:
+    """Whether a table cell holds anything besides empty paragraphs: text that is not whitespace, a mark inside a text, or any
+    other element (an object, a control, a table). Told from the XML before the cell is read, and on the side of content: what
+    is not known to be empty is not (`_is_frame`)."""
+    for text in cell.iter("{*}t"):   # the common answer first: the cell's first text says it
+        if len(text) or (text.text or "").strip():
+            return True
+    for node in cell.iterdescendants():
+        name = _local(node)
+        if name and name not in _EMPTY_CELL_PARTS:   # a name: not a comment or a processing instruction
+            return True
+    return False
+
+
 def _t_text(node: etree._Element) -> str:
     """Text of hp:t. A range deleted under change tracking (hp:deleteBegin to the hp:deleteEnd with the same Id) is left out — left as
     plain text, both the deleted and the inserted value read as valid values
@@ -888,14 +987,9 @@ def _t_text(node: etree._Element) -> str:
         if deleting is not None:
             continue
 
-        if name == "tab":
-            parts.append("\t")
-        elif name == "lineBreak":
-            parts.append("\n")
         # hp:hypen (so spelled by Hangul; hp:hyphen too) is the soft hyphen of HWP code 24, drawn only at a line break inside
         # the word: written as `-` it made a different word (Pinned by: test_hwp.py::TestSoftHyphen)
-        elif name in ("nbSpace", "fwSpace"):
-            parts.append(" ")
+        parts.append(_TEXT_MARKS.get(name, ""))
         parts.append(child.tail or "")
     return "".join(parts)
 
@@ -1022,6 +1116,21 @@ def _load_char_sizes(header: etree._Element | None) -> dict[str, int]:
             if height > 0:
                 sizes[node.get("id", "")] = height
     return sizes
+
+
+def _load_boxed_fills(header: etree._Element | None) -> dict[str, bool]:
+    """Border fill (hh:borderFill) id → whether a cell with it has a visible border on all four sides: a line of a type
+    other than NONE that is not white, the paper's colour. Diagonals and the fill are not looked at."""
+    if header is None:
+        return {}
+    fills = {}
+    for node in header.iter("{*}borderFill"):
+        sides = {_local(side): side for side in node}
+        fills[node.get("id", "")] = all(
+            (border := sides.get(name)) is not None and border.get("type", "NONE") != "NONE"
+            and border.get("color", "#000000").upper() != "#FFFFFF"
+            for name in ("leftBorder", "rightBorder", "topBorder", "bottomBorder"))
+    return fills
 
 
 def _load_emphasis(header: etree._Element | None) -> dict[str, tuple[bool, bool]]:

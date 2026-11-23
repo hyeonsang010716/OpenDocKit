@@ -6,6 +6,7 @@ Importing this module replaces functions of pdfminer for the whole process.
 """
 
 from collections import Counter
+from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -13,6 +14,7 @@ from io import BytesIO
 from itertools import count, islice
 import math
 import re
+import struct
 import unicodedata
 import zlib
 
@@ -108,6 +110,8 @@ _INFLATE_CHUNK = 1 << 20  # amount inflated at a time when measuring size (only 
 # largest layout does 3.5 million (0.1 seconds), p99 27,000; 20 million costs about 0.5 seconds. Pinned by:
 # test_audit_pdf_text.py::TestTooMuchLineGrouping.
 _LINE_GROUPING_WORK = 20_000_000
+# Code points the `cmap` tables of the embedded TrueType fonts of one document may name in all (`_unicode_map_of_the_font`).
+_DOCUMENT_CMAP_CODES = 12_000_000
 
 
 @dataclass(slots=True)
@@ -124,6 +128,7 @@ class _InflateBudget:
     font_ranges_cut: bool = False
     painted: dict[int, tuple[object, int]] = field(default_factory=dict)  # content stream → paint operator count (`_drawn_objects`)
     forms: dict[tuple[int, int], tuple[object, ...]] = field(default_factory=dict)  # form → drawn object count (`_content_objects`)
+    cmap_codes: int = _DOCUMENT_CMAP_CODES  # code points the `cmap` tables of embedded TrueType fonts may still name (`_DOCUMENT_CMAP_CODES`)
     undecoded_fonts: bool = False  # met a CID font whose encoding CMap was not found, so no character decodes (`_cmap_or_embedded`)
     ungrouped_layouts: int = 0  # layouts laid out without text-box grouping for having too many text boxes (`_group_few_textboxes`)
     grouping_cost: int = 0  # text-box grouping cost the Form XObjects of the page being read spent (`_PAGE_GROUPING_COST`, reset per page)
@@ -787,7 +792,8 @@ def _set_on_its_letter(objs: list) -> None:
 
 # Symbol font PostScript name (subset prefix, ',Bold' and '-Regular' removed; lower case without spaces) → font name in
 # `_symbols.SYMBOL_GLYPHS`.
-_SYMBOL_FONT_NAMES = {"symbol": "symbol", "symbolmt": "symbol", "wingdings": "wingdings", "wingdings2": "wingdings 2"}
+_SYMBOL_FONT_NAMES = {"symbol": "symbol", "symbolmt": "symbol", "wingdings": "wingdings", "wingdings2": "wingdings 2",
+                      "wingdings3": "wingdings 3", "webdings": "webdings"}
 
 
 @lru_cache(maxsize=256)
@@ -817,8 +823,8 @@ def _symbol_font_glyph(char: LTChar, font: object) -> None:
         return
     if 0xF020 <= ord(text) <= 0xF0FF:
         glyph = symbol_glyph(name, ord(text))
-    elif name.startswith("wingdings"):
-        # A Wingdings font holds no letters: where a character of it comes out as one — 'm' for the circle Hangul's PDF
+    elif name != "symbol":
+        # A Wingdings font holds no letters, nor does Webdings: where a character of it comes out as one — 'm' for the circle Hangul's PDF
         # sets before an item, '§' and 'ž' for its small squares and dots — the PDF named the glyph by its number read as
         # Windows-1252, and the number is looked up as it is for the private use area. A number the table does not hold
         # is left as it came (Pinned by: test_pdf_fonts.py::TestWingdingsGlyphsReadAsLetters).
@@ -1380,6 +1386,145 @@ def _cid_font_with_code_keyed_unicode(self: pdffont.PDFCIDFont, rsrcmgr: object,
 
 
 pdffont.PDFCIDFont.__init__ = _cid_font_with_code_keyed_unicode
+
+
+# The most bytes of a TrueType `cmap` table that are read, the most code points its subtables may name in all, and the most
+# the tables of one document may (`_InflateBudget.cmap_codes`). A table names ranges, not glyphs, so a few bytes name billions
+# of code points, and a font has 65,535 glyphs at most: a font that names every character of the basic plane in four
+# subtables names 262,144 code points. A table over its allowance gives the glyphs named before it; with the allowance of
+# the document spent, the fonts after it have no map and their text is reported as text of a font without one.
+_CMAP_BYTES_MAX = 16_000_000
+_CMAP_CODES_MAX = 1_200_000
+
+
+class _CMapWork:
+    """The code points the subtables of one `cmap` table may still name (`_CMAP_CODES_MAX`)."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, left: int) -> None:
+        self.left = left
+
+    def take(self, codes: int) -> int:
+        """As many of `codes` as are left."""
+        taken = max(0, min(codes, self.left))
+        self.left -= taken
+        return taken
+
+
+def _cmap_format_0(table: bytes, at: int, work: _CMapWork) -> Iterator[tuple[int, int]]:
+    yield from enumerate(struct.unpack_from(f">{work.take(256)}B", table, at + 6))
+
+
+def _cmap_format_4(table: bytes, at: int, work: _CMapWork) -> Iterator[tuple[int, int]]:
+    """Segments of 16-bit codes. A segment with an offset reads its glyphs from the array the offset points at, counted from
+    the place of the offset itself; a glyph of 0 there is no glyph, whatever the delta."""
+    (doubled,) = struct.unpack_from(">H", table, at + 6)
+    segments = doubled // 2
+    ends = struct.unpack_from(f">{segments}H", table, at + 14)
+    starts = struct.unpack_from(f">{segments}H", table, at + 16 + doubled)
+    deltas = struct.unpack_from(f">{segments}h", table, at + 16 + 2 * doubled)
+    offsets_at = at + 16 + 3 * doubled
+    offsets = struct.unpack_from(f">{segments}H", table, offsets_at)
+    for index, (first, last, delta, offset) in enumerate(zip(starts, ends, deltas, offsets, strict=True)):
+        codes = work.take(last - first + 1)
+        if codes <= 0:
+            continue
+        if not offset:
+            for code in range(first, first + codes):
+                yield code, (code + delta) & 0xFFFF
+            continue
+        glyphs = struct.unpack_from(f">{codes}H", table, offsets_at + 2 * index + offset)
+        for code, glyph in enumerate(glyphs, first):
+            if glyph:
+                yield code, (glyph + delta) & 0xFFFF
+
+
+def _cmap_format_6(table: bytes, at: int, work: _CMapWork) -> Iterator[tuple[int, int]]:
+    first, codes = struct.unpack_from(">HH", table, at + 6)
+    yield from enumerate(struct.unpack_from(f">{work.take(codes)}H", table, at + 10), first)
+
+
+def _cmap_format_10(table: bytes, at: int, work: _CMapWork) -> Iterator[tuple[int, int]]:
+    first, codes = struct.unpack_from(">II", table, at + 12)
+    yield from enumerate(struct.unpack_from(f">{work.take(codes)}H", table, at + 20), first)
+
+
+def _cmap_format_12(table: bytes, at: int, work: _CMapWork) -> Iterator[tuple[int, int]]:
+    (groups,) = struct.unpack_from(">I", table, at + 12)
+    for group in range(min(groups, (len(table) - at - 16) // 12)):
+        first, last, glyph = struct.unpack_from(">III", table, at + 16 + 12 * group)
+        codes = work.take(last - first + 1)
+        if codes <= 0:
+            if not work.left:
+                return
+            continue
+        yield from zip(range(first, first + codes), range(glyph, glyph + codes), strict=True)
+
+
+_CMAP_FORMATS = {0: _cmap_format_0, 4: _cmap_format_4, 6: _cmap_format_6, 10: _cmap_format_10, 12: _cmap_format_12}
+
+
+def _unicode_map_of_the_font(self: pdffont.TrueTypeFont) -> FileUnicodeMap:
+    """What each glyph of an embedded TrueType font is, from the font's own `cmap` table: the last source of a CID font that
+    names its glyphs by number and has no ToUnicode (`PDFCIDFont`, Adobe-Identity and Adobe-UCS). Replaces
+    `TrueTypeFont.create_unicode_map`.
+
+    pdfminer read the commonest subtable (format 4) wrongly: the offset of a segment counts from the place of that offset in
+    its array, and pdfminer counted every one from the start of the array, so only the first segment with an offset was read
+    right — of the 2,691 glyphs Arial names, 1,261 came out as another character and nothing said so ('25°C ± 2, price £ 10'
+    read '25±C¡²¡2,¡price¡¤¡10': the letters of ASCII stand in a segment without an offset and survive, so the page looks
+    read). It also gave a glyph of 0 the delta of its segment, kept the last of the characters that share a glyph (the soft
+    hyphen for the hyphen, which cleaning then removes; U+00A0 for the space), raised on a subtable of a format it does not
+    know — a table of variation sequences (format 14) stands under the Unicode platform in most current fonts — and walked
+    whatever a table named: a subtable is a list of ranges, and a few bytes name billions of code points.
+
+    Here every Unicode subtable (platform 0; platform 3, encodings 1 and 10) of a known format is read, a glyph gets the lowest
+    of its code points (the hyphen, the space, the Greek letter before the sign that looks like it), surrogates and code
+    points past U+10FFFF are no characters, a subtable of another format is passed over, and a subtable that ends early gives
+    what was read before its end. The ranges of one table may name `_CMAP_CODES_MAX` code points in all, those of a document
+    `_DOCUMENT_CMAP_CODES` (Pinned by: test_pdf_truetype_cmap.py)."""
+    if b"cmap" not in self.tables:
+        raise pdffont.TrueTypeFont.CMapNotFound
+    offset, length = self.tables[b"cmap"]
+    self.fp.seek(offset)
+    table = self.fp.read(min(length, _CMAP_BYTES_MAX))
+    lowest: dict[int, int] = {}
+    budget = _INFLATE_BUDGET.get()
+    allowed = _CMAP_CODES_MAX if budget is None else min(_CMAP_CODES_MAX, budget.cmap_codes)
+    work = _CMapWork(allowed)
+    try:
+        (subtables,) = struct.unpack_from(">H", table, 2)
+        for index in range(min(subtables, (len(table) - 4) // 8)):
+            platform, encoding, at = struct.unpack_from(">HHL", table, 4 + 8 * index)
+            if not (platform == 0 or (platform == 3 and encoding in (1, 10))):
+                continue
+            (number,) = struct.unpack_from(">H", table, at)
+            read = _CMAP_FORMATS.get(number)
+            if read is None:
+                continue
+            try:
+                for code, glyph in read(table, at, work):
+                    if glyph and (glyph not in lowest or code < lowest[glyph]) and _is_character(code):
+                        lowest[glyph] = code
+            except struct.error:   # this subtable ends early: what it gave before stays, and the next one is read
+                continue
+    except struct.error:
+        pass
+    if budget is not None:
+        budget.cmap_codes -= allowed - work.left
+    if not lowest:
+        raise pdffont.TrueTypeFont.CMapNotFound
+    unicode_map = FileUnicodeMap()
+    unicode_map.cid2unichr = {glyph: chr(code) for glyph, code in lowest.items() if glyph <= 0xFFFF}
+    return unicode_map
+
+
+def _is_character(code: int) -> bool:
+    return code < 0xD800 or 0xE000 <= code <= 0x10FFFF and code & 0xFFFE != 0xFFFE
+
+
+pdffont.TrueTypeFont.create_unicode_map = _unicode_map_of_the_font
 
 
 def _name(value: object) -> str:

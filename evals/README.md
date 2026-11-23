@@ -121,6 +121,10 @@ The scores say how far the two readers agree, so read them as a watch for change
   (`docs/decisions/hwp.md`). What still separates the two readers is in the HWPX and not on the page: cells divided
   by borders that are not drawn (the contact table at the end of every release is six columns in the HWPX and four in
   the PDF).
+  It rose again, to 0.568, when the box around a summary — a table of three rows and columns whose label sits across
+  its top line — became a label and paragraphs in the reference (`docs/decisions/hwp.md`), as the PDF of five releases
+  already read it. A wider form of that rule lowered TEDS on the holdout (0.580 to 0.578); sixty more releases fetched
+  to look at showed which boxes the two readers disagree on, those were left out, and the holdout rose (0.581).
 - **MHS 0.776 over 57 releases is not gated**: it says how far two readers agree, and a heading only one of them writes
   is not known to be wrong. The first run had 5 releases to measure it on: the HWPX reader wrote 11 headings in the 60
   releases and the PDF reader 140, because the title of a release stands in a one-column table in the HWPX, where a
@@ -167,6 +171,22 @@ figure, the title), which the HWPX reader wrote as a line and the PDF reader as 
 **Keep it a holdout.** Run it to judge a change; do not open its documents to write a rule. A rule comes from the
 first sixty, or from a document of your own, and this list says whether it carries. When it has been looked at too
 often to say so, find a new one (`--find 60 --from <id> --stride 3000`) and say so here.
+
+## Korean releases to look at
+
+```bash
+uv run python evals/fetch_korean_pairs.py ../corpus/korean-dev --list korean_pairs_dev.tsv
+D=../corpus/korean-dev
+uv run python -m evals.run --documents $D/pdf --gold $D/hwpx --baseline evals/baselines/korean-dev.json
+```
+
+Sixty more releases (`korean_pairs_dev.tsv`: the ids right below the first sixty, in neither list above), for the day the
+holdout says a rule does not carry and may not be opened to see why. This list may be opened. It was fetched when a
+rule for the tables of a Hangul document (`docs/decisions/hwp.md`, the table that only frames text) raised every mean of
+the first sixty and lowered TEDS on the holdout: two of these sixty fell the same way, and reading them showed which
+tables the two readers disagree on — and showed that the first explanation, tried on them, was wrong. The rule was
+narrowed from what they showed, and the holdout, run once more, rose. It is no gate and no holdout: a rule may be written
+from it, and its baseline is there to see what a change does to it.
 
 ## Format twins: one document in six formats
 
@@ -358,6 +378,30 @@ A baseline keeps the status of each document, so a document that was converted a
 It does not see: text a reader should leave out and writes (a deletion under change tracking); order; structure;
 numbers and dates of cells, which are written from a value and a format and not from a string; pictures. A PDF states
 no text of its own apart from what the reader reads, so it has no recall of this kind.
+
+## Changes: what did a rule do to the documents?
+
+```bash
+uv run python -m evals.changes --documents <folders> --save ../before.json.gz      # with the reader as it was (main)
+uv run python -m evals.changes --documents <folders> --against ../before.json.gz   # with the change
+```
+
+A score needs a reference, and a mean can stand still while forty texts change. `evals/changes.py` needs neither: it
+converts any folders of documents twice, with the reader before and after a change, and lists what moved — the texts that
+changed and their changed blocks by kind (a table that became text, text that became a table), the first of each
+document to read, the words a document held and holds nowhere now, the headings that appeared or went, the documents
+refused now that were converted before (status 1), the warnings that changed, and the HWP and HWPX twins of one name that
+converted alike and no longer do (the samples of hwp2hwpx are 41 such pairs). What it lists is what the description of a
+change has to account for; it is the comparison this folder's rule asks for, on documents that have no reference.
+
+To run the reader as it was, check `main` out beside the change (`git worktree add ../main main`) and put it first on the
+path: `PYTHONPATH=../main/src uv run python -m evals.changes … --save …`.
+
+**Time.** The seconds it prints are one run on a machine that does other work, and say nothing under a few percent. A
+change must not make conversion slower than `main`, and that is measured where the change lives: wrap the function, collect
+its time over every call a corpus makes of it, take the least of several passes, on both sides, in the order change, main,
+main, change. Measured so, a question asked of every table cost 0.05 s on 20,640 tables, which a whole run of 91 s could
+not show; and reading the parts of a cell in one pass over its children instead of three saved five times that.
 
 ## What it does not measure yet
 

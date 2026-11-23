@@ -2677,3 +2677,41 @@ class TestHeadingHoldingOnlyAPicture:
         html = f"<h1><img src='{self._uri()}'> Annual report</h1><p>Body</p>"
 
         assert convert(html.encode(), "a.html").text == "# Annual report\n\n[Image]\n\nBody"
+
+
+
+class TestNoteReferences:
+    """A raised link into the page, or a link that says it is a note reference, whose text is a number is a note reference: it
+    is written `[n]`, the footnote mark left alone everywhere else. Raised it read as an exponent (`GDP 2.5^4`, beside
+    `100 m^2`), unraised its digits ran into the figure before it (`1,2001`)."""
+
+    @staticmethod
+    def _text(body: str) -> str:
+        return convert(f"<html><body>{body}</body></html>".encode(), "a.html").text
+
+    def test_raised_link_into_the_page_is_a_note_reference(self):
+        text = self._text("<p>Population 8,000<sup>3</sup>, GDP 2.5<sup><a href='#fn4'>4</a></sup> over 100 m<sup>2</sup>; "
+                          "see Smith<a class='fnref' href='#n3'><sup>3</sup></a> and Lee<sup> <a id='r5' href='#fn5'>5</a> </sup>.</p>")
+
+        assert text == "Population 8,000^3, GDP 2.5[4] over 100 m^2; see Smith[3] and Lee[5]."
+
+    def test_link_that_says_it_is_a_note_reference(self):
+        text = self._text("<p>Revenue was 1,200<a role='doc-noteref' href='#fn1'>1</a> in 2019<a epub:type='noteref' href='#fn2'>2</a>.</p>")
+
+        assert text == "Revenue was 1,200[1] in 2019[2]."
+
+    def test_reference_in_a_heading_and_in_a_table_cell(self):
+        text = self._text("<h2>Results<sup><a href='#fn9'>9</a></sup></h2><table><tr><th>k</th><th>v</th></tr>"
+                          "<tr><td>GDP</td><td>2.5<sup><a href='#fn4'>4</a></sup></td></tr></table>")
+
+        assert text == "## Results[9]\n\n| k | v |\n| --- | --- |\n| GDP | 2.5[4] |"
+
+    def test_what_is_no_note_reference_stays(self):
+        """A link to another page, a link into the page that is not raised (a page number of a table of contents), a raised
+        link whose text is no number or is longer than four digits, a mark already in brackets, and code."""
+        text = self._text("<p>cite<sup><a href='https://example.org/x'>5</a></sup> page <a href='#p12'>12</a> "
+                          "x<sup><a href='#a'>a</a></sup> y<sup><a href='#b'>12345</a></sup> z<sup><a href='#c'>[7]</a></sup> "
+                          "w<sup>2 <a href='#d'>3</a></sup></p><pre>a<sup><a href='#f'>1</a></sup></pre>")
+
+        assert text == "cite^5 page 12 x^a y^{12345} z[7] w^{2 3}\n\n```\na1\n```"
+

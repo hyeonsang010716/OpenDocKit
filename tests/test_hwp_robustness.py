@@ -281,7 +281,10 @@ class TestSpansPastTheTable:
         """A table whose cell addresses are scattered along a diagonal has its bottom rows dropped by the grid cell limit.
         Formerly there was no warning. The limit (5 million cells) is lowered to 100 cells, seen as 20 rows × 20 columns."""
         monkeypatch.setattr("opendockit.markdown._MAX_GRID_CELLS", 100)
-        cells = "".join(f"<hp:tr>{builder._hwpx_cell(index, index, 'x')}</hp:tr>" for index in range(20))
+        # ... with a second text in the first row: a table with one text to a row is a frame, read as one column, which
+        # loses no row (`_hangul.is_frame`)
+        cells = "".join(f"<hp:tr>{builder._hwpx_cell(index, index, 'x')}{builder._hwpx_cell(0, 1, 'y') if not index else ''}</hp:tr>"
+                        for index in range(20))
         body = f"<hp:p><hp:run><hp:tbl>{cells}</hp:tbl></hp:run></hp:p>"
 
         result = convert(builder.hwpx_bytes(body), "a.hwpx")

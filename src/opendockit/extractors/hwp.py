@@ -26,6 +26,7 @@ from opendockit.extractors._charts import embedded_table, render_chart
 from opendockit.extractors._equation import render_equation
 from opendockit.extractors._hancom_symbols import FRAME_GLYPHS, framed_number, hancom_symbols, unfold
 from opendockit.extractors._hangul import (
+    FRAME_MAX_CELLS,
     CommentRanges,
     ParagraphPieces,
     SizeHeadings,
@@ -36,6 +37,7 @@ from opendockit.extractors._hangul import (
     emphasis_pieces,
     form_caption,
     header_by_default,
+    is_frame,
     link_end,
     link_start,
     preview_has_words,
@@ -62,6 +64,7 @@ _SUMMARY_MAX_BYTES = 64 * 1024
 
 _HWPTAG_BEGIN = 0x10
 TAG_BIN_DATA = _HWPTAG_BEGIN + 2
+TAG_BORDER_FILL = _HWPTAG_BEGIN + 4
 TAG_CHAR_SHAPE = _HWPTAG_BEGIN + 5
 TAG_NUMBERING = _HWPTAG_BEGIN + 7
 TAG_BULLET = _HWPTAG_BEGIN + 8
@@ -384,8 +387,13 @@ class HwpRenderer:
     def __init__(self, styles: list[str], options: ConvertOptions, extraction: Extraction | None = None,
                  load_bin: Callable[[int], bytes | None] | None = None, heads: ParagraphHeads | None = None,
                  scripts: dict[int, str] | None = None, struck: frozenset[int] = frozenset(),
-                 sizes: list[int] | None = None, emphasis: dict[int, tuple[bool, bool]] | None = None) -> None:
+                 sizes: list[int] | None = None, emphasis: dict[int, tuple[bool, bool]] | None = None,
+                 boxed_fills: Callable[[], list[bool]] | None = None) -> None:
         self._styles = styles
+        # Border fill ID - 1 → whether it draws all four sides of a cell (parse_boxed_fills), read the first time a table is
+        # looked at as a frame (`_is_frame`): most documents never ask
+        self._load_boxed_fills = boxed_fills
+        self._boxed_fills: list[bool] | None = None
         # Character shape ID → (bold, italic) for the shapes that have either (parse_char_emphasis; empty without `keep_emphasis`)
         self._emphasis = emphasis or {}
         # Character shape ID → base size (parse_char_sizes), and the headings told by size (`_hangul.SizeHeadings`; the body
@@ -872,6 +880,35 @@ class HwpRenderer:
             if found is self.headers:
                 self._extraction.count(solid_length(text), self._options)
 
+    def _is_frame(self, cells: list[tuple[Record, list[Record]]], row_count: int, col_count: int) -> bool:
+        """Whether a table of the top-level body only frames text (`_hangul.is_frame`): its cells by their address, an empty
+        cell being one whose paragraphs hold no character but blanks and no control (`_holds_content`)."""
+        # The first row of nearly every table holds two texts, and a table that starts so is none: told from its first two
+        # cells alone, since the question is put to every table of the top level
+        if len(cells) >= 2 and _holds_content(cells[0][1]) and _holds_content(cells[1][1]):
+            first, second = (_cell_address(header.payload, row_count, col_count) for header, _ in cells[:2])
+            if first is not None and second is not None and first[0] == second[0]:
+                return False
+
+        def addressed() -> Iterator[tuple[int, int, bool, Record] | None]:
+            for header, paragraphs in cells:
+                address = _cell_address(header.payload, row_count, col_count)
+                # a cell without an address, or with a table inside it, settles the answer
+                yield None if address is None or _holds_a_table(paragraphs) else (
+                    address[0], address[2], _holds_content(paragraphs), header)
+
+        def boxed(header: Record) -> bool | None:
+            if self._boxed_fills is None:
+                self._boxed_fills = self._load_boxed_fills() if self._load_boxed_fills is not None else []
+            if len(header.payload) < _CELL_BORDER_FILL_OFFSET + 2:
+                return None
+            (fill_id,) = struct.unpack_from("<H", header.payload, _CELL_BORDER_FILL_OFFSET)
+            if fill_id == 0:   # no border fill: no lines, in a document that defines border fills at all
+                return False if self._boxed_fills else None
+            return self._boxed_fills[fill_id - 1] if fill_id <= len(self._boxed_fills) else None
+
+        return is_frame(addressed(), boxed)
+
     def _render_table(self, control: Record) -> str:
         """Table: under CTRL_HEADER(tbl) comes TABLE, followed, for each cell, by a LIST_HEADER and that cell's paragraphs as siblings.
 
@@ -911,15 +948,32 @@ class HwpRenderer:
         box = layout and col_count == 1
         # ... and a table of one row sets things beside each other, and is one line of text (`SizeHeadings.row`)
         one_row = layout and not box and row_count == 1
+        # ... and a table that only frames text, one cell with content to a row, is one column of text: its cells with text are
+        # read as the cells of a one-column table (`_hangul.is_frame`). No paragraph of it is a heading by its size, as none
+        # was while it was drawn as a table
+        frame = (layout and not box and not one_row and len(cells) <= FRAME_MAX_CELLS
+                 and self._is_frame(cells, row_count, col_count))
+        placed = 0   # the cells of a frame placed so far
         self._grids.append(grid)
         self._cell_depth += 1
         box_cells = self._box_cells = [] if box or one_row else self._box_cells
         try:
             for position, (header, paragraphs) in enumerate(cells):
                 blocks = self.render(paragraphs)
+                text = "\n".join(blocks)
+                if frame:
+                    # each cell that gives text is the next cell of one column, in the order of the document; one that gives
+                    # none is left out, and one taken for empty that gives text after all (the number of an empty numbered
+                    # paragraph) is a cell like the others
+                    if not text.strip():
+                        continue
+                    grid.place(placed, 0, text)
+                    placed += 1
+                    if budget is not None and budget.add(placed - 1, 0, text):
+                        break
+                    continue
                 if box or one_row:
                     box_cells.append(blocks)
-                text = "\n".join(blocks)
                 columns = max(col_count, 1)
                 row, col, row_span, col_span = (_cell_address(header.payload, row_count, col_count)
                                                 or (position // columns, position % columns, 1, 1))
@@ -1006,6 +1060,45 @@ def _smallest_text_size(payload: bytes, pairs: list[tuple[int, int]], sizes: lis
             smallest = min(smallest, size) if smallest else size
         index += 1
     return smallest
+
+
+# Where the border fill ID of a cell stands in its LIST_HEADER: after the 8 bytes of the list, the address and spans (8), the
+# width and height (8) and the four margins (8). Read so, the borders of 37,787 cells of 404 documents are the borders their
+# HWPX saves name, but for 11.
+_CELL_BORDER_FILL_OFFSET = 32
+# The units of a paragraph text that are no content: the paragraph end, a line break, the blanks
+_BLANK_UNITS = "\r\n \u3000\u00a0\x1e\x1f"
+
+
+def _holds_content(paragraphs: list[Record]) -> bool:
+    """Whether the paragraphs of a table cell hold anything besides blanks: a character, or a control (any other unit below
+    32, and the record of one). Told from the records before the cell is read, and on the side of content
+    (`HwpRenderer._is_frame`)."""
+    for paragraph in paragraphs:
+        for child in paragraph.children:
+            if child.tag == TAG_CTRL_HEADER:
+                return True
+            if child.tag == TAG_PARA_TEXT and child.payload.decode("utf-16-le", "replace").strip(_BLANK_UNITS):
+                return True
+    return False
+
+
+def _holds_a_table(paragraphs: list[Record]) -> bool:
+    """Whether one of the paragraphs of a table cell holds a table (`HwpRenderer._is_frame`)."""
+    return any(child.tag == TAG_CTRL_HEADER and ctrl_id(child) == "tbl " for paragraph in paragraphs for child in paragraph.children)
+
+
+def parse_boxed_fills(doc_info: list[Record]) -> list[bool]:
+    """BORDER_FILL records of DocInfo (index + 1 is the border fill ID) → whether a cell with it has a visible border on all
+    four sides. After the attribute (UINT16) come the left, right, top and bottom borders, six bytes each: the line type
+    (0 is no line), the width and the colour (COLORREF); a white line is not seen on paper."""
+    fills = []
+    for record in doc_info:
+        if record.tag == TAG_BORDER_FILL:
+            payload = record.payload
+            fills.append(len(payload) >= 26 and all(
+                payload[2 + 6 * side] != 0 and payload[4 + 6 * side:7 + 6 * side] != b"\xff\xff\xff" for side in range(4)))
+    return fills
 
 
 def _cell_address(payload: bytes, row_count: int, col_count: int) -> tuple[int, int, int, int] | None:
@@ -1539,7 +1632,8 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
 
         renderer = HwpRenderer(parse_styles(doc_info), options, extraction, load_bin, parse_paragraph_heads(doc_info),
                                parse_char_scripts(doc_info), parse_struck_shapes(doc_info), parse_char_sizes(doc_info),
-                               parse_char_emphasis(doc_info) if options.keep_emphasis else None)
+                               parse_char_emphasis(doc_info) if options.keep_emphasis else None,
+                               lambda: parse_boxed_fills(doc_info))
         renderer.load_ole = load_ole
         blocks = []
         names = _section_streams(ole)

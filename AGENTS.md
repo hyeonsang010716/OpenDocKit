@@ -13,6 +13,7 @@ uv run pytest tests/test_pdf.py  # one module
 uv run ruff check                # lint
 uv run python -m evals.run --documents <pdfs> --gold <references> --baseline evals/baselines/pdf-structure.json   # structure scores against the baseline (evals/README.md)
 uv run python -m evals.recall --documents <docx, pptx, xlsx, hwpx, hwp> [--baseline evals/baselines/recall-korean-pairs.json]   # words of the source missing from the output
+uv run python -m evals.changes --documents <folders> --save <file> | --against <file>   # what a change does to the text of any documents: run it on main, then on the change (evals/README.md)
 uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved
 uv run opendockit <file> [--json | --count] [--describe]   # --describe calls a vision model (OPENAI_API_KEY, costs money)
 ```

@@ -1766,6 +1766,31 @@ class TestDocxNumbering:
 
         assert result.text == "제1장 총칙\n\n  - 1.1 목적\n  - 1.2 정의\n\n제2장 본칙\n\n  - 2.1 적용"
 
+    def test_level_of_a_style_based_on_a_numbered_style(self):
+        """A heading style based on the numbered one above it writes only its level and inherits the list (what Word writes for
+        'Heading 2 based on Heading 1' in a template). The level was looked up with the id of the style that names the list,
+        so every such heading counted at the first level: '2.1 Evaluation' came out as '3 Evaluation'. The level is that of
+        the nearest style that has one: bound by a number level (Sub), written by the style itself (Deep, bound to nothing),
+        and a style that has neither takes that of the style it is based on (Mine)."""
+        numbering = ('<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="multilevel"/>'
+                     + _number_level(0, "%1", extra='<w:pStyle w:val="Top"/>')
+                     + _number_level(1, "%1.%2", extra='<w:pStyle w:val="Sub"/>')
+                     + _number_level(2, "%1.%2.%3") + "</w:abstractNum>" + _number_list(1))
+        styles = "".join(
+            f'<w:style w:type="paragraph" w:styleId="{style_id}"><w:name w:val="{style_id}"/>{inner}</w:style>'
+            for style_id, inner in [
+                ("Top", '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr>'),
+                ("Sub", '<w:basedOn w:val="Top"/><w:pPr><w:numPr><w:ilvl w:val="1"/></w:numPr></w:pPr>'),
+                ("Deep", '<w:basedOn w:val="Sub"/><w:pPr><w:numPr><w:ilvl w:val="2"/></w:numPr></w:pPr>'),
+                ("Mine", '<w:basedOn w:val="Sub"/>')])
+        body = "".join(_paragraph(text, style=style) for text, style in [
+            ("Scope", "Top"), ("Terms", "Top"), ("Evaluation", "Sub"), ("Criteria", "Deep"), ("Award", "Mine"), ("Annex", "Top")])
+
+        result = convert(_docx_with_body(body, numbering=numbering, styles=styles), "a.docx")
+
+        lines = [line.strip().removeprefix("- ") for line in result.text.splitlines() if line.strip()]
+        assert lines == ["1 Scope", "2 Terms", "2.1 Evaluation", "2.1.1 Criteria", "2.2 Award", "3 Annex"]
+
     def test_definition_linked_to_a_numbering_style_uses_that_style_levels(self):
         """A numbering definition that points to a numbering style (w:numStyleLink) has empty level definitions, so it came out as
         bullets."""
@@ -2499,12 +2524,15 @@ class TestDocxStruckDeletedAndSymbolRuns:
 
     def test_symbol_outside_the_tables_keeps_the_private_use_fallback(self):
         """A character not in the tables is moved to the private use area as before (clean_text converts only those it knows and
-        erases the rest)."""
-        body = "<w:p>" + self._run("앞") + self._symbols("Webdings", "F0FC") + self._symbols("Wingdings", "F0FF") + self._run("뒤") + "</w:p>"
+        erases the rest): FB of Symbol, a piece of a bracket, becomes the cross the shared table knows, FF of Wingdings is
+        erased. A font whose numbers mean something else than in Wingdings does not take that way: FC of Webdings is a globe,
+        and it came out as the check FC is in Wingdings."""
+        body = ("<w:p>" + self._run("앞") + self._symbols("Webdings", "F0FC") + self._symbols("Wingdings", "F0FF")
+                + self._symbols("Symbol", "F0FB") + self._run("뒤") + "</w:p>")
 
         result = convert(_docx_with_body(body), "a.docx")
 
-        assert result.text == "앞✓뒤"
+        assert result.text == "앞✗뒤"
 
     def test_content_of_a_tracked_deletion_is_left_out(self):
         """Text inside w:del is w:delText and is left out, but footnote references and pictures came out as if part of the final

@@ -20,8 +20,11 @@ from opendockit.extractors._inline import (
     ITALIC_OFF,
     ITALIC_ON,
     LINK_ON,
+    SUBSCRIPT,
+    SUPERSCRIPT,
     InlineMark,
     field_link,
+    format_script,
     link_off,
     resolve_inline,
 )
@@ -73,7 +76,7 @@ _MAX_NESTED_TABLES = 10_000
 # still read, as one last run without bold, italic or link — nothing is lost and nothing is cut
 # (Pinned by: test_rtf.py::TestHostileInput::test_paragraph_of_endless_runs_keeps_its_text_in_a_bounded_number_of_runs).
 _MAX_PARAGRAPH_RUNS = 50_000
-_PLAIN_TAIL = (False, False, None, False)
+_PLAIN_TAIL = (False, False, None, False, None)
 # Style references. Writers put `\*` in front of them in the middle of a run (StarWriter: `{\b0\*\cs7 text}`); there they are
 # formatting, not the start of an ignorable destination.
 _STYLE_WORDS = frozenset((b"cs", b"s", b"ds", b"ts"))
@@ -179,12 +182,14 @@ def _page_codec(page: int) -> str | None:
 class _State:
     """What a group scopes: the destination and the character formatting."""
 
-    __slots__ = ("dest", "bold", "italic", "hidden", "deleted", "font", "uc", "link", "closer", "nested_row", "ud", "in_upr")
+    __slots__ = ("dest", "bold", "italic", "hidden", "deleted", "font", "uc", "link", "closer", "nested_row", "ud", "in_upr",
+                 "script")
 
     def __init__(self) -> None:
         self.dest = _BODY
         self.bold = self.italic = self.hidden = False
         self.deleted = False  # inside a tracked deletion (`\deleted`): a paragraph mark here joins the next paragraph
+        self.script: str | None = None  # raised (`\super`) or lowered (`\sub`) text: `_inline.SUPERSCRIPT` / `SUBSCRIPT`
         self.font: int | None = None
         self.uc = 1
         self.link: str | None = None
@@ -196,7 +201,7 @@ class _State:
     def child(self) -> "_State":
         state = _State.__new__(_State)
         state.dest, state.bold, state.italic, state.hidden = self.dest, self.bold, self.italic, self.hidden
-        state.deleted = self.deleted
+        state.deleted, state.script = self.deleted, self.script
         state.font, state.uc, state.link, state.nested_row = self.font, self.uc, self.link, self.nested_row
         state.closer, state.ud, state.in_upr = None, None, self.in_upr
         return state
@@ -419,7 +424,7 @@ class _Flow:
         self.blocks: list[str] = []
         self.runs: list[_Run] = []
         self._pieces: list[str] = []   # text of the run being collected (`add_run`) …
-        self._look: tuple[bool, bool, str | None, bool] | None = None   # … and its bold, italic, link, "is white space"
+        self._look: tuple[bool, bool, str | None, bool, str | None] | None = None  # … its bold, italic, link, blank, script
         self.paragraph = _Paragraph()
         self.tables: list[_Table] = []  # the open tables, outermost first
         self.row = _RowDefinition()
@@ -613,7 +618,8 @@ class _Flow:
         self._enter(0)
         return self.blocks
 
-    def add_run(self, text: str, bold: bool, italic: bool, link: str | None, *, alone: bool = False) -> None:
+    def add_run(self, text: str, bold: bool, italic: bool, link: str | None, *, alone: bool = False,
+                script: str | None = None) -> None:
         """Text for the paragraph being read. Pieces that follow each other with the same formatting are one run: a run per
         token (10 million `\\_` in 20 MB) was a tuple each — 22 s and 4.6 GB
         (Pinned by: test_rtf.py::TestHostileInput::test_pieces_with_the_same_formatting_are_one_run)."""
@@ -622,7 +628,8 @@ class _Flow:
         # lines (Pinned by: test_rtf.py::TestEmphasis::test_emphasis_is_marked_line_by_line_inside_a_run).
         # A picture placeholder and a footnote mark are runs of their own too (`alone`): the rules ask of a piece whether it is
         # only a placeholder.
-        look = (bold, italic, link, not text.strip())
+        # … but not inside raised or lowered text, where the words of a run are one script (`a^{hello there}`).
+        look = (bold, italic, link, script is None and not text.strip(), script)
         if len(self.runs) >= _MAX_PARAGRAPH_RUNS:
             look, alone = _PLAIN_TAIL, False   # everything after the limit is one plain run (`_MAX_PARAGRAPH_RUNS`)
         if alone or look != self._look:
@@ -634,7 +641,11 @@ class _Flow:
 
     def _settle(self) -> None:
         if self._pieces:
-            self.runs.append(("".join(self._pieces), *self._look[:3]))
+            text = "".join(self._pieces)
+            if self._look[4] is not None:
+                # The whole of a raised or lowered run is one script, written after what stands before it (`21st` stays).
+                text = format_script(text, self._look[4], self.runs[-1][0][-1:] if self.runs else "")
+            self.runs.append((text, *self._look[:3]))
             self._pieces = []
         self._look = None
 
@@ -1171,7 +1182,7 @@ class _Reader:
         dest = state.dest
         if dest == _BODY:
             if not state.hidden:
-                self._flow.add_run(text, state.bold, state.italic, state.link)
+                self._flow.add_run(text, state.bold, state.italic, state.link, script=state.script)
         elif dest == _INFO_TEXT:
             self._info.append(text)
         elif dest == _STYLESHEET:
@@ -1250,7 +1261,14 @@ class _Reader:
             flow.paragraph = _Paragraph()
         elif word == b"plain":
             state.bold = state.italic = state.hidden = state.deleted = False
-            state.font = None
+            state.font = state.script = None
+        elif word == b"super" or word == b"sub":
+            # Raised and lowered text is written `10^6`, `H_2O`, as every other format writes it (`_inline.format_script`):
+            # joined as plain text, `H{\sub 2}O` read `H2O`, `10{\super 6}` read `106` and a raised note number ran into the
+            # figure before it (Pinned by: test_rtf.py::TestScripts).
+            state.script = (SUPERSCRIPT if word == b"super" else SUBSCRIPT) if on else None
+        elif word == b"nosupersub":
+            state.script = None
         elif word == b"b":
             state.bold = on
         elif word == b"i":
@@ -1460,7 +1478,7 @@ class _Reader:
         state.dest = _BODY
         # The text of a header, footnote or shape starts with plain formatting, whatever the run that anchors it looks like.
         state.bold = state.italic = state.hidden = state.deleted = False
-        state.link = None
+        state.link = state.script = None
         if kind == "box":
             if self._boxes >= _MAX_SHAPE_DEPTH:
                 return  # read into the flow of the shape around it
