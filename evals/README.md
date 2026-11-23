@@ -172,6 +172,22 @@ figure, the title), which the HWPX reader wrote as a line and the PDF reader as 
 first sixty, or from a document of your own, and this list says whether it carries. When it has been looked at too
 often to say so, find a new one (`--find 60 --from <id> --stride 3000`) and say so here.
 
+## Korean releases to look at
+
+```bash
+uv run python evals/fetch_korean_pairs.py ../corpus/korean-dev --list korean_pairs_dev.tsv
+D=../corpus/korean-dev
+uv run python -m evals.run --documents $D/pdf --gold $D/hwpx --baseline evals/baselines/korean-dev.json
+```
+
+Sixty more releases (`korean_pairs_dev.tsv`: the ids right below the first sixty, in neither list above), for the day the
+holdout says a rule does not carry and may not be opened to see why. This list may be opened. It was fetched when a
+rule for the tables of a Hangul document (`docs/decisions/hwp.md`, the table that only frames text) raised every mean of
+the first sixty and lowered TEDS on the holdout: two of these sixty fell the same way, and reading them showed which
+tables the two readers disagree on — and showed that the first explanation, tried on them, was wrong. The rule was
+narrowed from what they showed, and the holdout, run once more, rose. It is no gate and no holdout: a rule may be written
+from it, and its baseline is there to see what a change does to it.
+
 ## Format twins: one document in six formats
 
 ```bash
@@ -362,6 +378,30 @@ A baseline keeps the status of each document, so a document that was converted a
 It does not see: text a reader should leave out and writes (a deletion under change tracking); order; structure;
 numbers and dates of cells, which are written from a value and a format and not from a string; pictures. A PDF states
 no text of its own apart from what the reader reads, so it has no recall of this kind.
+
+## Changes: what did a rule do to the documents?
+
+```bash
+uv run python -m evals.changes --documents <folders> --save ../before.json.gz      # with the reader as it was (main)
+uv run python -m evals.changes --documents <folders> --against ../before.json.gz   # with the change
+```
+
+A score needs a reference, and a mean can stand still while forty texts change. `evals/changes.py` needs neither: it
+converts any folders of documents twice, with the reader before and after a change, and lists what moved — the texts that
+changed and their changed blocks by kind (a table that became text, text that became a table), the first of each
+document to read, the words a document held and holds nowhere now, the headings that appeared or went, the documents
+refused now that were converted before (status 1), the warnings that changed, and the HWP and HWPX twins of one name that
+converted alike and no longer do (the samples of hwp2hwpx are 41 such pairs). What it lists is what the description of a
+change has to account for; it is the comparison this folder's rule asks for, on documents that have no reference.
+
+To run the reader as it was, check `main` out beside the change (`git worktree add ../main main`) and put it first on the
+path: `PYTHONPATH=../main/src uv run python -m evals.changes … --save …`.
+
+**Time.** The seconds it prints are one run on a machine that does other work, and say nothing under a few percent. A
+change must not make conversion slower than `main`, and that is measured where the change lives: wrap the function, collect
+its time over every call a corpus makes of it, take the least of several passes, on both sides, in the order change, main,
+main, change. Measured so, a question asked of every table cost 0.05 s on 20,640 tables, which a whole run of 91 s could
+not show; and reading the parts of a cell in one pass over its children instead of three saved five times that.
 
 ## What it does not measure yet
 
