@@ -1,5 +1,5 @@
 """A table of the top-level body of a Hangul document that only frames text — no row of it holds content in more than
-one cell, and no empty cell of it is a blank to fill in — is one column of text (`_hangul.is_frame`).
+one cell, no cell of it is drawn as a box, and none holds a table — is one column of text (`_hangul.is_frame`).
 
 Hangul authors draw the box around a summary as a table of three rows and columns: the label (`< 요 약 >`) sits across the
 top line of the box, between two cells that hold nothing but a piece of that line, above one cell with the text. 380
@@ -93,12 +93,6 @@ class TestSummaryBox:
 
         assert "#" not in text
 
-    def test_label_drawn_as_a_box_of_its_own(self):
-        cells = [(0, 0, 1, 1, "", "none"), (0, 1, 2, 1, "일 러 두 기", "box"), (0, 2, 1, 1, "", "none"),
-                 (1, 0, 1, 1, "", "none"), (1, 2, 1, 1, "", "none"), (2, 0, 1, 3, "□ 작성 목적", "none")]
-
-        assert convert(_hwpx(cells, 3, 3), "a.hwpx").text == "앞 문단\n\n일 러 두 기\n\n□ 작성 목적\n\n뒤 문단"
-
     def test_label_spanning_rows_is_written_once(self):
         """A label beside nothing, over three rows: drawn as a table and unfolded as one column, it was written on each row."""
         cells = [(0, 0, 1, 1, "", "none"), (0, 1, 3, 1, "가정에서는", "none"), (1, 0, 1, 1, "", "none"), (2, 0, 1, 1, "", "none")]
@@ -135,9 +129,24 @@ class TestTablesThatStayTables:
 
         assert convert(_hwpx(cells, 2, 2), "a.hwpx").text == "앞 문단\n\n성명\n\n서명\n\n뒤 문단"
 
+    def test_label_drawn_as_a_box_of_its_own(self):
+        """A cell boxed on all four sides is a cell on paper, with content as without: the PDF of the same document shows a
+        ruled cell there, and the table is left a table."""
+        cells = [(0, 0, 1, 1, "", "none"), (0, 1, 2, 1, "일 러 두 기", "box"), (0, 2, 1, 1, "", "none"),
+                 (1, 0, 1, 1, "", "none"), (1, 2, 1, 1, "", "none"), (2, 0, 1, 3, "□ 작성 목적", "none")]
+
+        assert "<table>" in convert(_hwpx(cells, 3, 3), "a.hwpx").text
+
+    def test_hwp_label_drawn_as_a_box_of_its_own(self, monkeypatch):
+        cells = [(0, 0, 1, 1, "", "none"), (0, 1, 2, 1, "일 러 두 기", "box"), (0, 2, 1, 1, "", "none"),
+                 (1, 0, 1, 1, "", "none"), (1, 2, 1, 1, "", "none"), (2, 0, 1, 3, "□ 작성 목적", "none")]
+
+        assert "<table>" in convert(_hwp(monkeypatch, cells, 3, 3), "a.hwp").text
+
     def test_a_white_border_is_no_border(self):
-        """White lines are not seen on paper: an empty cell boxed in white is a piece of the frame."""
-        cells = [(0, 0, 1, 1, "성명", "box"), (0, 1, 1, 1, "", "white-box"), (1, 0, 1, 1, "", "white-box"), (1, 1, 1, 1, "서명", "box")]
+        """White lines are not seen on paper: cells boxed in white are pieces of the frame."""
+        cells = [(0, 0, 1, 1, "성명", "white-box"), (0, 1, 1, 1, "", "white-box"), (1, 0, 1, 1, "", "white-box"),
+                 (1, 1, 1, 1, "서명", "white-box")]
 
         assert convert(_hwpx(cells, 2, 2), "a.hwpx").text == "앞 문단\n\n성명\n\n서명\n\n뒤 문단"
 
@@ -166,18 +175,19 @@ class TestTablesThatStayTables:
 
 
 class TestWhatIsRead:
-    def test_table_inside_a_frame_is_a_table_of_its_own(self):
+    def test_frame_that_holds_a_table_is_left_as_it_is(self):
         inner = ('<hp:tbl rowCnt="2" colCnt="2">' + "".join(
             f"<hp:tr>{builder._hwpx_cell(row, 0, left)}{builder._hwpx_cell(row, 1, right)}</hp:tr>"
             for row, (left, right) in enumerate((("구분", "값"), ("수출", "1조")))) + "</hp:tbl>")
         data = builder.zip_with(_hwpx(_SUMMARY, 3, 3), edit={"Contents/section0.xml": lambda xml: xml.replace(
             "<hp:t>◇ 수출 1조 달러 돌파</hp:t>", f"<hp:t>◇ 수출 1조 달러 돌파</hp:t>{inner}")})
 
-        assert convert(data, "a.hwpx").text == (
-            "앞 문단\n\n< 요 약 >\n\n◇ 수출 1조 달러 돌파\n\n| 구분 | 값 |\n| --- | --- |\n| 수출 | 1조 |\n\n뒤 문단")
+        text = convert(data, "a.hwpx").text
+
+        assert '<th rowspan="2">< 요 약 ></th>' in text and "<table><tr><th>구분</th><th>값</th></tr>" in text
 
     def test_hwp_and_hwpx_read_alike(self, monkeypatch):
-        cells = [(0, 0, 1, 1, "", "bottom"), (0, 1, 2, 1, "< 참고 >", "box"), (0, 2, 1, 1, "", "bottom"),
+        cells = [(0, 0, 1, 1, "", "bottom"), (0, 1, 2, 1, "< 참고 >", "none"), (0, 2, 1, 1, "", "bottom"),
                  (1, 0, 1, 1, "", "top-left"), (1, 2, 1, 1, "", "top-right"), (2, 0, 1, 3, "※ 신고수리일 기준\n※ 잠정치", "open-top")]
 
         assert convert(_hwp(monkeypatch, cells, 3, 3), "a.hwp").text == convert(_hwpx(cells, 3, 3), "a.hwpx").text \
@@ -188,16 +198,18 @@ class TestIsFrame:
     """`is_frame` on the cells themselves: (row, rows spanned, content, the cell), and whether an empty cell is boxed."""
 
     @pytest.mark.parametrize(("cells", "boxed", "frame"), [
-        ([(0, 2, True, "label"), (0, 1, False, "open"), (2, 1, True, "text")], {"open": False}, True),
+        ([(0, 2, True, "open"), (0, 1, False, "open"), (2, 1, True, "open")], {"open": False}, True),
+        ([(0, 2, True, "label"), (0, 1, False, "open"), (2, 1, True, "open")], {"open": False, "label": True}, False),  # a cell with content drawn as a box
+        ([(0, 2, True, "label"), (0, 1, False, "open")], {"open": False}, False),         # ... or with borders not known
         ([(0, 1, True, "a"), (0, 1, True, "b")], {}, False),                              # two texts in a row
         ([(0, 3, True, "a"), (1, 1, True, "b")], {}, False),                              # ... by the rows a cell covers
-        ([(0, 1, True, "a"), (1, 1, False, "blank")], {"blank": True}, False),            # a blank to fill in
-        ([(0, 1, True, "a"), (1, 1, False, "unknown")], {"unknown": None}, False),        # borders not known
+        ([(0, 1, True, "a"), (1, 1, False, "blank")], {"a": False, "blank": True}, False),  # a blank to fill in
+        ([(0, 1, True, "a"), (1, 1, False, "unknown")], {"a": False, "unknown": None}, False),  # borders not known
         ([(0, 1, False, "open"), (1, 1, False, "open")], {"open": False}, False),         # no content
         ([(0, 1, True, "a"), None, (1, 1, True, "b")], {}, False),                        # a cell without an address
         ([(0, 0, True, "a")], {}, False),                                                 # a span of no rows
         ([(0, 70_000, True, "a")], {}, False),                                            # ... or of more rows than a frame has
-        ([(row, 1, True, "a") for row in range(100)], {}, True),
+        ([(row, 1, True, "a") for row in range(100)], {"a": False}, True),
         ([(row, 1, True, "a") for row in range(101)], {}, False),                         # more cells than a frame has
     ])
     def test_cases(self, cells, boxed, frame):

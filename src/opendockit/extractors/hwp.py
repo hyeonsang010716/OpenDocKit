@@ -893,7 +893,9 @@ class HwpRenderer:
         def addressed() -> Iterator[tuple[int, int, bool, Record] | None]:
             for header, paragraphs in cells:
                 address = _cell_address(header.payload, row_count, col_count)
-                yield None if address is None else (address[0], address[2], _holds_content(paragraphs), header)
+                # a cell without an address, or with a table inside it, settles the answer
+                yield None if address is None or _holds_a_table(paragraphs) else (
+                    address[0], address[2], _holds_content(paragraphs), header)
 
         def boxed(header: Record) -> bool | None:
             if self._boxed_fills is None:
@@ -1079,6 +1081,11 @@ def _holds_content(paragraphs: list[Record]) -> bool:
             if child.tag == TAG_PARA_TEXT and child.payload.decode("utf-16-le", "replace").strip(_BLANK_UNITS):
                 return True
     return False
+
+
+def _holds_a_table(paragraphs: list[Record]) -> bool:
+    """Whether one of the paragraphs of a table cell holds a table (`HwpRenderer._is_frame`)."""
+    return any(child.tag == TAG_CTRL_HEADER and ctrl_id(child) == "tbl " for paragraph in paragraphs for child in paragraph.children)
 
 
 def parse_boxed_fills(doc_info: list[Record]) -> list[bool]:

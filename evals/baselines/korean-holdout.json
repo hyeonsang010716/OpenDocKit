@@ -1,27 +1,27 @@
 {
  "means": {
   "overall": {
-   "mean": 0.7859,
+   "mean": 0.7867,
    "documents": 60
   },
   "nid": {
-   "mean": 0.9352,
+   "mean": 0.9348,
    "documents": 60
   },
   "nid_s": {
-   "mean": 0.9635,
+   "mean": 0.9628,
    "documents": 60
   },
   "teds": {
-   "mean": 0.578,
+   "mean": 0.5812,
    "documents": 55
   },
   "teds_s": {
-   "mean": 0.7048,
+   "mean": 0.707,
    "documents": 55
   },
   "mhs": {
-   "mean": 0.8225,
+   "mean": 0.8224,
    "documents": 54
   },
   "mhs_s": {
@@ -29,7 +29,7 @@
    "documents": 54
   },
   "words": {
-   "mean": 0.9776,
+   "mean": 0.9777,
    "documents": 60
   }
  },
@@ -345,14 +345,14 @@
    "words": 0.9937
   },
   "156675381": {
-   "overall": 0.7322,
-   "nid": 0.8602,
-   "nid_s": 0.9466,
-   "teds": 0.4229,
-   "teds_s": 0.6102,
-   "mhs": 0.9136,
+   "overall": 0.78,
+   "nid": 0.8369,
+   "nid_s": 0.9074,
+   "teds": 0.5987,
+   "teds_s": 0.7347,
+   "mhs": 0.9043,
    "mhs_s": 1.0,
-   "words": 0.9563
+   "words": 0.9619
   },
   "156677785": {
    "overall": 0.8868,

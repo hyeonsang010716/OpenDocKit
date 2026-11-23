@@ -746,8 +746,10 @@ class HwpxRenderer:
                 for cell in _children(row, "tc"):
                     address, span = _child(cell, "cellAddr"), _child(cell, "cellSpan")
                     row_at = _int(address.get("rowAddr"), -1) if address is not None else -1
-                    yield None if row_at < 0 else (row_at, _int(span.get("rowSpan") if span is not None else None, 1),
-                                                   _holds_content(cell), cell)
+                    content = _holds_content(cell)
+                    # a cell without an address, or with a table inside it, settles the answer
+                    yield None if row_at < 0 or (content and next(cell.iter("{*}tbl"), None) is not None) else (
+                        row_at, _int(span.get("rowSpan") if span is not None else None, 1), content, cell)
 
         def boxed(cell: etree._Element) -> bool | None:
             if self._boxed_fills is None:
@@ -776,12 +778,21 @@ class HwpxRenderer:
         """Place the cells of a table row (hp:tr) on the grid. True if `budget` says the limit is exceeded — the remaining cells and rows are not
         read."""
         for cell in _children(row, "tc"):
-            blocks = [block for sub in _children(cell, "subList") for block in self.render_paragraphs(sub)]
+            # the parts of the cell in one pass over its children: looked up one name at a time, they were gone over three
+            # times for every cell of every table
+            sublists, address, span = [], None, None
+            for part in cell:
+                name = _local(part)
+                if name == "subList":
+                    sublists.append(part)
+                elif name == "cellAddr":
+                    address = part if address is None else address
+                elif name == "cellSpan":
+                    span = part if span is None else span
+            blocks = [block for sub in sublists for block in self.render_paragraphs(sub)]
             if self._box_cells is not None and self._cell_depth == 1 and self._inner == 0:
                 self._box_cells.append(blocks)
             text = "\n".join(blocks)
-            address = _child(cell, "cellAddr")
-            span = _child(cell, "cellSpan")
             row_span = _int(span.get("rowSpan") if span is not None else None, 1)
             col_span = _int(span.get("colSpan") if span is not None else None, 1)
             if address is None:
