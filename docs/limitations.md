@@ -195,7 +195,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   Hidden text is left out; for text hidden by a condition the state saved in the file is used (conditions are not evaluated).
 - **RTF**: equations, comments and the contents of embedded OLE objects are not read (an OLE preview picture is kept).
   Text in symbol fonts (Symbol, Wingdings) is dropped. Letter and roman list numbers are written as `1.`, `2.`, and the
-  automatic number of a numbered heading is not reproduced. Underline, strikethrough and superscript are not kept. HTML
+  automatic number of a numbered heading is not reproduced. Underline and strikethrough are not kept. HTML
   mail bodies wrapped in RTF by Outlook yield only their plain-text rendering. A document cut off mid-file is converted
   up to the cut, with a warning. A table keeps at most 500,000 cells; the cells after that are left out with a warning.
   After 50,000 runs of formatting in one paragraph the rest of it is written without bold, italic or links. Groups

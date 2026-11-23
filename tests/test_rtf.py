@@ -370,6 +370,49 @@ class TestSkippedDestinations:
         assert _text(body, head=r"\ansi\ansicpg949") == "글상자\n\nBefore after"
 
 
+class TestScripts:
+    r"""Raised (`\super`) and lowered (`\sub`) text is written `10^6`, `H_2O`, as every other format writes it. Joined as plain
+    text, `H2O` and `106` read as other things, and a name with a lowered part (`GABA` and `AFAST`) as one word."""
+
+    def test_raised_and_lowered_runs_use_the_shared_notation(self):
+        body = r"H{\sub 2}O and 10{\super 6} and x{\super 2}, GABA{\sub A}{\sub FAST}, 10{\super -3}\par"
+
+        assert _text(body) == "H_2O and 10^6 and x^2, GABA_{AFAST}, 10^{-3}"
+
+    def test_words_of_one_script_are_one_script(self):
+        """The spaces inside a raised run do not end it (`x^{n} ^{-} ^{1}` was three scripts), and a run too long for a script
+        by the shared rule stays text as a whole, not word by word."""
+        body = r"x{\super n - 1} and H{\sub many of them}O\par"
+
+        assert _text(body) == "x^{n - 1} and Hmany of themO"
+
+    def test_script_ends_at_its_group_at_nosupersub_and_at_plain(self):
+        body = r"area 30 m\super 2\nosupersub  wide, CO\sub 2\plain  gas, {\super 5}th floor, m\super 2\super0  now\par"
+
+        assert _text(body) == "area 30 m^2 wide, CO_2 gas, ^5th floor, m^2 now"
+
+    def test_ordinal_suffix_and_empty_script_are_left_as_text(self):
+        """The rules of the shared notation: an ordinal suffix after a number is no exponent, and a raised space is a space."""
+        body = r"the 21{\super st} of May{\super  }and after\par"
+
+        assert _text(body) == "the 21st of May and after"
+
+    def test_script_inside_bold_text_and_in_a_table_cell(self):
+        body = (r"{\b speed v{\super 2}} is\par"
+                r"\trowd\cellx2000\cellx4000 gas\cell exponent\cell\row"
+                r"\trowd\cellx2000\cellx4000 CO{\sub 2}\cell 10{\super -3}\cell\row")
+
+        assert _text(body) == "**speed v^2** is\n\n| gas | exponent |\n| --- | --- |\n| CO_2 | 10^{-3} |"
+
+    def test_note_reference_is_not_a_script(self):
+        """Word raises the reference of a footnote; it is written as the footnote mark, not as an exponent of a mark."""
+        body = r"Value 1,200{\super \chftn {\footnote \pard {\super \chftn } A note.}} here\par"
+
+        text = _text(body)
+
+        assert "1,200[^1] here" in text and "^[" not in text and "^{" not in text
+
+
 class TestEmphasis:
     def test_bold_and_italic_runs_are_marked_with_whitespace_outside(self):
         """`\\b` … `\\b0`, a group-scoped `\\i`, and both together; the space inside the bold run goes outside the markers."""
