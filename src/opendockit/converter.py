@@ -55,6 +55,11 @@ from opendockit.models import (
 if TYPE_CHECKING:
     from opendockit.describe import ImageDescriber
 
+if os.name == "nt":
+    from opendockit import _windows
+else:
+    _windows = None
+
 
 # The message of a conversion that ran out of memory or time (`convert`, `IsolatedConverter`).
 TOO_COMPLEX_MESSAGE = "The document is too large or too complex to convert."
@@ -394,7 +399,11 @@ def convert_file(path: str | os.PathLike[str], options: ConvertOptions | None = 
     file_path = Path(path)
     _check_arguments(None, options)
     options = options or _DEFAULT_OPTIONS
-    with file_path.open("rb") as stream:
+    # On Windows a full path of 260 characters or more is opened through its long form. In its ordinary form it was "not
+    # found" on every machine without LongPathsEnabled (the default), though the file was there — a document deep in a
+    # synchronised folder with long names (Pinned by: test_converter.py::TestFileAtALongPath).
+    opened = Path(_windows.openable(str(file_path))) if _windows is not None else file_path
+    with opened.open("rb") as stream:
         status = os.fstat(stream.fileno())
         if stat.S_ISREG(status.st_mode) and status.st_size > options.max_file_bytes:
             raise DocumentTooLargeError(f"The file is too large (maximum {_size_text(options.max_file_bytes)}).")

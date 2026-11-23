@@ -40,6 +40,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Windows: a document at a path of 260 characters or more is read.** Without LongPathsEnabled — off by default —
+  such a path was "File not found" on the command line, a `FileNotFoundError` from `convert_file` and "No file at
+  that path." from the MCP server, for a file that was there: a document deep in a synchronised folder with long
+  names. A root of the MCP server may be that long as well.
 - **PDF: the characters of an embedded TrueType font without a `ToUnicode` map.** The font's own character table was
   read wrongly past its first segment: of the 2,691 glyphs Arial names, 1,261 came out as another character, and
   `25°C ± 2, price £ 10` read `25±C¡²¡2,¡price¡¤¡10`.

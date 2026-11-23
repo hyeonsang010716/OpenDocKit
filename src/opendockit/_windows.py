@@ -17,19 +17,55 @@ pid that can be watched so a worker leaves when its server is gone. Here they co
 `job_for_children` is a third use: a job that LibreOffice is put into, so that it is ended with the process that started it.
 That one needs no watching — the handle closes when the process dies, whatever kills it.
 
-Nothing here raises. Where a call fails the limit is simply not applied, as `_limit_memory` does on macOS, and the callers
+No job function raises. Where a call fails the limit is simply not applied, as `_limit_memory` does on macOS, and the callers
 do not read the answer: a worker that could not join the job runs without the memory limit that was asked for, and a
 LibreOffice that could not be put in one is not ended with the process that started it. Both need the job to have been made
 — `open_job` failing is reported by handing out no name at all — and then an `OpenJobObjectW` of one's own user's job to
 fail, which is why neither is treated as an error worth ending a conversion for. Known accepted gap: nothing in the result
 says that a limit was not applied.
+
+The long form of a path belongs here as well (`long_path`, `openable`).
 """
 
 import ctypes
 from ctypes import wintypes
 from functools import lru_cache
+import os
 import time
 import uuid
+
+
+# A path of this many characters or more is not opened in its ordinary form, unless the machine has LongPathsEnabled set —
+# off by default on Windows 10 and 11. The limit counts the terminating NUL: measured on Windows 11, a file at a full path
+# of 259 characters opens and one of 260 is "not found".
+MAX_PATH = 260
+
+
+def long_path(path: str) -> str:
+    """The form of a path that is not held to `MAX_PATH`: `\\\\?\\C:\\…`, or `\\\\?\\UNC\\host\\share\\…` for a share.
+
+    Made absolute first: the long form is passed to the file system as written, so a `..`, a `/` or a name relative to the
+    current folder in it would no longer be resolved. A path already in the long form, or a device path (`\\\\.\\…`), is
+    returned as it is.
+    """
+    path = os.path.abspath(path)
+    if path.startswith(("\\\\?\\", "\\\\.\\")):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
+
+
+def openable(path: str) -> str:
+    """`path` as it is, or its long form when its full path is too long to be opened as it is (`MAX_PATH`).
+
+    Only such a path changes: every other one is passed on exactly as it was given, so what an error message names is
+    still what the caller wrote.
+    """
+    if path.startswith("\\\\?\\"):
+        return path
+    full = os.path.abspath(path)
+    return long_path(full) if len(full) >= MAX_PATH else path
 
 
 _JobObjectBasicAccountingInformation = 1

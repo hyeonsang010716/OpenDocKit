@@ -4,6 +4,7 @@ import asyncio
 import base64
 from dataclasses import replace
 from io import BytesIO
+import os
 from pathlib import Path
 import sys
 import zipfile
@@ -24,7 +25,7 @@ from opendockit import (
 )
 from opendockit.extractors import EXTRACTORS
 from opendockit.models import DocumentFormat
-from tests import builder
+from tests import builder, file_at_length
 
 
 class TestLimits:
@@ -1079,6 +1080,53 @@ class TestPicturesInsideAQuote:
         answered = [index + 1 for index, image in enumerate(result.images) if image.description or image.decorative]
         assert result.exceeded
         assert max(answered) == crossing[0]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the 260-character limit of a path is Windows")
+class TestFileAtALongPath:
+    """A full path of 260 characters or more is not opened in its ordinary form on a Windows without LongPathsEnabled, the
+    default: `convert_file` raised FileNotFoundError for a file that was there, deep in a synchronised folder with long
+    names. Such a path is opened through its long form; every other path is opened as it was given."""
+
+    @pytest.mark.parametrize("length", [259, 260, 300, 400])
+    def test_a_file_at_a_long_path_is_converted(self, tmp_path, length):
+        """259 is the longest an ordinary path may be, so it worked before; 260 and longer did not."""
+        path = file_at_length(tmp_path, length, builder.docx_bytes())
+
+        for given in (path, str(path)):
+            result = convert_file(given)
+
+            assert result.format is DocumentFormat.DOCX
+            assert "본문 첫 문단입니다." in result.text
+
+    def test_the_name_of_the_file_is_still_used_for_detection(self, tmp_path):
+        """The long form changes how the file is opened, not the name it is converted under."""
+        path = file_at_length(tmp_path, 300, b"a,b\n1,2\n", suffix=".csv")
+
+        assert convert_file(path).format is DocumentFormat.CSV
+
+    def test_a_missing_file_at_a_long_path_is_still_not_found(self, tmp_path):
+        path = file_at_length(tmp_path, 300, b"")
+        missing = path.with_name("없는 " + path.name)
+
+        with pytest.raises(FileNotFoundError):
+            convert_file(missing)
+
+    def test_only_a_path_too_long_to_open_changes(self, tmp_path):
+        """A path that fits is passed on exactly as it was given — relative, with `..` or with slashes — so that an error
+        names what the caller wrote. One that does not fit is made absolute before it takes the long form, which the file
+        system reads as written."""
+        from opendockit import _windows
+
+        for given in ("a.docx", "docs/a.docx", r"..\a.docx", str(tmp_path / "a.docx"), r"\\.\pipe\x", r"\\?\C:\a.docx"):
+            assert _windows.openable(given) == given
+        long = str(tmp_path / ("x" * 120) / ".." / ("y" * 200) / "a.docx")
+        assert _windows.openable(long) == "\\\\?\\" + os.path.abspath(long)
+        assert ".." not in _windows.openable(long)
+        assert _windows.openable("x" * 300) == "\\\\?\\" + os.path.abspath("x" * 300)
+        share = r"\\server\share" + "\\" + "z" * 300
+        assert _windows.openable(share) == "\\\\?\\UNC\\server\\share\\" + "z" * 300
+        assert _windows.long_path(r"\\.\pipe\x") == r"\\.\pipe\x"
 
 
 class TestInputTypes:

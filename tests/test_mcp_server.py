@@ -13,7 +13,7 @@ import pytest
 
 from opendockit import mcp_server
 from opendockit.exceptions import ConversionError
-from tests import builder
+from tests import builder, file_at_length
 
 
 if mcp_server.MCPServer is None:
@@ -482,6 +482,53 @@ def _within(seconds: float, action, unblock=None):
 
 def _open_descriptors() -> int:
     return len(os.listdir("/dev/fd"))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the 260-character limit of a path is Windows")
+class TestFilesAtALongPath:
+    """A full path of 260 characters or more is not looked at in its ordinary form on a Windows without LongPathsEnabled,
+    the default: a document deep in a synchronised folder with long names was "No file at that path.", and a root that
+    long "not a folder". Such a path is looked at through its long form, and still checked against the roots by what the
+    folders are."""
+
+    def test_a_file_at_a_long_path_is_read_with_roots_and_without(self, tmp_path):
+        path = file_at_length(tmp_path / "inbox", 320, builder.docx_bytes())
+
+        for roots in ([tmp_path / "inbox"], None):
+            text = call("convert_document", {"path": str(path)}, roots=roots)
+
+            assert "본문 첫 문단입니다." in text
+
+    def test_a_file_at_a_long_path_outside_the_roots_is_refused(self, tmp_path):
+        (tmp_path / "inbox").mkdir()
+        path = file_at_length(tmp_path / "elsewhere", 320, builder.docx_bytes())
+
+        with pytest.raises(ToolError, match="outside the folders this server may read"):
+            call("convert_document", {"path": str(path)}, roots=[tmp_path / "inbox"])
+
+    def test_a_root_at_a_long_path_is_a_folder(self, tmp_path, monkeypatch):
+        """Both checks of a root: the one of the command line before the server starts, and the one of `create_server`."""
+        path = file_at_length(tmp_path, 380, builder.docx_bytes())
+        root = path.parent
+        assert len(str(root)) >= 260
+        started: list[list[Path]] = []
+
+        class NotStarted:
+            """What `create_server` gives `main` here: a server that records its roots instead of serving stdio."""
+
+            def __init__(self, roots: list[Path], *_: object) -> None:
+                self.roots = roots
+
+            def run(self, transport: str) -> None:
+                started.append(self.roots)
+
+        monkeypatch.setattr(mcp_server, "create_server", NotStarted)
+
+        mcp_server.main(["--root", str(root)])   # "not a folder" ended it with a usage error before
+
+        assert started == [[root]]
+        monkeypatch.undo()
+        assert "본문 첫 문단입니다." in call("convert_document", {"path": str(path)}, roots=[root])
 
 
 @pytest.mark.skipif(os.name != "posix", reason="symbolic links and FIFOs are made without privilege only on POSIX")

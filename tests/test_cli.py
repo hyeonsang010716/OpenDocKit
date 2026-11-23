@@ -3,13 +3,14 @@ OpenAI key from the `OPENAI_API_KEY` environment variable, so there is no config
 
 import asyncio
 import io
+import os
 from pathlib import Path
 import sys
 
 import pytest
 
 from opendockit.cli import main
-from tests import builder
+from tests import builder, file_at_length
 
 
 class TestCount:
@@ -65,6 +66,19 @@ class TestFileErrors:
 
         assert code == 1
         assert capsys.readouterr().err.startswith(("File not found: ", "Could not read the file "))
+
+    @pytest.mark.skipif(os.name != "nt", reason="the 260-character limit of a path is Windows")
+    def test_a_file_at_a_long_path_is_converted(self, tmp_path, monkeypatch, capsys):
+        """A full path of 260 characters or more was 'File not found' on a Windows without LongPathsEnabled (the default),
+        for a file that was there."""
+        path = file_at_length(tmp_path, 320, builder.docx_bytes())
+        monkeypatch.setattr("sys.argv", ["opendockit", str(path)])
+
+        code = main()
+
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        assert "본문 첫 문단입니다." in captured.out
 
     def test_reader_library_that_cannot_be_imported_prints_a_message(self, tmp_path, monkeypatch, capsys):
         """A reader library that cannot be imported on first use ended the command in a traceback."""
