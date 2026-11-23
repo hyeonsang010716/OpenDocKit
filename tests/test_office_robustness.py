@@ -7,7 +7,7 @@ import pytest
 
 from opendockit import ConvertOptions, convert
 from tests import builder
-from tests.test_office import _docx_with_body, _pptx_with_text_boxes, _slide_body
+from tests.test_office import _docx_with_body, _pptx_with_text_boxes, _slide_body, _with_parts_replaced
 
 
 _HUGE = "9" * 5000  # more digits than int() accepts (over 4,300)
@@ -231,6 +231,73 @@ class TestDocumentPropertiesAndSlideRoots:
         assert "## Slide 3: 실적" in result.text
         assert "핵심 목표" not in result.text
         assert result.warnings == ["Slide 2: skipped because the slide could not be read."]
+
+
+def _with_part_changed(data: bytes, name: str, change) -> bytes:
+    """The package with the XML of one part rewritten by `change(text) -> text`."""
+    import zipfile
+
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        text = archive.read(name).decode("utf-8")
+    return _with_parts_replaced(data, {name: change(text).encode("utf-8")})
+
+
+class TestSlideListedMoreThanOnce:
+    """PowerPoint writes each slide once in the slide list. A list naming one slide 50 times converted it 50 times (68 s for a 98 KB
+    deck whose slide held 20,000 shapes without text, which the character limit never sees). A slide part is read once, with a
+    warning, as a sheet named twice by a workbook is."""
+
+    _WARNING = "The presentation lists the same slide more than once, so it was read only once."
+
+    @staticmethod
+    def _two_slides() -> bytes:
+        def build(presentation):
+            for title in ("First", "Second"):
+                presentation.slides.add_slide(presentation.slide_layouts[5]).shapes.title.text = title
+
+        return _deck(build)
+
+    @staticmethod
+    def _first_entry(presentation_xml: str) -> str:
+        start = presentation_xml.index("<p:sldId ")
+        return presentation_xml[start:presentation_xml.index("/>", start) + 2]
+
+    def test_entry_repeated_with_the_same_relationship_is_read_once(self):
+        def repeat(text: str) -> str:
+            return text.replace("</p:sldIdLst>", self._first_entry(text) * 40 + "</p:sldIdLst>")
+
+        result = convert(_with_part_changed(self._two_slides(), "ppt/presentation.xml", repeat), "a.pptx")
+
+        assert (result.text.count("First"), result.text.count("Second")) == (1, 1)
+        assert len(result.sections) == 2
+        assert result.metadata["slide_count"] == "2"
+        assert result.warnings == [self._WARNING]
+
+    def test_slide_named_by_a_second_relationship_is_read_once(self):
+        import re
+
+        def add_relationship(text: str) -> str:
+            first = re.search(r'<Relationship [^>]*Target="slides/slide1.xml"[^>]*/>', text).group(0)
+            kind = re.search(r'Type="([^"]+)"', first).group(1)
+            again = f'<Relationship Id="rIdAgain" Type="{kind}" Target="slides/slide1.xml"/>'
+            return text.replace("</Relationships>", again + "</Relationships>")
+
+        def list_it(text: str) -> str:
+            entry = re.sub(r'r:id="[^"]+"', 'r:id="rIdAgain"', self._first_entry(text))
+            return text.replace("</p:sldIdLst>", entry + "</p:sldIdLst>")
+
+        deck = _with_part_changed(self._two_slides(), "ppt/_rels/presentation.xml.rels", add_relationship)
+        result = convert(_with_part_changed(deck, "ppt/presentation.xml", list_it), "a.pptx")
+
+        assert result.text.count("First") == 1
+        assert result.metadata["slide_count"] == "2"
+        assert result.warnings == [self._WARNING]
+
+    def test_deck_of_distinct_slides_has_no_warning(self):
+        result = convert(self._two_slides(), "a.pptx")
+
+        assert result.metadata["slide_count"] == "2"
+        assert result.warnings == []
 
 
 class TestHugeNumbersInOfficeDocuments:
