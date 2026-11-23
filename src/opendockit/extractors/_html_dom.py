@@ -1429,6 +1429,56 @@ def _option_text(option: Tag) -> str:
     return "".join(node for node in _outside_selects(option) if isinstance(node, NavigableString) and type(node) in _TEXT_STRINGS)
 
 
+def _only_element(tag: Tag, name: str) -> Tag | None:
+    """The one child of `tag` when it is an element called `name` and nothing but white space stands beside it."""
+    found = None
+    for child in tag.children:
+        if isinstance(child, Tag):
+            if found is not None or child.name != name:
+                return None
+            found = child
+        elif isinstance(child, NavigableString) and type(child) in _TEXT_STRINGS and child.strip():
+            return None
+    return found
+
+
+def _mark_note_references(soup: BeautifulSoup) -> None:
+    """Write the number of a note reference as `[n]`, the mark that is left alone as a footnote mark everywhere else
+    (`_inline.format_script`).
+
+    A reference is a raised link — a `<sup>` that holds one link and nothing else, or a link that holds one `<sup>` — or a link
+    that says what it is (`epub:type="noteref"`, `role="doc-noteref"`), whose text is one to four digits and which points into
+    the document (`#fn4`) or, in a book, has lost its target with the other links into the package. Its digits ran into the
+    figure before them: `1,200` and note 1 read `1,2001`, `in 2019` and note 2 `in 20192`, and a raised one `2.5^4`, the notation
+    of an exponent (`100 m^2`) — another value, and nothing said so. A raised number that is no link stays an exponent, a link
+    to another page stays a link, and nothing inside a code block is touched
+    (Pinned by: test_text_html.py::TestNoteReferences, test_epub.py::TestNoteReferences)."""
+    links = soup.find_all("a")
+    if not links:
+        return
+    places: _Places = {}
+    in_code = _lying_inside(links, _CODE_BLOCKS)
+    for link in links:
+        parent = link.parent
+        if parent is None or id(link) in in_code:
+            continue
+        href = link.get("href")
+        if href is not None and not str(href).lstrip().startswith("#"):
+            continue
+        number = _text(link).strip()
+        if not (0 < len(number) <= 4 and number.isascii() and number.isdigit()):
+            continue
+        raised = parent.name == "sup" and _only_element(parent, "a") is link
+        if not (raised or _only_element(link, "sup") is not None or _says_note_reference(link)):
+            continue
+        _replace(parent if raised and parent.parent is not None else link, f"[{number}]", places)
+
+
+def _says_note_reference(link: Tag) -> bool:
+    kinds = link.get("epub:type") or ""
+    return "noteref" in (kinds if isinstance(kinds, list) else str(kinds).split()) or link.get("role") == "doc-noteref"
+
+
 def _mark_scripts(soup: BeautifulSoup) -> None:
     """Turn superscripts and subscripts into notation (`10^6`, `H_2O`). Scripts inside a script are converted first — collecting the outer
     one's text whole gives `e^{x2}`
