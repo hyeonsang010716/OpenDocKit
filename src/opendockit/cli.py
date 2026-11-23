@@ -40,7 +40,7 @@ def main() -> int:
         # 'File not found', the warnings and `usage: …` went into the output. Every message, a traceback too, now goes nowhere
         # (Pinned by: test_cli.py::TestArguments::test_messages_go_nowhere_when_standard_error_is_closed).
         sys.stderr = open(os.devnull, "w", encoding="utf-8")  # open for the life of the process
-    _write_output_as_utf8()
+    _write_output_as_utf8_lines()
     parser = argparse.ArgumentParser(description="Convert a document to Markdown ready for LLM input.", add_help=False)
     parser.add_argument("-h", "--help", action=_Help, nargs=0, help="show this help message and exit")
     parser.add_argument("path")
@@ -178,16 +178,23 @@ class _Version(argparse.Action):
         parser.exit(_write(lambda: print(f"opendockit {__version__}")))
 
 
-def _write_output_as_utf8() -> None:
-    """Write standard output and error as UTF-8. Under `PYTHONIOENCODING=ascii` or a Windows redirect (cp949), Korean text ended in
-    a UnicodeEncodeError traceback (Pinned by: test_cli.py::TestArguments::test_output_is_written_as_utf8_even_when_stdout_is_not).
-    A stream that cannot be reconfigured is left as it is."""
+def _write_output_as_utf8_lines() -> None:
+    """Write standard output and error as UTF-8, with LF line ends on every platform.
+
+    Under `PYTHONIOENCODING=ascii` or a Windows redirect (cp949), Korean text ended in a UnicodeEncodeError traceback
+    (Pinned by: test_cli.py::TestArguments::test_output_is_written_as_utf8_even_when_stdout_is_not). Python writes a text
+    stream with the line end of the platform, so on Windows every line of a redirected or piped output ended in CR LF: the
+    same document gave other bytes than on Linux and macOS, and a Markdown file for a model carried a CR on every line. The
+    text of a conversion has LF line ends, and the output now keeps them; error goes the same way, so that `2>&1` does not
+    mix the two (Pinned by: test_cli.py::TestArguments::test_output_has_lf_line_ends_on_every_platform). A console shows
+    the two alike. A stream that cannot be reconfigured is left as it is.
+    """
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:
             continue
         try:
-            reconfigure(encoding="utf-8", errors="replace")
+            reconfigure(encoding="utf-8", errors="replace", newline="\n")
         except (ValueError, OSError):  # a closed stream, or one that cannot be reconfigured
             pass
 
