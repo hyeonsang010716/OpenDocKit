@@ -114,9 +114,26 @@ class ParagraphHeads:
     checked: set[str] = field(default_factory=set)
 
 
+# The tag of an element → its name without the namespace, for the tags seen so far. An HWPX document is read by the names of
+# its elements, one at a time and millions of times (a hundred or so different tags), and splitting the tag each time was
+# the largest single cost of the reader. Tags are names of the format, not text of a document; still, only short ones are
+# kept, and only so many, so that a file of made-up element names leaves nothing large behind
+# (Pinned by: test_hwp.py::TestLocalNames).
+_LOCAL_NAMES: dict[object, str] = {}
+_LOCAL_NAMES_MAX = 1024
+_LOCAL_NAME_TAG_MAX = 128
+
+
 def _local(element: etree._Element) -> str:
+    """The name of an element without its namespace; "" for a comment or a processing instruction (whose tag is no string)."""
     tag = element.tag
-    return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
+    try:
+        return _LOCAL_NAMES[tag]
+    except KeyError:
+        name = tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
+        if len(_LOCAL_NAMES) < _LOCAL_NAMES_MAX and (not isinstance(tag, str) or len(tag) <= _LOCAL_NAME_TAG_MAX):
+            _LOCAL_NAMES[tag] = name
+        return name
 
 
 def _children(element: etree._Element, name: str) -> Iterator[etree._Element]:
