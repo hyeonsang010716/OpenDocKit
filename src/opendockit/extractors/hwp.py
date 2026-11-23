@@ -173,6 +173,7 @@ _AUTO_NUMBER_KINDS = {3, 4, 5}
 # that put the caption before the object: 0 left, 2 top.
 # The position was confirmed with public hwplib samples (equation and table captions below = 3).
 _CAPTION_BEFORE = {0, 2}
+_CAPTION_AFTER = {1, 3}
 # Limit on the number of records built for one document = `max_uncompressed_bytes` // this value (about 4.1 million by default). A body
 # holding 16 million zero-size records (4-byte header only) used 12 seconds and 2.4GB from 62KB compressed — the decompression limit
 # bounds only bytes and cannot stop the number of record objects. Records in real Hangul files average 35 bytes (26 bytes even for
@@ -533,8 +534,18 @@ class HwpRenderer:
                 # test_hwp_heads_and_shapes.py::
                 # TestHwpTextArt).
                 markers, charts = self._object_markers(control)
+                # The caption of the object is the LIST_HEADER right under the control and the paragraphs beside it (a text
+                # box keeps its own under the shape). A top or left caption is written above the object, as HWPX writes it;
+                # it came after the picture whatever its side (Pinned by: test_hwp_captions.py::TestPictureCaptions).
+                rest = control.children
+                if _caption_before(control):
+                    rest = [child for child in control.children if child.tag != TAG_PARA_HEADER]
+                    caption = self.render([child for child in control.children if child.tag == TAG_PARA_HEADER])
+                    if caption:
+                        flush()
+                        blocks.extend(caption)
                 buffer.extend(markers)
-                inner = [*charts, *_text_arts(control), *self.render(control.children)]
+                inner = [*charts, *_text_arts(control), *self.render(rest)]
                 if inner:
                     flush()
                     blocks.extend(inner)
@@ -598,9 +609,7 @@ class HwpRenderer:
         if not caption:
             return equation
 
-        header = next((child for child in control.children if child.tag == TAG_LIST_HEADER), None)
-        before = header is not None and len(header.payload) >= 12 and header.payload[8] & 0b11 in _CAPTION_BEFORE
-        return f" {caption} {equation} " if before else f" {equation} {caption} "
+        return f" {caption} {equation} " if _caption_before(control) else f" {equation} {caption} "
 
     def _shape_runs(self, paragraph: Record, length: int) -> ShapeRuns | None:
         """The runs where the super/subscript or strikethrough mark changes (`ShapeRuns`), from the paragraph's PARA_CHAR_SHAPE (pairs of
@@ -922,6 +931,10 @@ class HwpRenderer:
         caption: list[Record] = []
         cells: list[tuple[Record, list[Record]]] = []
         seen_table = False
+        # The caption stands above the table unless the document sets it under or right of it (the direction of its
+        # LIST_HEADER), and is read where it is written, so that the notes and numbers in it count in the order of the output
+        # (Pinned by: test_hwp_captions.py::TestTableCaptions)
+        caption_first = True
         for child in control.children:
             if child.tag == TAG_TABLE:
                 seen_table = True
@@ -930,6 +943,7 @@ class HwpRenderer:
                     cells.append((child, list(child.children)))
                 else:
                     caption.extend(child.children)
+                    caption_first = _caption_direction(child) not in _CAPTION_AFTER
             elif child.tag == TAG_PARA_HEADER:
                 if cells:
                     cells[-1][1].append(child)
@@ -954,6 +968,7 @@ class HwpRenderer:
         frame = (layout and not box and not one_row and len(cells) <= FRAME_MAX_CELLS
                  and self._is_frame(cells, row_count, col_count))
         placed = 0   # the cells of a frame placed so far
+        caption_text = join_blocks(self.render(caption)) if caption_first else ""
         self._grids.append(grid)
         self._cell_depth += 1
         box_cells = self._box_cells = [] if box or one_row else self._box_cells
@@ -994,13 +1009,18 @@ class HwpRenderer:
         # The caption stays with the table wherever it is. Dropping it loses '표 2' ("Table 2"), and a picture in the caption was only
         # registered with no placeholder, costing a description for nothing
         # (Pinned by: test_hwp.py::TestNestedTables::test_caption_of_an_inner_table_is_kept_with_it).
-        caption_text = join_blocks(self.render(caption))
+        if not caption_first:
+            caption_text = join_blocks(self.render(caption))
+
+        def captioned(body: str) -> str:
+            return join_blocks([caption_text, body] if caption_first else [body, caption_text])
+
         if self._note_depth:
-            return join_blocks([caption_text, note_table(grid.rows(), self._options.max_chars)])
+            return captioned(note_table(grid.rows(), self._options.max_chars))
         if outer is not None:
-            return join_blocks([caption_text, outer.embed(grid)])
+            return captioned(outer.embed(grid))
         if self._cell_depth:
-            return join_blocks([caption_text, grid.flatten(self._options.max_chars)])
+            return captioned(grid.flatten(self._options.max_chars))
         # A table without a budget (in a header or footer) is drawn with the whole limit as room: what it writes past that is
         # over the limit whatever comes before it (Pinned by:
         # test_office_table_char_limit.py::TestMergedCopiesPastTheLimit::test_hangul_header_table_stops_at_the_limit)
@@ -1010,7 +1030,7 @@ class HwpRenderer:
             return self.size_headings.box(rendered, box_cells, grid)
         if one_row:
             return self.size_headings.row(rendered, box_cells, grid)
-        return join_blocks([caption_text, rendered])
+        return captioned(rendered)
 
 
 # A paragraph longer than this (in WCHARs, controls included) is not scanned for its character sizes: it is not a heading anyway
@@ -1099,6 +1119,20 @@ def parse_boxed_fills(doc_info: list[Record]) -> list[bool]:
             fills.append(len(payload) >= 26 and all(
                 payload[2 + 6 * side] != 0 and payload[4 + 6 * side:7 + 6 * side] != b"\xff\xff\xff" for side in range(4)))
     return fills
+
+
+def _caption_direction(header: Record) -> int | None:
+    """The side of a caption, from its LIST_HEADER: bits 0-1 of the attribute 8 bytes in (0 left, 1 right, 2 top, 3 bottom —
+    in 241 captions of 34 documents, 2 where the HWPX save says TOP and 3 where it says BOTTOM); None when the record is
+    too short to say."""
+    return header.payload[8] & 0b11 if len(header.payload) >= 12 else None
+
+
+def _caption_before(control: Record) -> bool:
+    """Whether the caption of an equation or a drawing object — the LIST_HEADER right under its control — stands above or
+    left of it."""
+    header = next((child for child in control.children if child.tag == TAG_LIST_HEADER), None)
+    return header is not None and _caption_direction(header) in _CAPTION_BEFORE
 
 
 def _cell_address(payload: bytes, row_count: int, col_count: int) -> tuple[int, int, int, int] | None:
