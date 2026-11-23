@@ -28,6 +28,7 @@ _NAMESPACES = " ".join(f'xmlns:{prefix}="{uri}"' for prefix, uri in {
     "presentation": "urn:oasis:names:tc:opendocument:xmlns:presentation:1.0",
     "chart": "urn:oasis:names:tc:opendocument:xmlns:chart:1.0",
     "meta": "urn:oasis:names:tc:opendocument:xmlns:meta:1.0",
+    "number": "urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0",
     "dc": "http://purl.org/dc/elements/1.1/",
     "xlink": "http://www.w3.org/1999/xlink",
     "math": "http://www.w3.org/1998/Math/MathML",
@@ -685,6 +686,97 @@ class TestInlineFormatting:
             automatic=self.AUTOMATIC)
         assert result.sections[0].title == "분기 실적"
         assert result.sections[0].text == "핵심 요약\n\n분기 **매출**은 늘었다."
+
+
+def _date_style(name: str, *parts: str, kind: str = "date") -> str:
+    """A `number:date-style`: a part is 'year', 'year-long', 'month', 'month-long', 'month-text', 'day', 'hours-long',
+    'minutes-long', 'seconds-long', 'am-pm', 'era' …, anything else is literal text."""
+    known = ("year", "month", "day", "day-of-week", "hours", "minutes", "seconds", "am-pm", "era", "quarter")
+    written = []
+    for part in parts:
+        base, _, how = part.partition("-") if not part.startswith(("am-pm", "day-of-week")) else (part, "", "")
+        if base in known and how in ("", "long", "text"):
+            attributes = ' number:style="long"' if how == "long" else ' number:textual="true"' if how == "text" else ""
+            written.append(f"<number:{base}{attributes}/>")
+        else:
+            written.append(f"<number:text>{part}</number:text>")
+    return f'<number:{kind}-style style:name="{name}">{"".join(written)}</number:{kind}-style>'
+
+
+def _cell_style(name: str, data_style: str | None = None, parent: str | None = None) -> str:
+    return (f'<style:style style:name="{name}" style:family="table-cell"'
+            + (f' style:parent-style-name="{parent}"' if parent else "")
+            + (f' style:data-style-name="{data_style}"' if data_style else "") + "/>")
+
+
+def _date_cell(shown: str, value: str, style: str | None = None) -> str:
+    named = f'table:style-name="{style}" ' if style else ""
+    return _cell(shown, f'{named}office:value-type="date" office:date-value="{value}"')
+
+
+class TestSpreadsheetDates:
+    """A date cell is written from the value it stores by the rule of the XLSX reader, not as the sheet shows it: `05/01/24` is
+    the fifth of January in one locale and the first of May in another, the cell stores which, and the XLSX the same
+    workbook is saved as came out `2024-01-05`. LibreOffice writes the date styles into styles.xml and gives a cell a style
+    of its own only where it differs from its column's."""
+
+    _STYLES = ("<office:styles>"
+               + _date_style("N1", "day-long", "/", "month-long", "/", "year")
+               + _date_style("N2", "month-text", "-", "year")
+               + _date_style("N3", "day-long", "/", "month-long", "/", "year", " ", "hours-long", ":", "minutes-long")
+               + _date_style("N4", "year-long", "년 ", "month", "월 ", "day", "일")
+               + _date_style("N5", "year-long")
+               + _date_style("N6", "era", "year")
+               + _date_style("N7", "hours", ":", "minutes-long", " ", "am-pm", kind="time")
+               + "</office:styles>")
+    _AUTOMATIC = "".join(_cell_style(f"ce{number}", f"N{number}") for number in range(1, 8)) + _cell_style("ce9", parent="ce1")
+
+    def _text(self, *rows: str, columns: str = "") -> str:
+        body = _sheet("Dates", columns, *rows)
+        return _convert("spreadsheet", body, automatic=self._AUTOMATIC, styles=self._STYLES).sections[0].text
+
+    def test_date_is_written_from_the_stored_value_in_the_shape_of_its_format(self):
+        text = self._text(_row(_cell("what"), _cell("when")),
+                          _row(_cell("day first"), _date_cell("05/01/24", "2024-01-05", "ce1")),
+                          _row(_cell("month and year"), _date_cell("Jan-24", "2024-01-05", "ce2")),
+                          _row(_cell("with a time"), _date_cell("05/01/24 14:30", "2024-01-05T14:30:15", "ce3")),
+                          _row(_cell("in Korean"), _date_cell("2024년 1월 5일", "2024-01-05", "ce4")),
+                          _row(_cell("year"), _date_cell("2024", "2024-01-05", "ce5")),
+                          _row(_cell("time of day"), _date_cell("2:30 PM", "2024-01-05T14:30:00", "ce7")),
+                          _row(_cell("inherited"), _date_cell("05/01/24", "2024-01-05", "ce9")))
+
+        assert text == ("| what | when |\n| --- | --- |\n| day first | 2024-01-05 |\n| month and year | 2024-01 |\n"
+                        "| with a time | 2024-01-05 14:30 |\n| in Korean | 2024-01-05 |\n| year | 2024 |\n"
+                        "| time of day | 2:30 PM |\n| inherited | 2024-01-05 |")
+
+    def test_cell_without_a_style_takes_that_of_its_row_then_of_its_column(self):
+        """LibreOffice leaves the cells of a column formatted as dates without a style of their own."""
+        columns = ('<table:table-column table:default-cell-style-name="Default"/>'
+                   '<table:table-column-group><table:table-column table:number-columns-repeated="2" '
+                   'table:default-cell-style-name="ce1"/></table:table-column-group><table:table-column/>')
+        by_row = ('<table:table-row table:default-cell-style-name="ce2">' + _cell("row") + _date_cell("Mar-24", "2024-03-09")
+                  + _date_cell("Mar-24", "2024-03-09") + _date_cell("Mar-24", "2024-03-09") + "</table:table-row>")
+        text = self._text(_row(_cell("what"), _cell("a"), _cell("b"), _cell("c")),
+                          _row(_cell("column"), _date_cell("05/01/24", "2024-01-05"), _date_cell("06/01/24", "2024-01-06"),
+                               _date_cell("07/01/24", "2024-01-07")),
+                          by_row, columns=columns)
+
+        assert text == ("| what | a | b | c |\n| --- | --- | --- | --- |\n| column | 2024-01-05 | 2024-01-06 | 07/01/24 |\n"
+                        "| row | 2024-03 | 2024-03 | 2024-03 |")
+
+    def test_displayed_text_stays_when_the_format_or_the_value_is_not_known(self):
+        """No style, a style that is not defined, a format with a part the codes of a workbook have no letter for (an era), a
+        value that is no date, a date with a time zone: the cell is written as the sheet shows it, as before."""
+        text = self._text(_row(_cell("what"), _cell("when")),
+                          _row(_cell("no style"), _date_cell("05/01/24", "2024-01-05")),
+                          _row(_cell("unknown style"), _date_cell("05/01/24", "2024-01-05", "ce99")),
+                          _row(_cell("era"), _date_cell("R6", "2024-01-05", "ce6")),
+                          _row(_cell("no date"), _date_cell("05/01/24", "the fifth", "ce1")),
+                          _row(_cell("zone"), _date_cell("05/01/24", "2024-01-05T00:00:00+09:00", "ce1")),
+                          _row(_cell("text"), _cell("05/01/24", 'table:style-name="ce1" office:value-type="string"')))
+
+        assert text == ("| what | when |\n| --- | --- |\n| no style | 05/01/24 |\n| unknown style | 05/01/24 |\n| era | R6 |\n"
+                        "| no date | 05/01/24 |\n| zone | 05/01/24 |\n| text | 05/01/24 |")
 
 
 class TestSpreadsheet:
