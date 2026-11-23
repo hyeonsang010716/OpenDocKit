@@ -312,19 +312,9 @@ _REMOVE_SECONDS = 2.0
 _END_SECONDS = 10.0
 
 
-def _long_path(path: str) -> str:
-    """The form of a Windows path that is not held to 260 characters: `\\\\?\\C:\\…`, `\\\\?\\UNC\\host\\share\\…`."""
-    path = os.path.abspath(path)
-    if path.startswith("\\\\?\\"):
-        return path
-    if path.startswith("\\\\"):
-        return "\\\\?\\UNC\\" + path[2:]
-    return "\\\\?\\" + path
-
-
 def _remove_folder(folder: str, seconds: float) -> None:
     """Remove a folder and everything in it, through its long form, trying again for up to `seconds` (Windows)."""
-    target = _long_path(folder)
+    target = _windows.long_path(folder)
     deadline = time.monotonic() + seconds
     while True:
         shutil.rmtree(target, ignore_errors=True)
@@ -451,7 +441,7 @@ def _start_windows_guard(folder: Path) -> subprocess.Popen | None:
     try:
         # CREATE_NO_WINDOW: a bare `python.exe` would flash a console window on every conversion.
         # The long form of the folder: the profile below it passes 260 characters under a long temporary path.
-        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, _long_path(str(folder)), str(os.getpid()),
+        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, _windows.long_path(str(folder)), str(os.getpid()),
                                  str(_WINDOWS_GUARD_SECONDS)],
                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=subprocess.CREATE_NO_WINDOW, shell=False)

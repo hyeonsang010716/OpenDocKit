@@ -42,6 +42,11 @@ try:
 except ImportError:  # the `opendockit-mcp` command exists in every install; without the extra it says what to install
     MCPServer = None
 
+if os.name == "nt":
+    from opendockit import _windows
+else:
+    _windows = None
+
 
 __all__ = ["create_server", "main"]
 
@@ -92,7 +97,7 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
     # A root that is a file is refused here as well as on the command line: taken as a root, it allowed nothing at all and
     # every call failed with 'outside the folders', which hid the mistake
     # (Pinned by: test_mcp_server.py::TestWhichFilesMayBeRead::test_root_that_is_a_file_is_refused_by_create_server).
-    resolved = [root.expanduser().resolve() for root in roots or []]
+    resolved = [_local(root.expanduser()).resolve() for root in roots or []]
     allowed = [_identity(root) if root.is_dir() else None for root in resolved]
     if None in allowed:
         raise ValueError("Every root must be an existing folder.")
@@ -154,6 +159,12 @@ def create_server(roots: list[Path] | None = None, default_max_chars: int = DEFA
             # test_a_reader_that_cannot_be_imported_is_a_fixed_sentence)
             raise ToolError(IMPORT_FAILED_MESSAGE) from error
         except OSError as error:   # no permission, a file removed meanwhile
+            # The likeliest reason on Windows, and the one the user can act on: an editor holding the file open without
+            # sharing it (Pinned by: test_mcp_server.py::TestFileHeldOpenByAnotherProgram::test_a_file_another_program_holds_open_says_so).
+            # Asked in a thread, as the path and the read are: it opens the file again.
+            if _windows is not None and await asyncio.to_thread(_windows.held_by_another_program, str(file)):
+                raise ToolError("The file is open in another program, which does not let it be read. "
+                                "Close it there and try again.") from error
             raise ToolError("The file could not be read.") from error
         # A result a wall-clock limit cut short (the PDF time budget on a busy machine) is not kept: the next call may get the
         # full reading. A worker that ran out of time raises and is never kept either
@@ -408,6 +419,17 @@ def _refuse_unchosen_network_path(path: str, shares: frozenset[str]) -> None:
         raise ToolError("Files on a network share are read only when the share is given as a root (--root).")
 
 
+def _local(path: Path) -> Path:
+    """`path`, or on Windows its long form when its full path is too long to be looked at as it is (`_windows.openable`).
+
+    In its ordinary form such a path is "not there" on every machine without LongPathsEnabled (the default): a document
+    deep in a synchronised folder with long names was "No file at that path.", and a root that long "not a folder"
+    (Pinned by: test_mcp_server.py::TestFilesAtALongPath). The long form is still checked against the roots by what the
+    folders are, as every path is.
+    """
+    return Path(_windows.openable(str(path))) if _windows is not None else path
+
+
 def _checked_path(path: str, allowed: list[tuple[int, int] | None]) -> Path:
     """The real file behind `path`.
 
@@ -421,7 +443,7 @@ def _checked_path(path: str, allowed: list[tuple[int, int] | None]) -> Path:
     if not path or "\x00" in path:
         raise ToolError("path must name a file.")
     try:
-        file = Path(path).expanduser().resolve()
+        file = _local(Path(path).expanduser()).resolve()
         if allowed and not any(identity in allowed for identity in map(_identity, file.parents) if identity):
             raise ToolError("The file is outside the folders this server may read.")
         exists = file.is_file()
@@ -555,7 +577,7 @@ def main(argv: list[str] | None = None) -> None:
     if any(not root for root in named):
         parser.error(f"--root and {ROOTS_VARIABLE} must name folders; an empty value was given")
     roots = [Path(root) for root in named]
-    missing = [str(root) for root in roots if not root.expanduser().is_dir()]
+    missing = [str(root) for root in roots if not _local(root.expanduser()).is_dir()]
     if missing:
         parser.error(f"not a folder: {', '.join(missing)}")
     create_server(roots, args.max_chars).run("stdio")

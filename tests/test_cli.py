@@ -3,13 +3,15 @@ OpenAI key from the `OPENAI_API_KEY` environment variable, so there is no config
 
 import asyncio
 import io
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
 
 from opendockit.cli import main
-from tests import builder
+from tests import builder, file_at_length, held_open
 
 
 class TestCount:
@@ -65,6 +67,54 @@ class TestFileErrors:
 
         assert code == 1
         assert capsys.readouterr().err.startswith(("File not found: ", "Could not read the file "))
+
+    @pytest.mark.skipif(os.name != "nt", reason="the 260-character limit of a path is Windows")
+    def test_a_file_at_a_long_path_is_converted(self, tmp_path, monkeypatch, capsys):
+        """A full path of 260 characters or more was 'File not found' on a Windows without LongPathsEnabled (the default),
+        for a file that was there."""
+        path = file_at_length(tmp_path, 320, builder.docx_bytes())
+        monkeypatch.setattr("sys.argv", ["opendockit", str(path)])
+
+        code = main()
+
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        assert "본문 첫 문단입니다." in captured.out
+
+    @pytest.mark.skipif(os.name != "nt", reason="sharing modes that refuse a reader are Windows")
+    def test_a_file_another_program_holds_open_says_so(self, tmp_path, monkeypatch, capsys):
+        """An editor that holds its document open without sharing it is the likeliest reason a file cannot be read on
+        Windows, and the message named a folder or a permission instead."""
+        path = tmp_path / "열린 문서.docx"
+        path.write_bytes(builder.docx_bytes())
+        monkeypatch.setattr("sys.argv", ["opendockit", str(path)])
+
+        with held_open(path):
+            code = main()
+
+        assert code == 1
+        assert capsys.readouterr().err == (
+            f"Could not read the file (another program has it open; close it there and try again): {path}\n")
+
+    @pytest.mark.skipif(os.name != "nt", reason="sharing modes that refuse a reader are Windows")
+    def test_a_folder_or_a_missing_permission_is_not_said_to_be_open_elsewhere(self, tmp_path, monkeypatch, capsys):
+        """The C runtime reports a folder, a missing permission and a file held open alike (EACCES), so the open is asked
+        again of Windows. A folder or a denied read must keep the sentence about a folder or a permission."""
+        denied = tmp_path / "읽기 금지.docx"
+        denied.write_bytes(builder.docx_bytes())
+        user = f"{os.environ['USERDOMAIN']}\\{os.environ['USERNAME']}"
+        subprocess.run(["icacls", str(denied), "/deny", f"{user}:(RD)"], check=True, capture_output=True)
+        try:
+            for path in (tmp_path, denied):
+                monkeypatch.setattr("sys.argv", ["opendockit", str(path)])
+
+                code = main()
+
+                assert code == 1
+                assert capsys.readouterr().err == (
+                    f"Could not read the file (it may be a directory, or permission may be missing): {path}\n")
+        finally:
+            subprocess.run(["icacls", str(denied), "/remove:d", user], check=True, capture_output=True)
 
     def test_reader_library_that_cannot_be_imported_prints_a_message(self, tmp_path, monkeypatch, capsys):
         """A reader library that cannot be imported on first use ended the command in a traceback."""

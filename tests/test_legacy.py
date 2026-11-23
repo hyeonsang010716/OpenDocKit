@@ -742,10 +742,10 @@ class TestRunner:
                    "sys.argv = sys.argv[1:]\n"
                    f"exec({legacy._WINDOWS_GUARD!r})\n")
 
-        subprocess.run([sys.executable, "-I", "-S", "-c", refused, "guard", legacy._long_path(str(kept)), str(os.getpid()),
+        subprocess.run([sys.executable, "-I", "-S", "-c", refused, "guard", legacy._windows.long_path(str(kept)), str(os.getpid()),
                         "5"], check=True, timeout=60)
         # And a process that does not exist: that one is gone, and its folder is removed.
-        subprocess.run([sys.executable, "-I", "-S", "-c", legacy._WINDOWS_GUARD, legacy._long_path(str(removed)),
+        subprocess.run([sys.executable, "-I", "-S", "-c", legacy._WINDOWS_GUARD, legacy._windows.long_path(str(removed)),
                         str(4_000_000_000), "5"], check=True, timeout=60)
 
         assert (kept / "uploaded.doc").exists(), "the guard removed the folder of a process it could not watch"

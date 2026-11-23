@@ -1,7 +1,10 @@
 """Test suite. Sample documents are built in memory by `tests.builder`."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import ctypes
 import os
+from pathlib import Path
 import time
 
 import pytest
@@ -54,6 +57,45 @@ else:
             return code.value == _STILL_ACTIVE
         finally:
             kernel32.CloseHandle(handle)
+
+
+def file_at_length(folder: Path, length: int, data: bytes, suffix: str = ".docx") -> Path:
+    """A file holding `data` whose full path is exactly `length` characters, made under `folder` (Windows).
+
+    Written through the long form (`\\\\?\\`), so that it can be made however long it is, under folders with Korean names, as
+    a synchronised folder has them. The path returned is the ordinary one, as a user or an agent would pass it.
+    """
+    current = os.path.abspath(folder)
+    level = "깊은 폴더 이름입니다 " + "x" * 20   # 31 characters
+    while length - len(current) - 1 - len(level) - 1 >= 20:
+        current = os.path.join(current, level)
+    name_length = length - len(current) - 1
+    stem = "보고서 " + "x" * (name_length - len("보고서 ") - len(suffix))
+    path = os.path.join(current, stem + suffix)
+    assert len(path) == length and len(stem) > 0
+    os.makedirs("\\\\?\\" + current, exist_ok=True)
+    with open("\\\\?\\" + path, "wb") as handle:
+        handle.write(data)
+    return Path(path)
+
+
+@contextmanager
+def held_open(path: Path) -> Iterator[None]:
+    """Hold `path` open without sharing it, as an editor that locks its document does (Windows). Opened through the long
+    form, so that a path of any length can be held."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                                     wintypes.DWORD, wintypes.HANDLE]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    generic_read, no_sharing, open_existing = 0x80000000, 0, 3
+    handle = kernel32.CreateFileW("\\\\?\\" + os.path.abspath(path), generic_read, no_sharing, None, open_existing, 0, None)
+    if handle in (None, wintypes.HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        yield
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def wait_until_gone(pid: int, seconds: float = 5.0) -> bool:
