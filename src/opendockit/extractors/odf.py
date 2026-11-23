@@ -10,8 +10,10 @@ The three formats share one renderer (`_Renderer`): paragraphs, lists, tables, f
 
 from base64 import b64decode
 import binascii
+from bisect import bisect_right
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
+from datetime import datetime
 from io import BytesIO
 from itertools import groupby
 import re
@@ -47,6 +49,7 @@ from opendockit.extractors._package import decimal_int
 # (private names, nothing edited there) so that an ODS sheet and the XLSX it was saved from come out the same — an exception to the
 # dependency direction, like DOCX altChunk → html (docs/decisions/odf.md.
 # Pinned by: test_odf.py::TestSpreadsheet::test_two_tables_on_one_sheet_are_split_like_xlsx).
+from opendockit.extractors._sheet_format import format_cell
 from opendockit.extractors._sheet_layout import _append_sheet, _collect_rows, _warn_once
 from opendockit.extractors._xml import thread_parser
 from opendockit.markdown import CellHeading, TableGrid, join_blocks, merged_copy, render_table, solid_length
@@ -94,6 +97,8 @@ _STYLE_NAME, _PARENT_STYLE, _FAMILY = f"{{{_STYLE}}}name", f"{{{_STYLE}}}parent-
 
 # Wrappers around table rows (header rows, row groups of an outline). Rows are read through them in document order.
 _ROW_GROUPS = frozenset(f"{{{_TABLE}}}{name}" for name in ("table-header-rows", "table-rows", "table-row-group"))
+_COLUMN = f"{{{_TABLE}}}table-column"
+_COLUMN_GROUPS = frozenset(f"{{{_TABLE}}}{name}" for name in ("table-header-columns", "table-columns", "table-column-group"))
 # Wrappers around body blocks: sections and the generated indexes (a table of contents keeps its entries as paragraphs inside
 # `text:index-body`). Their `…-source` children are the index settings, not content, and are not descended into.
 _BLOCK_WRAPPERS = frozenset(f"{{{_TEXT}}}{name}" for name in (
@@ -228,6 +233,8 @@ class _Styles:
         self._lists: dict[str, dict[int, _ListLevel]] = {}
         self.hidden_tables: set[str] = set()
         self.hidden_pages: set[str] = set()
+        self._date_codes: dict[str, str | None] = {}   # date or time style → its format in the codes of a workbook (`_date_code`)
+        self._cell_styles: dict[str, tuple[str | None, str | None]] = {}   # cell style → (parent, data style)
 
     def add(self, container: etree._Element | None) -> None:
         """Read `office:styles` or `office:automatic-styles`."""
@@ -240,6 +247,8 @@ class _Styles:
                 continue
             if tag == f"{{{_TEXT}}}list-style":
                 self._lists[name] = _list_levels(node)
+            elif tag == _DATE_STYLE or tag == _TIME_STYLE:
+                self._date_codes[name] = _date_code(node)
             elif tag == f"{{{_STYLE}}}style":
                 family = node.get(_FAMILY)
                 if family == "text":
@@ -251,6 +260,8 @@ class _Styles:
                     self._resolved.clear()
                 elif family == "paragraph":
                     self._paragraph_parents[name] = node.get(_PARENT_STYLE)
+                elif family == "table-cell":
+                    self._cell_styles[name] = (node.get(_PARENT_STYLE), node.get(_DATA_STYLE))
                 elif family == "table":
                     properties = node.find(f"{{{_STYLE}}}table-properties")
                     if properties is not None and properties.get(f"{{{_TABLE}}}display") == "false":
@@ -275,6 +286,24 @@ class _Styles:
                 look = tuple(have if have is not None else inherited for have, inherited in zip(look, own, strict=True))
             self._resolved[name] = look
         return self._resolved[name]
+
+    @property
+    def has_date_formats(self) -> bool:
+        """Whether any date or time style of the document can be written as a workbook format (`date_format`)."""
+        return any(code is not None for code in self._date_codes.values())
+
+    def date_format(self, name: str | None) -> str | None:
+        """The format of the dates of a cell style, in the codes of a workbook (`yyyy-mm-dd`): that of its data style, or of the
+        nearest parent that has one (16 styles at most). None when the style shows no date or shows one this reader cannot
+        write in those codes."""
+        current = name
+        for _ in range(16):
+            if current is None or current not in self._cell_styles:
+                return None
+            current, data_style = self._cell_styles[current]
+            if data_style is not None:
+                return self._date_codes.get(data_style)
+        return None
 
     def hides(self, name: str | None) -> bool:
         """Whether a text style hides its text (`text:display="none"`, the character attribute 'Hidden'), from the style or the
@@ -595,6 +624,97 @@ def _number_text(value: float) -> str:
     return str(int(value)) if value.is_integer() and abs(value) < 1e15 else format(value, ".15g")
 
 
+_NUMBER_NS = "urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0"
+_DATE_STYLE, _TIME_STYLE = f"{{{_NUMBER_NS}}}date-style", f"{{{_NUMBER_NS}}}time-style"
+_DATA_STYLE = f"{{{_STYLE}}}data-style-name"
+_DEFAULT_CELL_STYLE = f"{{{_TABLE}}}default-cell-style-name"
+_CELL_STYLE = f"{{{_TABLE}}}style-name"
+_VALUE_TYPE, _DATE_VALUE = f"{{{_OFFICE}}}value-type", f"{{{_OFFICE}}}date-value"
+_LONG, _TEXTUAL = f"{{{_NUMBER_NS}}}style", f"{{{_NUMBER_NS}}}textual"
+# The parts of a date or time style → the code of a workbook format for it, (short, long).
+_DATE_PARTS = {"year": ("yy", "yyyy"), "day": ("d", "dd"), "day-of-week": ("ddd", "dddd"), "hours": ("h", "hh"),
+               "minutes": ("m", "mm"), "seconds": ("s", "ss")}
+
+
+def _date_code(style: etree._Element) -> str | None:
+    """A `number:date-style` or `number:time-style` as the format code a workbook writes for it ('dd/mm/yy', 'yyyy"년" m"월"'),
+    so that a date of a sheet is written by the rule of the XLSX reader (`_sheet_format.format_cell`). None for a style with a
+    part those codes have no letter for (an era, a quarter, a week number), for hours that run past the day, and for minutes
+    that stand beside neither hours nor seconds (the code would read as months)."""
+    if style.get(f"{{{_NUMBER_NS}}}truncate-on-overflow") == "false":
+        return None
+    codes: list[str] = []
+    parts: set[str] = set()
+    for part in style:
+        tag = part.tag
+        if not isinstance(tag, str) or not tag.startswith(f"{{{_NUMBER_NS}}}"):
+            continue   # style:text-properties, style:map
+        kind = tag[len(_NUMBER_NS) + 2:]
+        long = part.get(_LONG) == "long"
+        if kind == "text":
+            literal = part.text or ""
+            codes.append("".join(f"\\{char}" for char in literal) if len(literal) <= 64 else "")
+        elif kind == "month":
+            codes.append(("mmm", "mmmm")[long] if part.get(_TEXTUAL) == "true" else ("m", "mm")[long])
+        elif kind == "am-pm":
+            codes.append("AM/PM")
+        elif kind in _DATE_PARTS:
+            codes.append(_DATE_PARTS[kind][long])
+            if kind == "seconds" and part.get(f"{{{_NUMBER_NS}}}decimal-places", "0") != "0":
+                return None
+        else:
+            return None
+        parts.add(kind)
+    if "minutes" in parts and not parts & {"hours", "seconds"}:
+        return None
+    return "".join(codes) if parts - {"text"} else None
+
+
+# What the content of a document that holds a date cell must contain: the name of the attribute its value is stored in
+# (`office:date-value`, whatever prefix its namespace has). Looked for once in the bytes, before any sheet is searched.
+_DATE_CELL_MARK = b"date-value"
+# The most date cells of a sheet that are remembered one by one (`_date_cells_of`).
+_MAX_DATE_CELLS = 200_000
+_DATE_CELLS = etree.XPath("(.//t:table-cell[@o:value-type='date'])[position() <= $most]", namespaces={"t": _TABLE, "o": _OFFICE})
+
+
+def _date_cells_of(table: etree._Element) -> frozenset[etree._Element] | None:
+    """The cells of a sheet that hold a date, found by one search of the sheet. None when there are more than
+    `_MAX_DATE_CELLS`: then every cell is asked.
+
+    Deliberate: the cells are not asked one by one what they hold, and a sheet is searched only when the bytes of the content
+    name a date cell at all (`_DATE_CELL_MARK`) and the document has a date format. Asking each displayed cell for its value
+    type cost 8% of the time a sheet takes (240,000 cells without a date: 1.08 s → 1.19 s), and so did the search (80 ms); a
+    look through the bytes costs nothing that can be measured, so a workbook without dates takes what it took."""
+    cells = _DATE_CELLS(table, most=_MAX_DATE_CELLS + 1)
+    return frozenset(cells) if len(cells) <= _MAX_DATE_CELLS else None
+
+
+def _column_cell_styles(table: etree._Element) -> tuple[list[int], list[str | None]]:
+    """The default cell style of the columns of a sheet, as (first column of each run, its style): LibreOffice writes the style
+    of a cell only where it differs from that of its column, so a column formatted as dates holds date cells without a style.
+    The columns stand in the table, in header columns or in groups (walked without recursion); a run past the last one has none."""
+    starts: list[int] = []
+    names: list[str | None] = []
+    column = 0
+    stack = [iter(table)]
+    while stack:
+        for node in stack[-1]:
+            tag = node.tag
+            if tag == _COLUMN:
+                starts.append(column)
+                names.append(node.get(_DEFAULT_CELL_STYLE))
+                column = min(column + _repeat(node, _COLS_REPEATED), _FAR)
+            elif tag in _COLUMN_GROUPS and len(stack) < _MAX_DEPTH:
+                stack.append(iter(node))
+                break
+            elif tag == _ROW or tag in _ROW_GROUPS:
+                return starts, names   # the columns stand before the rows
+        else:
+            stack.pop()
+    return starts, names
+
+
 def _stored_value(cell: etree._Element) -> str:
     """Text for a cell that has a value but no `text:p` (files written by other programs than LibreOffice): the stored value in a
     plain form. A cell LibreOffice wrote always has its displayed text."""
@@ -649,6 +769,9 @@ class _Renderer:
         self._repeat_budget = _REPEAT_BUDGET
         self._repeat_cells = _REPEAT_CELLS
         self._sheet_cells = _REPEAT_SHEET_CELLS
+        self._column_styles: tuple[list[int], list[str | None]] = ([], [])   # of the sheet being read (`_column_cell_styles`)
+        self._date_cells: frozenset[etree._Element] | None = frozenset()     # of the sheet being read (`_date_cells_of`)
+        self.dates_written = False   # the document has a date format and its content names a date cell (`_DATE_CELL_MARK`)
         self._objects: dict[str, etree._Element | None] = {}   # embedded sub-documents by folder name, parsed once
         self._formulas: dict[str, list[str]] = {}   # … and a formula converted once
         self._charts: dict[str, etree._Element | None] = {}   # … and its chart element found once (None when it has none)
@@ -1289,6 +1412,10 @@ class _Renderer:
         TestHostileInput::test_repeated_rows_with_text_are_cut_short_with_a_warning).
         """
         limit = min(self._options.max_sheet_cols, _MAX_COLUMNS)
+        self._column_styles = _column_cell_styles(table)
+        self._date_cells = _date_cells_of(table) if self.dates_written else frozenset()
+        dated = self._date_cells is None or bool(self._date_cells)
+        sheet_cell = self._sheet_cell_of_a_dated_sheet if dated else self._sheet_cell
         offset = _first_used_column(table)   # leading empty columns: dropped from the rows and not counted against the limit
         merged_down: dict[int, tuple[str, int, int]] = {}   # column → (value, last sheet row, last column spanned horizontally)
         row_number = yielded = 0
@@ -1304,7 +1431,7 @@ class _Renderer:
                 if tag != _CELL and tag != _COVERED:
                     continue
                 columns = _repeat(cell, _COLS_REPEATED)
-                text = self._sheet_cell(cell, row_number, column + offset) if tag == _CELL and (len(cell) or cell.attrib) else ""
+                text = sheet_cell(cell, row_number, column + offset) if tag == _CELL and (len(cell) or cell.attrib) else ""
                 if column < 0:
                     text = ""   # left of the first used column there is no value; the call above only notes comments and drawings
                 if text and column < limit:
@@ -1368,9 +1495,9 @@ class _Renderer:
             row_number = min(row_number + repeat, _FAR)
 
     def _sheet_cell(self, cell: etree._Element, row: int, column: int) -> str:
-        """Text of a sheet cell as displayed: the `text:p` content is the formatted value LibreOffice stored ('$120k', '46.4%',
-        '2025-03-14'), so number formats are not interpreted. Comments and drawings anchored to the cell (frames, and shapes with
-        text in them) are noted for the end of the sheet."""
+        """Text of a sheet cell as displayed: the `text:p` content is the formatted value LibreOffice stored ('$120k', '46.4%'),
+        so number formats are not interpreted — but for a date, which is written from its stored value (`_date_text`).
+        Comments and drawings anchored to the cell (frames, and shapes with text in them) are noted for the end of the sheet."""
         lines: list[str] = []
         displayed = False
         for child in cell:
@@ -1388,6 +1515,46 @@ class _Renderer:
             elif isinstance(tag, str) and tag.startswith(_DRAW_PREFIX):
                 self.frames.append(child)
         return "\n".join(lines) if displayed else _stored_value(cell)
+
+    def _sheet_cell_of_a_dated_sheet(self, cell: etree._Element, row: int, column: int) -> str:
+        """`_sheet_cell` for a sheet that holds date cells: a date cell of one line is written from its stored value
+        (`_date_text`). A sheet without one is read by `_sheet_cell` itself (`sheet_rows` chooses), so nothing is asked of its
+        cells: a look at every displayed cell, even into an empty set, was 1% of the time of a sheet."""
+        text = self._sheet_cell(cell, row, column)
+        dates = self._date_cells
+        if text and "\n" not in text and (cell in dates if dates is not None else cell.get(_VALUE_TYPE) == "date"):
+            return self._date_text(cell, column) or text
+        return text
+
+    def _date_text(self, cell: etree._Element, column: int) -> str | None:
+        """The date of a date cell written by the rule of the XLSX reader, from the value the cell stores and the format of its
+        style: `2024-01-05` whatever the order the sheet shows the day and the month in, `2024-01` for a month and a year,
+        the time kept where the format shows one. None — the displayed text stays — when the style of the cell is not found
+        or shows no date this reader can write, or the value is no date.
+
+        Deliberate: for dates the displayed text is not what is written. `05/01/24` is the fifth of January in one locale and
+        the first of May in another, the cell stores which, and the XLSX the same workbook is saved as came out `2024-01-05`
+        (the rule of the row above this one in odf.md is that the two come out the same). The style of a cell is its own, else
+        the default of its row, else that of its column: LibreOffice leaves the cells of a column formatted as dates without a
+        style of their own (Pinned by: test_odf.py::TestSpreadsheetDates)."""
+        style = cell.get(_CELL_STYLE)
+        if style is None:
+            row = cell.getparent()
+            style = row.get(_DEFAULT_CELL_STYLE) if row is not None else None
+        if style is None:
+            starts, names = self._column_styles
+            run = bisect_right(starts, column) - 1
+            style = names[run] if run >= 0 else None
+        code = self.styles.date_format(style)
+        if code is None:
+            return None
+        try:
+            moment = datetime.fromisoformat(cell.get(_DATE_VALUE, ""))
+        except ValueError:
+            return None
+        if moment.tzinfo is not None:
+            return None
+        return format_cell(moment, code) or None
 
     def sheet_objects(self, table: etree._Element) -> list[str]:
         """Charts (`[Chart] title`), pictures and the text of shapes of a sheet, after its cells, then the cell comments. A drawing
@@ -1518,6 +1685,7 @@ def _extract(data: bytes, options: ConvertOptions, kind: str) -> Extraction:
         styles.add(named)
         styles.add(root.find(f"{{{_OFFICE}}}automatic-styles"))
         renderer = _Renderer(package, options, extraction, styles)
+        renderer.dates_written = styles.has_date_formats and _DATE_CELL_MARK in content
 
         # The body decides, not the mimetype: a text body in a package that calls itself a spreadsheet is still read as text.
         found = next((name for name in (kind, *_BODIES) if body.find(_BODIES[name]) is not None), None)
