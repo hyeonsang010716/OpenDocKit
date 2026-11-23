@@ -619,6 +619,54 @@ class TestSoftHyphen:
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "Wordprocessor"
 
 
+class TestHangulDrawsTheSoftHyphen:
+    """Hangul has a control of its own for the soft hyphen (`TestSoftHyphen`) and draws the character U+00AD as the hyphen of
+    its fonts. Authors type it as a dash: a press release marks its sub-items `  [U+00AD] 콜레라 독소가…`, and Hancom's PDF of
+    it draws `- 콜레라 독소가…`. Removed with the invisible characters, the sub-items lost their mark and a negative figure
+    its sign."""
+
+    _SHY = "\u00ad"
+
+    def test_hwpx_dash_of_a_sub_item(self):
+        body = (f"<hp:p><hp:run><hp:t>∙ 병원체<hp:lineBreak/>  {self._SHY} 콜레라 독소가 설사 유발<hp:lineBreak/>"
+                f"  {self._SHY} 그람 음성 막대균</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "∙ 병원체\n  - 콜레라 독소가 설사 유발\n  - 그람 음성 막대균"
+
+    def test_hwp_dash_of_a_sub_item(self, monkeypatch):
+        section = (builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+                   + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text(f"  {self._SHY} 콜레라 독소가 설사 유발")))
+
+        assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "- 콜레라 독소가 설사 유발"
+
+    @pytest.mark.parametrize(("text", "written"), [
+        ("증감 {shy}7,445", "증감 -7,445"),     # the minus of a figure
+        ("3{shy}5월", "3-5월"),
+        ("A{shy}1 구역", "A-1 구역"),
+        ("가 {shy} 나", "가 - 나"),
+        ("infor{shy}mation", "information"),  # between two letters it may be a soft hyphen brought in with the text: as before
+        ("가{shy}나", "가나"),
+    ])
+    def test_hwpx_written_as_a_hyphen_unless_between_two_letters(self, text, written):
+        body = f"<hp:p><hp:run><hp:t>{text.format(shy=self._SHY)}</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == written
+
+    def test_the_sign_of_a_figure_in_a_cell(self):
+        rows = "".join(
+            "<hp:tr>" + "".join(
+                f'<hp:tc><hp:subList><hp:p><hp:run><hp:t>{text}</hp:t></hp:run></hp:p></hp:subList>'
+                f'<hp:cellAddr colAddr="{column}" rowAddr="{row}"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>'
+                for column, text in enumerate(texts)) + "</hp:tr>"
+            for row, texts in enumerate((("구분", "증감"), ("수출", f"{self._SHY}7,445"))))
+        body = f'<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2">{rows}</hp:tbl></hp:run></hp:p>'
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "| 구분 | 증감 |\n| --- | --- |\n| 수출 | -7,445 |"
+
+    def test_other_formats_still_remove_it(self):
+        assert convert(f"infor{self._SHY}mation {self._SHY}7".encode(), "a.txt").text == "information 7"
+
+
 class TestHwpxMarksBesideTheText:
     """Hangul writes a forced line break, a tab and the fixed spaces inside hp:t. Other writers of HWPX (a converter of HWP 5, a
     generator) leave them beside it, as children of hp:run: read as a shape there, the mark left nothing and `협의 대상 시유지` and
