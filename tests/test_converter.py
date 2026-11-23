@@ -1259,6 +1259,44 @@ class TestTimeLimitedResults:
         assert render(replace(result)).time_limited
 
 
+class TestWarningsAreBounded:
+    """A reader warns once for each part it could not read, and a document names as many parts as it likes. A deck whose slide
+    list held 200,000 entries without a slide gave 200,001 warnings (11.3 MB) and no text. The first 200 are listed and one
+    line counts the rest; what the converter says itself comes after them and is always there."""
+
+    @staticmethod
+    def _deck_with_missing_slides(count: int) -> bytes:
+        from tests import builder
+
+        entries = "".join(f'<p:sldId id="{300 + index}" r:id="rIdGone{index}"/>' for index in range(count))
+        buffer = BytesIO()
+        with zipfile.ZipFile(BytesIO(builder.pptx_bytes())) as source, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                content = source.read(name)
+                if name == "ppt/presentation.xml":
+                    text = content.decode("utf-8")
+                    start, end = text.index("<p:sldIdLst>"), text.index("</p:sldIdLst>")
+                    content = (text[:start] + "<p:sldIdLst>" + entries + text[end:]).encode("utf-8")
+                target.writestr(name, content)
+        return buffer.getvalue()
+
+    def test_warnings_past_the_bound_are_counted(self):
+        result = convert(self._deck_with_missing_slides(1500), "a.pptx")
+
+        assert len(result.warnings) == 202
+        assert result.warnings[0] == "Slide 1: skipped because its part could not be read."
+        assert result.warnings[199] == "Slide 200: skipped because its part could not be read."
+        assert result.warnings[200] == "1,300 more warning(s) of the same document are not listed."
+        assert result.warnings[201] == "No text was extracted."
+
+    def test_as_many_warnings_as_the_bound_are_all_listed(self):
+        result = convert(self._deck_with_missing_slides(200), "a.pptx")
+
+        assert len(result.warnings) == 201
+        assert result.warnings[-1] == "No text was extracted."
+        assert not any("not listed" in warning for warning in result.warnings)
+
+
 class TestMetadataIsCleaned:
     """Metadata was handed over as the file wrote it: not NFC, with zero-width and control characters, and with line breaks."""
 
