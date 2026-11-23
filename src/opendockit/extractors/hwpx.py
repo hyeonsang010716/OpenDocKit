@@ -59,6 +59,9 @@ _xml_parser = thread_parser(resolve_entities=False, no_network=True, remove_comm
 # that Hangul inserts automatically.
 # The caption of an object (hp:caption) is read separately by `HwpxRenderer._caption`.
 _SKIP_OBJECTS = {"pic", "ole", "video", "chart", "linesegarray", "secPr", "shapeComment"}
+# The marks that stand for a character: a tab, a forced line break, the fixed-width and the non-breaking space. Hangul writes
+# them inside hp:t (`_t_text`); other writers of HWPX put them beside it, straight under hp:run (`_render_object`).
+_TEXT_MARKS = {"tab": "\t", "lineBreak": "\n", "nbSpace": " ", "fwSpace": " "}
 # Sides where the caption comes before the object (hp:caption side)
 _CAPTION_BEFORE = {"TOP", "LEFT"}
 # Line break marks in the text attribute of text art (hp:textart). Hangul writes control picture symbols (␍␊) instead of CR/LF.
@@ -245,6 +248,11 @@ class HwpxRenderer:
         elif name == "tbl":
             flush()
             blocks.append(self._render_table(node))
+        elif name in _TEXT_MARKS:
+            # A mark beside hp:t, as writers other than Hangul leave it: read as a shape it left nothing, and the two lines it
+            # stood between became one (Pinned by: test_hwp.py::TestHwpxMarksBesideTheText).
+            self._note_memo_target(_TEXT_MARKS[name])
+            buffer.append(_TEXT_MARKS[name])
         elif name == "ctrl":
             self._render_control(node, buffer)
         elif name == "equation":
@@ -888,14 +896,9 @@ def _t_text(node: etree._Element) -> str:
         if deleting is not None:
             continue
 
-        if name == "tab":
-            parts.append("\t")
-        elif name == "lineBreak":
-            parts.append("\n")
         # hp:hypen (so spelled by Hangul; hp:hyphen too) is the soft hyphen of HWP code 24, drawn only at a line break inside
         # the word: written as `-` it made a different word (Pinned by: test_hwp.py::TestSoftHyphen)
-        elif name in ("nbSpace", "fwSpace"):
-            parts.append(" ")
+        parts.append(_TEXT_MARKS.get(name, ""))
         parts.append(child.tail or "")
     return "".join(parts)
 

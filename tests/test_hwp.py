@@ -619,6 +619,49 @@ class TestSoftHyphen:
         assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "Wordprocessor"
 
 
+class TestHwpxMarksBesideTheText:
+    """Hangul writes a forced line break, a tab and the fixed spaces inside hp:t. Other writers of HWPX (a converter of HWP 5, a
+    generator) leave them beside it, as children of hp:run: read as a shape there, the mark left nothing and `협의 대상 시유지` and
+    `(첨부 목록 참조)`, two lines of one paragraph, were written as one."""
+
+    def test_line_break_beside_the_text_breaks_the_line(self):
+        body = ("<hp:p><hp:run><hp:t>가. 협의 대상 시유지</hp:t><hp:lineBreak/></hp:run>"
+                "<hp:run><hp:t>(첨부 목록 참조)</hp:t></hp:run></hp:p>")
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "가. 협의 대상 시유지\n(첨부 목록 참조)"
+
+    @pytest.mark.parametrize("element", ["tab", "nbSpace", "fwSpace"])
+    def test_tab_and_fixed_spaces_beside_the_text_keep_the_words_apart(self, element):
+        body = f"<hp:p><hp:run><hp:t>2026.</hp:t><hp:{element}/><hp:t>9.</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "2026. 9."
+
+    def test_same_text_as_with_the_marks_inside(self):
+        beside = "<hp:p><hp:run><hp:t>첫 줄</hp:t><hp:lineBreak/><hp:t>둘째</hp:t><hp:tab/><hp:t>줄</hp:t></hp:run></hp:p>"
+        inside = "<hp:p><hp:run><hp:t>첫 줄<hp:lineBreak/>둘째<hp:tab/>줄</hp:t></hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(beside), "a.hwpx").text == convert(builder.hwpx_bytes(inside), "a.hwpx").text
+
+    def test_a_break_at_the_end_of_a_run_before_a_table_adds_no_line(self):
+        table = ('<hp:tbl rowCnt="1" colCnt="2"><hp:tr>'
+                 + "".join(f'<hp:tc><hp:subList><hp:p><hp:run><hp:t>{text}</hp:t></hp:run></hp:p></hp:subList>'
+                           f'<hp:cellAddr colAddr="{column}" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>'
+                           for column, text in enumerate(("가", "나")))
+                 + "</hp:tr></hp:tbl>")
+        body = f"<hp:p><hp:run><hp:t>표 앞 글</hp:t><hp:lineBreak/></hp:run><hp:run>{table}</hp:run></hp:p>"
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text.startswith("표 앞 글\n\n")
+
+    def test_the_words_of_a_comment_range_stay_apart_too(self):
+        marked = ('<hp:p><hp:run><hp:ctrl><hp:fieldBegin id="7" type="MEMO"><hp:subList><hp:p><hp:run><hp:t>확인</hp:t></hp:run>'
+                  "</hp:p></hp:subList></hp:fieldBegin></hp:ctrl>{text}"
+                  '<hp:ctrl><hp:fieldEnd beginIDRef="7"/></hp:ctrl></hp:run></hp:p>')
+        beside = convert(builder.hwpx_bytes(marked.format(text="<hp:t>첫 줄</hp:t><hp:nbSpace/><hp:t>둘째</hp:t>")), "a.hwpx").text
+        inside = convert(builder.hwpx_bytes(marked.format(text="<hp:t>첫 줄<hp:nbSpace/>둘째</hp:t>")), "a.hwpx").text
+
+        assert beside == inside == '첫 줄 둘째\n\n> Comment(on "첫 줄 둘째"): 확인'
+
+
 class TestDutmal:
     """With dutmal (a small annotation above or below characters) even the main text is inside the control, not in the paragraph
     text, so the main text was dropped along with it."""
