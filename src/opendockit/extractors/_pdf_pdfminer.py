@@ -956,10 +956,11 @@ pdffont.PDFType1Font.__init__ = _type1_font_with_its_own_encoding
 
 def _program_head(program: PDFStream) -> bytes | None:
     """The first `_CFF_BYTES_MAX` bytes of a font program, inflated no further and charged to the document's limit: None
-    for a stream that is not stored plain or under one Flate filter without a predictor (no font program seen is).
+    for a stream that is stored otherwise than plain or under one Flate filter without a predictor, with ASCII filters
+    before it or none (Distiller's ASCII format writes `[/ASCII85Decode /FlateDecode]`; an ASCII filter only shrinks).
 
-    `get_data` inflates the whole stream and keeps it: a 306 KB file whose FontFile3 inflates to 300 MB, which nothing read
-    before the encoding of a program was, took 1.6 GB (Pinned by:
+    `get_data` inflates the whole stream and keeps it: a file whose FontFile3 inflates to 300 MB would hold it all for an
+    encoding that stands in its first kilobytes (Pinned by:
     test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_only_the_head_of_a_program_is_inflated)."""
     data = program.rawdata
     if data is None:
@@ -967,10 +968,17 @@ def _program_head(program: PDFStream) -> bytes | None:
     if program.decipher:
         data = program.decipher(program.objid, program.genno, data, program.attrs)
     filters = program.get_filters()
-    if not filters:
+    for index, (name, params) in enumerate(filters):
+        if name in LITERALS_ASCII85_DECODE:
+            data = ascii85decode(data)
+        elif name in LITERALS_ASCIIHEX_DECODE:
+            data = asciihexdecode(data)
+        elif name in LITERALS_FLATE_DECODE and index == len(filters) - 1 and (params or {}).get("Predictor", 1) == 1:
+            break
+        else:
+            return None
+    else:
         return data[:_CFF_BYTES_MAX]
-    if len(filters) != 1 or filters[0][0] not in LITERALS_FLATE_DECODE or (filters[0][1] or {}).get("Predictor", 1) != 1:
-        return None
     inflater, pieces, size = zlib.decompressobj(), [], 0
     try:
         while data and size < _CFF_BYTES_MAX and not inflater.eof:
@@ -989,16 +997,22 @@ def _program_head(program: PDFStream) -> bytes | None:
     return b"".join(pieces)
 
 
+# The endings of the glyph names of the private use area that draw a character in another cut: `oneoldstyle` a 1,
+# `ampersandsmall` an ampersand, `Asmall` a small capital A
+_GLYPH_CUTS = ("taboldstyle", "oldstyle", "small", "superior", "inferior")
+
+
 def _characters_of_glyph_names(names: dict[int, str]) -> tuple[dict[int, str], frozenset[int]]:
     """The characters of the glyph names that say text, by code, and the codes whose name says a character that is no text:
     one of the private use area, a surrogate, an unassigned one, U+FFFD, or a control other than a tab or a line end
     (`Asmall` is U+F761, `uni0000` a NUL).
 
-    Such a code has no character: it is not the one of StandardEncoding, which the font does not draw there, and cleaning
-    would remove the one of the private use area, so either way the page lost the character and with the second also the
-    warning of a character without a mapping. At a letter or a digit of ASCII it reads as before instead: a font of
-    old-style figures names the glyph of `1` `oneoldstyle`, and it is a 1. A name that says no character at all (`G38`) is
-    in neither (Pinned by: test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_glyph_name_of_no_text_has_no_character)."""
+    Such a code has no character: it is not the one of StandardEncoding, which the font does not draw there (`oneoldstyle`
+    at E8 read `Ł`), and cleaning would remove the one of the private use area, so either way the page lost the character
+    and with the second also the warning of a character without a mapping. But where the name is another cut of the very
+    character StandardEncoding has at that code - `oneoldstyle` at the code of `1`, `dollaroldstyle` at `$`, `Asmall` at
+    `a` - the code reads as before: it is that character. A name that says no character at all (`G38`) is in neither
+    (Pinned by: test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_glyph_name_of_no_text_has_no_character)."""
     named: dict[int, str] = {}
     nameless = set()
     for code, name in names.items():
@@ -1008,9 +1022,22 @@ def _characters_of_glyph_names(names: dict[int, str]) -> tuple[dict[int, str], f
             continue
         if characters and all(_is_text(one) for one in characters):
             named[code] = characters
-        elif not (code < 0x80 and chr(code).isalnum()):
+        elif not _another_cut_of_the_standard_character(code, name):
             nameless.add(code)
     return named, frozenset(nameless)
+
+
+def _another_cut_of_the_standard_character(code: int, name: str) -> bool:
+    standard = EncodingDB.std2unicode.get(code)
+    if standard is None:
+        return False
+    for cut in _GLYPH_CUTS:
+        if name.endswith(cut) and len(name) > len(cut):
+            try:
+                return name2unicode(name[:-len(cut)]).casefold() == standard.casefold()
+            except (KeyError, ValueError):
+                return False
+    return False
 
 
 def _is_text(character: str) -> bool:

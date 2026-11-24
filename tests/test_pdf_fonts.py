@@ -1061,12 +1061,53 @@ class TestEncodingBuiltIntoACffFont:
         assert result.text == "No café"
         assert any("no Unicode mapping" in warning for warning in result.warnings)
 
-    def test_glyph_name_of_no_text_at_a_digit_reads_as_before(self):
-        """A font of old-style figures names the glyph of `1` `oneoldstyle`: it is a 1, and the names beside it are taken."""
-        result = self._converted(_cff({0x31: "oneoldstyle", 0x61: "Asmall", 0xE9: "eacute"}), rb"caf\351 1a")
+    def test_another_cut_of_the_standard_character_reads_as_before(self):
+        """A font of old-style figures names the glyph of `1` `oneoldstyle`, one of small capitals the glyph at `a` `Asmall`:
+        the code is that character, and the names beside it are taken."""
+        program = _cff({0x31: "oneoldstyle", 0x61: "Asmall", 0x24: "dollaroldstyle", 0x26: "ampersandsmall",
+                        0x2D: "hyphensuperior", 0x3F: "questionsmall", 0xA2: "centoldstyle", 0xE9: "eacute"})
+        result = self._converted(program, rb"caf\351 1a $5 & a-b ok? 5\242")
 
-        assert result.text == "café 1a"
+        assert result.text == "café 1a $5 & a-b ok? 5¢"
         assert not result.warnings
+
+    def test_cut_of_another_character_has_no_character(self):
+        result = self._converted(_cff({0x32: "oneoldstyle", 0xE9: "eacute"}), rb"caf\351 2")
+
+        assert result.text == "café"
+        assert any("no Unicode mapping" in warning for warning in result.warnings)
+
+    @pytest.mark.parametrize("filters", [b"[/ASCII85Decode /FlateDecode]", b"[/ASCIIHexDecode /FlateDecode]", b"/ASCII85Decode",
+                                         b"/ASCIIHexDecode", b"[/FlateDecode]", b"/Fl"])
+    def test_program_under_ascii_filters_is_read(self, filters):
+        import base64
+        import binascii
+
+        stream = _cff(_FRENCH)
+        for name in reversed(filters.strip(b"[]").split()):
+            stream = {b"/FlateDecode": zlib.compress, b"/Fl": zlib.compress,
+                      b"/ASCII85Decode": lambda data: base64.a85encode(data) + b"~>",
+                      b"/ASCIIHexDecode": lambda data: binascii.hexlify(data) + b">"}[name](stream)
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C /Filter %s >>\nstream\n%s\nendstream" % (len(stream), filters, stream)})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "café"
+
+    def test_program_with_a_predictor_is_not_read(self):
+        stream = zlib.compress(_cff(_FRENCH))
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >> >>"
+                             b"\nstream\n%s\nendstream" % (len(stream), stream)})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "cafØ"
 
     @pytest.mark.parametrize(("name", "text", "expected"), [("sfthyphen", rb"caf\351 co\255operate", "café co-operate"),
                                                              ("uni0009", rb"caf\351 a\255b", "café a b")],
