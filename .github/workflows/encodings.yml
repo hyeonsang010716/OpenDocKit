@@ -1,0 +1,40 @@
+name: Encodings
+
+# Text without a stated charset, written in each legacy code page of its language and read back (evals/README.md): no
+# sample that was read right may be read wrong. Runs when the guessing of encodings or its scorecard changes.
+on:
+  pull_request:
+    paths:
+      - "src/opendockit/extractors/_encoding.py"
+      - "evals/encodings.py"
+      - "evals/fetch_encoding_texts.py"
+      - "evals/fetch_script_texts.py"
+      - "evals/baselines/encodings.json"
+      - "uv.lock"
+      - ".github/workflows/encodings.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  texts:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.12
+      - name: Fetch the texts
+        run: uv run python -m evals.fetch_encoding_texts "$RUNNER_TEMP/encodings"
+      - name: Samples read in the code page they were written in
+        run: >
+          uv run python -m evals.encodings
+          --texts "$RUNNER_TEMP/encodings"
+          --baseline evals/baselines/encodings.json --show 3
