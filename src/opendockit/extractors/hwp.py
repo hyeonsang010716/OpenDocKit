@@ -1717,7 +1717,7 @@ def extract_hwp(data: bytes, options: ConvertOptions) -> Extraction:
     body = join_blocks([*renderer.headers, *blocks, *renderer.footers, "\n".join(renderer.notes), renderer.memo_lines()])
     if not body.strip() and preview:
         body = preview
-        extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
+        extraction.warnings.append("No text was found in the body, so the preview text saved by Hancom Office was used instead "
                                    "(it may contain only the beginning).")
     if renderer.unread_ole:
         extraction.warnings.append(f"The contents of {renderer.unread_ole} OLE object(s) (pasted tables, charts, etc.) could not be converted.")

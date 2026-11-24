@@ -1583,6 +1583,18 @@ class TestPreviewFallback:
         assert result.text == ""
         assert result.warnings == ["No text was extracted."]
 
+    def test_the_warning_says_that_the_body_holds_no_text(self, monkeypatch):
+        """The body of these documents is read to its end and holds no text. The warning said it 'could not be parsed', which
+        a body that cannot be parsed never reaches: a broken section has a warning of its own, and a document whose sections
+        are all broken is refused. Three real documents had it, each with a body of empty paragraphs."""
+        empty = builder.hwp_record(TAG_PARA_HEADER, 0, builder.hwp_para_header())
+        hwp = _fake_hwp(monkeypatch, sections=[empty], preview="미리보기 본문")
+        hwpx = builder.zip_with(builder.hwpx_bytes("<hp:p><hp:run/></hp:p>"), add={"Preview/PrvText.txt": "미리보기 본문"})
+
+        for data, name in ((hwp, "a.hwp"), (hwpx, "a.hwpx")):
+            assert convert(data, name).warnings == ["No text was found in the body, so the preview text saved by Hancom Office "
+                                                    "was used instead (it may contain only the beginning)."]
+
 
 class TestMemo:
     """Comments (review remarks): HWP and HWPX put them at the end of the document as `> Comment(author, on "range"): text` lines,
