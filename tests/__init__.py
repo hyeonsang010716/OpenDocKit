@@ -80,16 +80,18 @@ def file_at_length(folder: Path, length: int, data: bytes, suffix: str = ".docx"
 
 
 @contextmanager
-def held_open(path: Path) -> Iterator[None]:
-    """Hold `path` open without sharing it, as an editor that locks its document does (Windows). Opened through the long
-    form, so that a path of any length can be held."""
+def held_open(path: Path, *, sharing_reads: bool = False) -> Iterator[None]:
+    """Hold `path` open without sharing it, as an editor that locks its document does (Windows), or `sharing_reads` only,
+    as one that lets others read its file and not write it. Opened through the long form, so that a path of any length can
+    be held."""
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateFileW.restype = wintypes.HANDLE
     kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
                                      wintypes.DWORD, wintypes.HANDLE]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    generic_read, no_sharing, open_existing = 0x80000000, 0, 3
-    handle = kernel32.CreateFileW("\\\\?\\" + os.path.abspath(path), generic_read, no_sharing, None, open_existing, 0, None)
+    generic_read, open_existing = 0x80000000, 3
+    sharing = 0x00000001 if sharing_reads else 0   # FILE_SHARE_READ, or nothing at all
+    handle = kernel32.CreateFileW("\\\\?\\" + os.path.abspath(path), generic_read, sharing, None, open_existing, 0, None)
     if handle in (None, wintypes.HANDLE(-1).value):
         raise ctypes.WinError(ctypes.get_last_error())
     try:
