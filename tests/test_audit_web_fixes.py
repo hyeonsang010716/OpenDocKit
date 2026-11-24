@@ -18,7 +18,7 @@ from opendockit import ConvertOptions, CorruptedDocumentError, DocumentFormat, c
 from opendockit.extractors._encoding import decode_text
 from opendockit.extractors._mail import _mime_nesting_exceeds
 from opendockit.markdown import clean_text
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _HEAD = "MIME-Version: 1.0\nFrom: a@example.com\nTo: b@example.com\nSubject: 안내\n"
@@ -430,14 +430,21 @@ class TestNoMarksInsideCode:
         """The marks before and after a table grouped with its strikethrough are written the same way (10,000 tables, each
         after a code block, took 7 s, now under 1 s). The code blocks make the outer table a layout table, so each inner table
         is drawn as a paragraph of its own and gets its own pair (`TestStrikethroughAroundBlocks`); grouped, the marks around
-        it stood alone between the paragraphs (`~~\n\nx\n\na~~`)."""
-        pieces = "a<pre>c</pre><table><tr><td>x</td></tr></table>" * 10000
-        html = f"<table><tr><td><del>{pieces}</del></td><td>z</td></tr></table>"
-        start = time.perf_counter()
-        result = convert(html.encode(), "a.html")
+        it stood alone between the paragraphs (`~~\n\nx\n\na~~`).
 
-        assert time.perf_counter() - start < allowed(3)
-        assert result.text.count("~~") == 2 * 20000  # every `a` and every `x`
+        Four times the tables against a quarter of them, on the same machine: held to 3 seconds instead, it failed on CI
+        runners, which take two to three times as long for this page as the machine the bound was written on while the loop
+        that `allowed` measures them by runs as fast (3.1 to 3.8 s on Windows, a rerun on macOS). Linear now (4 to 4.5 times),
+        11 to 12 times before the fix."""
+        def page(count: int) -> bytes:
+            pieces = "a<pre>c</pre><table><tr><td>x</td></tr></table>" * count
+            return f"<table><tr><td><del>{pieces}</del></td><td>z</td></tr></table>".encode()
+
+        small, large = page(2_500), page(10_000)
+
+        assert fastest(lambda: convert(large, "a.html")) < 8 * fastest(lambda: convert(small, "a.html"))
+        result = convert(small, "a.html")
+        assert result.text.count("~~") == 2 * 5_000  # every `a` and every `x`
         assert "\n~~\n" not in result.text
 
     def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
