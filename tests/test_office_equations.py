@@ -224,6 +224,35 @@ class TestOmmlEquationNumber:
     ], ids=["outside-an-array", "inside-a-fraction", "nothing-after-it", "nothing-before-it"])
     def test_other_number_signs_stay_characters(self, equation, expected):
         assert convert(_docx_with_body(_equations(equation)), "a.docx").text == expected
+class TestOmmlHiddenParts:
+    """The degree of a radical and a limit of an n-ary operator can be switched off (m:degHide, m:subHide, m:supHide) and are
+    then not drawn, whatever the element still holds: a square root with a hidden degree of 2 came out as `\\sqrt[2]{x}`."""
+
+    @staticmethod
+    def _radical(properties: str, degree: str = "2") -> str:
+        return f"<m:rad><m:radPr>{properties}</m:radPr><m:deg>{_run(degree)}</m:deg><m:e>{_run('x')}</m:e></m:rad>"
+
+    @staticmethod
+    def _sum(properties: str) -> str:
+        return (f'<m:nary><m:naryPr><m:chr m:val="∑"/>{properties}</m:naryPr><m:sub>{_run("i=1")}</m:sub>'
+                f"<m:sup>{_run('n')}</m:sup><m:e>{_run('x')}</m:e></m:nary>")
+
+    @pytest.mark.parametrize("flag", ["<m:degHide/>", '<m:degHide m:val="1"/>', '<m:degHide m:val="on"/>', '<m:degHide m:val="true"/>'])
+    def test_hidden_degree_is_not_written(self, flag):
+        assert convert(_docx_with_body(_equations(self._radical(flag))), "a.docx").text == "$\\sqrt{x}$"
+
+    @pytest.mark.parametrize("flag", ["", '<m:degHide m:val="0"/>', '<m:degHide m:val="off"/>', '<m:degHide m:val="false"/>'])
+    def test_degree_that_is_shown_is_written(self, flag):
+        assert convert(_docx_with_body(_equations(self._radical(flag, "3"))), "a.docx").text == "$\\sqrt[3]{x}$"
+
+    @pytest.mark.parametrize(("flags", "expected"), [
+        ("<m:subHide/>", "$∑^n x$"),
+        ('<m:supHide m:val="1"/>', "$∑_{i=1} x$"),
+        ("<m:subHide/><m:supHide/>", "$∑ x$"),
+        ('<m:subHide m:val="0"/><m:supHide m:val="off"/>', "$∑_{i=1}^n x$"),
+    ], ids=["lower", "upper", "both", "set-off"])
+    def test_hidden_limit_is_not_written(self, flags, expected):
+        assert convert(_docx_with_body(_equations(self._sum(flags))), "a.docx").text == expected
 
 
 class TestOmmlLiteralText:

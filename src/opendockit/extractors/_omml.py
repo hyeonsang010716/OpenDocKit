@@ -118,6 +118,10 @@ def omml_to_latex(element: etree._Element) -> str:
         node = element.find(f"{_m(container)}/{_m(name)}")
         return node.get(_m("val"), default) if node is not None else default
 
+    def hidden(container: str, name: str) -> bool:
+        # A property that switches a part off when it is there and not set off (ECMA-376 22.1.2: the default of the value is on)
+        return prop(container, name, "") not in _OFF_VALUES and element.find(f"{_m(container)}/{_m(name)}") is not None
+
     tag = element.tag
     if tag == _m("t"):
         # Raw text inside m:r, which escapes it (`_literal`) after picking out the letters of a math alphabet
@@ -158,13 +162,16 @@ def omml_to_latex(element: etree._Element) -> str:
     if tag == _m("sPre"):
         return f"{{}}_{_group(part('sub'))}^{_group(part('sup'))}{part('e')}"
     if tag == _m("rad"):
-        degree = part("deg")
+        # A degree that is hidden (m:degHide) is not drawn: a square root came out as `\\sqrt[2]{x}`, and what a writer leaves in
+        # the hidden degree is anything (Pinned by: test_office_equations.py::TestOmmlHiddenParts).
+        degree = "" if hidden("radPr", "degHide") else part("deg")
         return f"\\sqrt[{degree}]{{{part('e')}}}" if degree else f"\\sqrt{{{part('e')}}}"
     if tag == _m("d"):
         return _delimited(element, prop("dPr", "begChr", "("), prop("dPr", "endChr", ")"), prop("dPr", "sepChr", "|"))
     if tag == _m("nary"):
         operator = prop("naryPr", "chr", "∫")
-        sub, sup = part("sub"), part("sup")
+        sub = "" if hidden("naryPr", "subHide") else part("sub")
+        sup = "" if hidden("naryPr", "supHide") else part("sup")
         limits = (f"_{_group(sub)}" if sub else "") + (f"^{_group(sup)}" if sup else "")
         return f"{operator}{limits} {part('e')}"
     if tag == _m("groupChr"):
