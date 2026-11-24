@@ -1097,6 +1097,45 @@ class TestEncodingBuiltIntoACffFont:
 
         assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "café"
 
+    def test_program_under_an_ascii_filter_behind_the_flate_one_is_not_read(self):
+        """Only a Flate stage that ends the chain has its head inflated: one before another filter would have to be inflated whole."""
+        import base64
+
+        stream = zlib.compress(base64.a85encode(_cff(_FRENCH)) + b"~>")
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C /Filter [/FlateDecode /ASCII85Decode] >>\nstream\n%s\nendstream"
+                             % (len(stream), stream)})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "cafØ"
+
+    def test_program_that_cannot_be_read_is_tried_once(self, monkeypatch):
+        from opendockit.extractors import _pdf_pdfminer
+
+        read = []
+        reader = _pdf_pdfminer._cff_glyph_names
+        monkeypatch.setattr(_pdf_pdfminer, "_cff_glyph_names", lambda program: read.append(1) or reader(program))
+        program = b"\x01\x00\x04\x02\xff\xff\x04"
+        font = (b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths [" + b"600 " * 256
+                + b"] /FontDescriptor 5 0 R >>")
+        form = rb"BT /F1 12 Tf 0 0 Td (caf\351) Tj ET"
+        content = b"".join(b"q 1 0 0 1 72 %d cm /X Do Q\n" % (760 - 20 * row) for row in range(30))
+        data = _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /XObject << /X 7 0 R >> >> >>",
+            4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+            5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800"
+               b" /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+            6: b"<< /Length %d /Subtype /Type1C >>\nstream\n%s\nendstream" % (len(program), program),
+            7: b"<< /Type /XObject /Subtype /Form /BBox [0 0 100 20] /Resources << /Font << /F1 %s >> >> /Length %d >>\nstream\n%s\n"
+               b"endstream" % (font, len(form), form)})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text.count("cafØ") == 30
+        assert len(read) == 1
+
     def test_program_with_a_predictor_is_not_read(self):
         stream = zlib.compress(_cff(_FRENCH))
         data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351) Tj ET",
