@@ -14,6 +14,19 @@ from opendockit.cli import main
 from tests import builder, file_at_length, held_open
 
 
+def _start_with_a_pipe_already_closed(args, cwd, stream):
+    """Start the CLI with `stream` ("stdout" or "stderr") sent to a pipe whose reader has gone, as after `| true`; the other
+    stream is a pipe to read. The read end is closed before the process starts: closing it after starting the process raced
+    the output, and on a slow Windows runner the version or the help was written in full first and the run ended with 0."""
+    read, write = os.pipe()
+    os.close(read)
+    try:
+        streams = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, stream: write}
+        return subprocess.Popen([sys.executable, "-m", "opendockit", *args], cwd=cwd, **streams)
+    finally:
+        os.close(write)
+
+
 class TestCount:
     def test_count_prints_only_the_number_of_characters(self, tmp_path, monkeypatch, capsys):
         """One file → character count. A frontend's upload limit uses this number."""
@@ -306,15 +319,10 @@ class TestArguments:
     def test_closed_pipe_ends_quietly_after_a_short_output(self, tmp_path, flags):
         """Output smaller than the output buffer reached a closed pipe only at exit, outside the handler, and ended with
         'Exception ignored … BrokenPipeError' and exit code 120."""
-        import subprocess
-        import sys
-
         path = tmp_path / "short.txt"
         path.write_text("짧은 문서\n", encoding="utf-8")
-        process = subprocess.Popen([sys.executable, "-m", "opendockit", str(path), *flags], cwd=tmp_path,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = _start_with_a_pipe_already_closed([str(path), *flags], tmp_path, "stdout")
 
-        process.stdout.close()  # before the conversion, which takes longer than starting the process
         stderr = process.stderr.read().decode()
         code = process.wait(timeout=30)
 
@@ -342,12 +350,8 @@ class TestArguments:
     def test_version_and_help_to_a_closed_pipe_end_quietly(self, tmp_path, flag):
         """argparse's version and help actions exited before the output was flushed, so `opendockit --version | true` and
         `opendockit --help | true` ended with 'Exception ignored … BrokenPipeError' and exit code 120."""
-        import subprocess
+        process = _start_with_a_pipe_already_closed([flag], tmp_path, "stdout")
 
-        process = subprocess.Popen([sys.executable, "-m", "opendockit", flag], cwd=tmp_path,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        process.stdout.close()  # before the version is printed, which takes longer than starting the process
         stderr = process.stderr.read().decode()
         code = process.wait(timeout=30)
 
@@ -379,14 +383,10 @@ class TestArguments:
         """With standard error sent to a pipe whose reader has gone (`2>&1 | true`), a message for a missing file ended in a
         BrokenPipeError traceback, and a warning or a usage error failed again at exit with 'Exception ignored' and exit code
         120. The messages go nowhere; the output and the exit code are those of the run."""
-        import subprocess
-
         (tmp_path / "a.png").write_bytes(builder.png_bytes())
         (tmp_path / "blank.pdf").write_text("  \n \n", encoding="utf-8")   # two warnings: not a PDF, and no text
-        process = subprocess.Popen([sys.executable, "-m", "opendockit", *args], cwd=tmp_path,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = _start_with_a_pipe_already_closed(args, tmp_path, "stderr")
 
-        process.stderr.close()  # before the first message, which takes longer than starting the process
         written = process.stdout.read().decode()
         assert process.wait(timeout=60) == code
         assert written.strip() == output
