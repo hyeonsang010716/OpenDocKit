@@ -111,9 +111,13 @@ class TestMultipartSplitAtTheDelimiterInUse:
         "--BBB\nContent-Type: text/plain\n\nHello\nContent-Transfer-Encoding: base64\r\n\r\nmore text\r\n--Kim--\r\n",
         "--BBB\r\nContent-Type: text/plain\r\n\r\nHello text\r\n--BBBx\r\nContent-Transfer-Encoding: base64\r\n\r\nquoted line\r\n--Kim--\r\n",
         "--BBB\r\nContent-Type: text/plain\r\nSummary: three points were agreed.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n  an indented sentence that was shown.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/calendar\r\n\r\nLine one of the part.\r\nLine two of the part.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: application/json\r\n\r\nLine one of the part.\r\n--BBB--\r\n",
     ], ids=["text-behind-the-closing-line", "pieces-under-another-token", "sentence-that-looks-like-a-header", "rules-of-dashes",
             "signature-shaped-like-a-closing-line", "text-around-the-parts-of-a-multipart-inside",
-            "line-that-says-base64-inside-a-text-part", "token-that-begins-another-line", "sentence-among-the-headers-of-a-part"])
+            "line-that-says-base64-inside-a-text-part", "token-that-begins-another-line", "sentence-among-the-headers-of-a-part",
+            "sentence-folded-into-a-header", "part-of-a-type-that-is-not-read", "part-that-is-no-text-and-has-no-name"])
     def test_no_line_that_was_shown_is_lost(self, body):
         """A reader of MIME drops what stands behind the closing line and reads a header where a sentence was; as text all of
         it was shown, so such a body stays text, and a last line that only looks like a closing line stays in its part."""

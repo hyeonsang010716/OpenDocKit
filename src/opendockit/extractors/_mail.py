@@ -501,8 +501,10 @@ def _split_at_the_delimiter_in_use(part: Message) -> bool | None:
 
 def _shows_every_line(multipart: Message) -> bool:
     """Is nothing of this multipart text that a reader of MIME passes over: no line before the first delimiter or behind the
-    closing line of it or of a multipart inside it, and no header of a part but those a part has (`Content-…`,
-    `MIME-Version`)? Mails inside (message/*) are not looked into: their headers and bodies are read as a mail's."""
+    closing line of it or of a multipart inside it, no header of a part but those a part has (`Content-…`, `MIME-Version`),
+    and no part that is neither read (text/plain, text/html, a mail) nor reported as an attachment by its name - a
+    `text/calendar` part without a name, or one whose type a folded sentence under `Content-Type:` made unreadable, came
+    out as nothing? Mails inside (message/*) are not looked into: their headers and bodies are read as a mail's."""
     stack = [multipart]
     while stack:
         current = stack.pop()
@@ -513,9 +515,20 @@ def _shows_every_line(multipart: Message) -> bool:
                 return False
             if any(not name.lower().startswith("content-") and name.lower() != "mime-version" for name in child.keys()):
                 return False
-            if child.get_content_maintype() == "multipart" and child.is_multipart():
-                stack.append(child)
+            kind = child.get_content_type()
+            if child.get_content_maintype() == "multipart":
+                if child.is_multipart():
+                    stack.append(child)
+            elif kind not in ("text/plain", "text/html") and child.get_content_maintype() != "message" and not _named(child):
+                return False  # a part that is neither read nor reported: as text its lines were shown
     return True
+
+
+def _named(part: Message) -> bool:
+    try:
+        return bool(part.get_filename())
+    except Exception:  # noqa: BLE001 — a name that cannot be read is no name
+        return False
 
 
 def _without_a_closing_line_in_base64(multipart: Message) -> None:
