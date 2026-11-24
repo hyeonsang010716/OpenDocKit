@@ -901,10 +901,13 @@ def _cff_index(objects: list[bytes]) -> bytes:
 
 
 def _cff(names: dict[int, str], *, ranges: bool = False, charset: int = 0, more: dict[int, str] | None = None,
-         encoding: int | None = None, cid_keyed: bool = False) -> bytes:
+         encoding: int | None = None, cid_keyed: bool = False, charset_at: int | None = None, codes: bytes | None = None,
+         padding: int = 0) -> bytes:
     """A CFF font program that draws at each code of `names` the glyph of that name: glyph 1 is the first of them. Its
     encoding lists the codes (format 0) or `ranges` of them (format 1), `more` names further codes for glyphs by name, and
-    its charset is written in the format `charset`. `encoding` puts a predefined encoding in its place (0: StandardEncoding)."""
+    its charset is written in the format `charset`. `encoding` puts a predefined encoding in its place (0: StandardEncoding),
+    `charset_at` a predefined charset (0: ISOAdobe), `codes` the code of each glyph as given, and `padding` that many
+    operands without an operator into the dictionary."""
     standard = pdffont.CFFFont.STANDARD_STRINGS
     own = sorted({name for name in [*names.values(), *(more or {}).values()] if name not in standard})
 
@@ -915,23 +918,23 @@ def _cff(names: dict[int, str], *, ranges: bool = False, charset: int = 0, more:
     charset_table = {0: b"\x00" + struct.pack(f">{len(ids)}H", *ids),
                      1: b"\x01" + b"".join(struct.pack(">HB", one, 0) for one in ids),
                      2: b"\x02" + b"".join(struct.pack(">HH", one, 0) for one in ids)}[charset]
-    codes = bytes(names)
+    codes = bytes(names) if codes is None else codes
     table = (b"\x01" + bytes((len(codes),)) + b"".join(bytes((code, 0)) for code in codes) if ranges
              else b"\x00" + bytes((len(codes),)) + codes)
     if more:
         table = bytes((table[0] | 0x80,)) + table[1:] + bytes((len(more),)) + b"".join(
             struct.pack(">BH", code, string_id(name)) for code, name in more.items())
-    glyphs = _cff_index([b"\x0e"] * (len(names) + 1))
+    glyphs = _cff_index([b"\x0e"] * (len(codes) + 1))
     front = b"\x01\x00\x04\x02" + _cff_index([b"Any"])
     behind = _cff_index([name.encode() for name in own]) + _cff_index([])
 
     def top(charset_at: int, encoding_at: int, glyphs_at: int) -> bytes:
         entries = b"".join(b"\x1d" + struct.pack(">i", value) + bytes((operator,))
                            for value, operator in ((charset_at, 15), (encoding_at, 16), (glyphs_at, 17)))
-        return _cff_index([(b"\x8b\x8b\x8b\x0c\x1e" if cid_keyed else b"") + entries])
+        return _cff_index([(b"\x8b\x8b\x8b\x0c\x1e" if cid_keyed else b"") + b"\x8b" * padding + entries])
 
     start = len(front) + len(top(0, 0, 0)) + len(behind)
-    return (front + top(start, start + len(charset_table) if encoding is None else encoding,
+    return (front + top(start if charset_at is None else charset_at, start + len(charset_table) if encoding is None else encoding,
                         start + len(charset_table) + len(table)) + behind + charset_table + table + glyphs)
 
 
@@ -1006,6 +1009,82 @@ class TestEncodingBuiltIntoACffFont:
     ], ids=["standard-encoding", "cid-keyed", "cut-short", "empty", "index-past-the-end", "encoding-of-an-unknown-format"])
     def test_program_without_an_encoding_to_read_changes_nothing(self, program):
         assert _cff_font_text(program, rb"caf\351 \350") == "cafØ Ł"
+
+    def test_predefined_charset_names_the_glyphs_by_their_number(self):
+        """ISOAdobe: glyph n is the standard string n, so the glyph of `eacute` is the one of that number."""
+        glyph = pdffont.CFFFont.STANDARD_STRINGS.index("eacute")
+
+        assert _cff_font_text(_cff({}, charset_at=0, codes=b"\x80" * (glyph - 1) + b"\xe9"), rb"caf\351") == "café"
+
+    @pytest.mark.parametrize("layout", [{"encoding": 1}, {"charset_at": 1}, {"charset_at": 2}],
+                             ids=["expert-encoding", "expert-charset", "expert-subset-charset"])
+    def test_expert_sets_are_not_read(self, layout):
+        assert _cff_font_text(_cff(_FRENCH, **layout), rb"caf\351 \350") == "cafØ Ł"
+
+    @pytest.mark.parametrize("renamed", [{0x41: "five"}, {0x35: "A"}], ids=["letter", "digit"])
+    def test_one_renamed_letter_or_digit_discredits_the_whole_program(self, renamed):
+        """Its other names are not taken either: `eacute` at E9 stays the `Ø` of StandardEncoding."""
+        assert _cff_font_text(_cff({**renamed, 0xE9: "eacute"}), rb"A5 caf\351") == "A5 cafØ"
+
+    def test_true_type_font_is_not_read_by_a_cff_program(self):
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C >>\nstream\n%s\nendstream"
+                             % (len(_cff({0xE9: "egrave"})), _cff({0xE9: "egrave"}))})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "café"
+
+    @pytest.mark.parametrize("name", ["oneoldstyle", "Asmall", "uni0000", "uniFFFD", "uni00AD"])
+    def test_glyph_name_of_no_text_reads_as_before(self, name):
+        """A name of the private use area, a control or U+FFFD is no text: taken, it was cleaned away and the page lost the
+        warning of a character without a mapping while still losing the character."""
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (No \200 end) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C >>\nstream\n%s\nendstream"
+                             % (len(_cff({0x80: name})), _cff({0x80: name}))})
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == "No end"
+        assert any("no Unicode mapping" in warning for warning in result.warnings)
+
+    def test_dictionary_longer_than_a_font_writes_is_not_walked(self):
+        assert _cff_font_text(_cff(_FRENCH, padding=5000), rb"caf\351 \350") == "cafØ Ł"
+        assert _cff_font_text(_cff(_FRENCH, padding=500), rb"caf\351 \350") == "café è"
+
+    def test_program_is_read_once_however_often_its_font_is_built(self, monkeypatch):
+        """A font written into the resources of a form has no object number, so pdfminer builds it again each time the form
+        is drawn: a 12 KB file that drew such a form 200 times with a font program of 4 MB took 66 s for 0.1 s."""
+        from opendockit.extractors import _pdf_pdfminer
+
+        read = []
+        reader = _pdf_pdfminer._cff_glyph_names
+        monkeypatch.setattr(_pdf_pdfminer, "_cff_glyph_names", lambda program: read.append(1) or reader(program))
+        program = _cff(_FRENCH)
+        font = (b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths [" + b"600 " * 256
+                + b"] /FontDescriptor 5 0 R >>")
+        form = rb"BT /F1 12 Tf 0 0 Td (caf\351) Tj ET"
+        content = b"".join(b"q 1 0 0 1 72 %d cm /X Do Q\n" % (760 - 20 * row) for row in range(30))
+        data = _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /XObject << /X 7 0 R >> >> >>",
+            4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+            5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800"
+               b" /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+            6: b"<< /Length %d /Subtype /Type1C >>\nstream\n%s\nendstream" % (len(program), program),
+            7: b"<< /Type /XObject /Subtype /Form /BBox [0 0 100 20] /Resources << /Font << /F1 %s >> >> /Length %d >>\nstream\n%s\n"
+               b"endstream" % (font, len(form), form)})
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text.count("café") == 30
+        assert len(read) == 1
 
     def test_program_of_another_kind_is_not_read_as_cff(self):
         assert _cff_font_text(_cff(_FRENCH), rb"caf\351 \350", kind=b"OpenType") == "cafØ Ł"
