@@ -405,6 +405,53 @@ its time over every call a corpus makes of it, take the least of several passes,
 main, change. Measured so, a question asked of every table cost 0.05 s on 20,640 tables, which a whole run of 91 s could
 not show; and reading the parts of a cell in one pass over its children instead of three saved five times that.
 
+## Parity: one document as HWP and as HWPX
+
+```bash
+uv run python evals/fetch_hangul_samples.py ../corpus            # once: the samples of hwplib, hwpxlib and hwp2hwpx
+uv run python -m evals.parity --documents ../corpus/hangul-samples --baseline evals/baselines/parity-hangul-samples.json
+```
+
+HWP 5 and HWPX hold one document model, as records and as XML, and are read here by two readers that share their rules
+(`_hangul.py`) and not their code. A rule that reaches one reader and not the other moves no scorecard — each output is
+fine by itself — and is found only by a document that exists in both formats. `evals/parity.py` converts every
+`<name>.hwp` and `<name>.hwpx` of a folder and says whether the two texts are the same. No reference is needed. The
+samples of hwp2hwpx are 41 such pairs:
+
+| pairs | alike | apart | refused |
+|---|---|---|---|
+| 41 | 40 | 1 | 0 |
+
+The one apart is a combo box: the HWP file states its text (`def`), and the HWPX file states that text as an item of
+its list with nothing selected, so there is no value to write. A baseline keeps the state of each pair, and a run ends
+with status 1 when a pair that was alike is not any more. `--show <n>` prints the first blocks that differ.
+
+## Damage: what does a broken document do to the reader?
+
+```bash
+uv run python -m evals.damage --documents ../corpus/hangul-samples [--rounds 6] [--keep ../failed]
+```
+
+`evals/damage.py` damages every document of a folder — the file cut and its bits flipped; a part of a ZIP package or a
+stream of an HWP 5 file cut, flipped or given a very large number, inside a container that is written again so that the
+damage reaches the reader of the part — and converts each copy in a worker of `IsolatedConverter`, as a server does. A
+copy may be converted or refused. The run ends with status 1 when one ends its worker, takes more than 30 seconds, or
+raises anything but a `ConversionError`; `--keep` writes those copies to a folder. The places damaged depend on the name
+of the file alone, so every run and every system makes the same copies, and `--rounds` moves on to other places.
+
+| run | copies | converted | refused | ended a worker, hung or raised |
+|---|---|---|---|---|
+| Hangul samples, one round (the `Hangul` workflow) | 8,018 | 6,579 | 1,439 | 0 |
+| Hangul samples, six rounds, when the check was written | 47,193 | 38,675 | 8,518 | 0 |
+
+No copy took longer than its document takes whole (the largest, 38 MB, two seconds). So the check found nothing when
+it was written: it is there for the next change. It does not see memory on macOS, where a process cannot be given a
+limit (the workflow runs on Linux, where a worker has two gigabytes), and it does not see a damaged copy that is read
+wrongly but read.
+
+The `Hangul` workflow runs the recall of the samples, their parity and their damage on pull requests that touch the
+readers of HWP and HWPX or what they are built on.
+
 ## What it does not measure yet
 
 - XLSX, PPTX and mail: the twins cover the text formats only. HTML as it is found on the web, with navigation and
