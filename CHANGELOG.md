@@ -70,6 +70,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   names. A root of the MCP server may be that long as well.
 - **Windows: a file another program holds open is said to be.** The command line said the file might be a folder or
   lack a permission, and the MCP server only that it could not be read.
+- **PDF: accented letters of a Type 1 font that brings its own encoding.** A font embedded as CFF with no
+  `/Encoding` was read with the standard one, not with the encoding of the font program: a French bank statement
+  read `ProtØgØ` for `Protégé` and `ClientŁle` for `Clientèle`, 27 wrong letters a page.
 - **Text, HTML, CSV and mail without a stated charset: accented letters of Western and Central European text.** A
   short text in a Latin code page was read in whichever one made it look like the cleanest English: an Italian mail
   as Windows-1258 (`martedì` lost its `ì` to a mark on the `d`), Spanish as a DOS code page (`reuni¾n`), Czech,

@@ -22,7 +22,7 @@ from pdfminer import layout as pdfminer_layout
 from pdfminer import pdffont
 from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
-from pdfminer.encodingdb import EncodingDB
+from pdfminer.encodingdb import EncodingDB, name2unicode
 from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
 from pdfminer.pdfinterp import PDFContentParser, PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
@@ -888,6 +888,185 @@ def _names_win_ansi(self: pdffont.PDFSimpleFont, descriptor: object, widths: obj
 
 
 pdffont.PDFSimpleFont.__init__ = _names_win_ansi
+
+
+# A CFF font program (FontFile3 /Type1C) may bring an encoding of its own: which glyph each code draws. This many bytes of the
+# program are looked at (its header, strings, charset and encoding stand at its front in the files seen; a table past the
+# end is no table), and a font holds at most this many glyphs.
+_CFF_BYTES_MAX = 4 * 1024 * 1024
+_CFF_GLYPHS_MAX = 65_535
+_CFF_ROS = (12, 30)  # the operator that makes a font CID-keyed: it has no encoding
+_type1_font_init = pdffont.PDFType1Font.__init__
+
+
+def _type1_font_with_its_own_encoding(self: pdffont.PDFType1Font, rsrcmgr: object, spec: dict) -> None:
+    """Initializer used instead of `PDFType1Font.__init__`: a Type 1 font without /Encoding whose program is embedded as CFF
+    is read with the encoding built into that program (PDF 32000-1 9.6.6.1, Table 114).
+
+    pdfminer does so for a program in the Type 1 format (FontFile) and reads the CFF one (FontFile3) with StandardEncoding:
+    a bank statement whose fonts draw `é` at code E9 read `ProtØgØ`, `DØpts`, `Ł` for `è`, 27 wrong letters a page, and
+    nothing said so (Pinned by: test_pdf_fonts.py::TestEncodingBuiltIntoACffFont). A code keeps what it read as before when
+    the program names no glyph for it or names it by a name that says no character (`G38`): the letters of ASCII stand at
+    their codes in such fonts. /ToUnicode goes first as ever, and a font with /Encoding is read by it.
+
+    A program that names a letter or a digit of ASCII as another character is not believed at all: a form whose fonts name
+    the glyph drawn for `A` `five` and the one for `u` `c` hides its text from a reader of names - `Auto Policy Number` read
+    `5cb] C]ZWQg Ac[PS` - while its codes are the text (Pinned by: ::test_program_that_renames_the_letters_is_not_believed).
+    """
+    _type1_font_init(self, rsrcmgr, spec)
+    if type(self) is not pdffont.PDFType1Font or not isinstance(spec, dict) or "Encoding" in spec:
+        return
+    try:
+        descriptor = resolve1(spec.get("FontDescriptor"))
+        program = resolve1(descriptor.get("FontFile3")) if isinstance(descriptor, dict) else None
+        if not isinstance(program, PDFStream) or getattr(resolve1(program.get("Subtype")), "name", None) != "Type1C":
+            return
+        names = _cff_glyph_names(program.get_data()[:_CFF_BYTES_MAX])
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — a program that cannot be read says nothing; the font is read as before
+        return
+    named: dict[int, str] = {}
+    for code, name in names.items():
+        try:
+            named[code] = name2unicode(name)
+        except (KeyError, ValueError):
+            continue
+    if any(character != chr(code) for code, character in named.items() if code < 0x80 and chr(code).isalnum()):
+        return
+    self.cid2unicode = {**self.cid2unicode, **named}
+
+
+pdffont.PDFType1Font.__init__ = _type1_font_with_its_own_encoding
+
+
+def _cff_glyph_names(program: bytes) -> dict[int, str]:
+    """The glyph name of each code in the encoding a CFF font program brings (Adobe Technical Note 5176, sections 12 and 13):
+    nothing for a program that uses a predefined encoding - StandardEncoding is what the font is read with already, and
+    the Expert sets hold no text - for a CID-keyed one, and for one whose charset is predefined other than ISOAdobe.
+    Raises `struct.error`, `IndexError` or `ValueError` when the program ends early or is not laid out as one."""
+    names, at = _cff_index(program, program[2])     # the Name INDEX stands behind the header, whose size is its third byte
+    dictionaries, at = _cff_index(program, at)
+    strings, at = _cff_index(program, at)
+    first, last = dictionaries[0]
+    top = _cff_dictionary(program[first:last])
+    encoding, charset, glyphs = (top.get(operator, (0,))[-1] for operator in (16, 15, 17))
+    if _CFF_ROS in top or encoding in (0, 1) or charset in (1, 2) or not glyphs:
+        return {}
+    if min(encoding, charset, glyphs) < 0:
+        raise ValueError  # a place before the start of the program: counted from its end, it would read something
+    (count,) = struct.unpack_from(">H", program, glyphs)
+    count = min(count, _CFF_GLYPHS_MAX)
+    # The string of each glyph: glyph 0 is .notdef, and the charset names the others
+    if charset == 0:
+        string_ids = list(range(min(count, _CFF_ISO_ADOBE_GLYPHS)))
+    else:
+        string_ids, kind, at = [0], program[charset], charset + 1
+        if kind == 0:
+            string_ids += struct.unpack_from(f">{count - 1}H", program, at)
+        elif kind in (1, 2):
+            while len(string_ids) < count:
+                start, left = struct.unpack_from(">HB" if kind == 1 else ">HH", program, at)
+                string_ids += range(start, start + min(left, count - len(string_ids) - 1) + 1)
+                at += 3 if kind == 1 else 4
+        else:
+            raise ValueError
+
+    def name(string_id: int) -> str:
+        standard = pdffont.CFFFont.STANDARD_STRINGS
+        if string_id < len(standard):
+            return standard[string_id]
+        first, last = strings[string_id - len(standard)]
+        return program[first:last].decode("latin-1")
+
+    found: dict[int, str] = {}
+    kind, at = program[encoding], encoding + 1
+    if kind & 0x7F == 0:        # the code of each glyph, from glyph 1
+        codes = program[at + 1:at + 1 + program[at]]
+        at += 1 + program[at]
+        for glyph, code in enumerate(codes, 1):
+            if glyph < len(string_ids):
+                found[code] = name(string_ids[glyph])
+    elif kind & 0x7F == 1:      # ranges of codes, their glyphs in order from glyph 1
+        ranges, glyph = program[at], 1
+        at += 1
+        for _ in range(ranges):
+            start, left = program[at], program[at + 1]
+            at += 2
+            for code in range(start, min(start + left, 0xFF) + 1):
+                if glyph < len(string_ids):
+                    found[code] = name(string_ids[glyph])
+                glyph += 1
+    else:
+        raise ValueError
+    if kind & 0x80:             # codes that draw a glyph another code draws already, named by their string
+        for index in range(program[at]):
+            code, string_id = struct.unpack_from(">BH", program, at + 1 + 3 * index)
+            found[code] = name(string_id)
+    return found
+
+
+_CFF_ISO_ADOBE_GLYPHS = 229  # the predefined charset ISOAdobe: glyph n is string n
+
+
+def _cff_index(program: bytes, at: int) -> tuple[list[tuple[int, int]], int]:
+    """The (start, end) of each object of the INDEX at `at`, and where the INDEX ends."""
+    (count,) = struct.unpack_from(">H", program, at)
+    if not count:
+        return [], at + 2
+    size = program[at + 2]
+    if not 1 <= size <= 4:
+        raise ValueError
+    table = program[at + 3:at + 3 + (count + 1) * size]
+    if len(table) != (count + 1) * size:
+        raise ValueError
+    offsets = [int.from_bytes(table[index:index + size], "big") for index in range(0, len(table), size)]
+    base = at + 3 + len(table) - 1
+    if offsets[0] != 1 or base + offsets[-1] > len(program) or offsets != sorted(offsets):
+        raise ValueError
+    return [(base + offsets[index], base + offsets[index + 1]) for index in range(count)], base + offsets[-1]
+
+
+def _cff_dictionary(data: bytes) -> dict[int | tuple[int, int], tuple[int, ...]]:
+    """The whole-number operands of each operator of a CFF DICT (an operand that is a real number is read as 0: the offsets
+    looked up here are whole)."""
+    found: dict[int | tuple[int, int], tuple[int, ...]] = {}
+    operands: list[int] = []
+    at = 0
+    while at < len(data):
+        byte = data[at]
+        if byte <= 21:
+            operator: int | tuple[int, int] = byte
+            if byte == 12:
+                operator = (12, data[at + 1])
+                at += 1
+            found[operator] = tuple(operands) or (0,)
+            operands = []
+            at += 1
+        elif byte == 28:
+            operands.append(struct.unpack_from(">h", data, at + 1)[0])
+            at += 3
+        elif byte == 29:
+            operands.append(struct.unpack_from(">i", data, at + 1)[0])
+            at += 5
+        elif byte == 30:
+            at += 1
+            while data[at] & 0x0F != 0x0F and data[at] >> 4 != 0x0F:
+                at += 1
+            at += 1
+            operands.append(0)
+        elif 32 <= byte <= 246:
+            operands.append(byte - 139)
+            at += 1
+        elif 247 <= byte <= 250:
+            operands.append((byte - 247) * 256 + data[at + 1] + 108)
+            at += 2
+        elif 251 <= byte <= 254:
+            operands.append(-(byte - 251) * 256 - data[at + 1] - 108)
+            at += 2
+        else:
+            raise ValueError
+    return found
 
 
 # A marked-content sequence may say what its glyphs stand for (`/Span << /ActualText (…) >> BDC … EMC`, PDF 32000-1 14.9.4).
