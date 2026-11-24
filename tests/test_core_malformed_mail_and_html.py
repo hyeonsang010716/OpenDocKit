@@ -106,18 +106,23 @@ class TestMultipartSplitAtTheDelimiterInUse:
         "--Summary\r\nContent-wise: we agreed on three points.\r\nFirst, the budget.\r\n",
         "---\r\nContent-Type: text/plain\r\n\r\nTitle\r\n---\r\nSection two\r\n---\r\n",
         "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nRegards\r\n--Kim--\r\n",
+        "--BBB\r\nContent-Type: multipart/alternative; boundary=X\r\n\r\nInner preamble line.\r\n--X\r\nContent-Type: text/plain\r\n\r\n"
+        "hello\r\n--X--\r\nInner footer line.\r\n--BBB--\r\n",
+        "--BBB\nContent-Type: text/plain\n\nHello\nContent-Transfer-Encoding: base64\r\n\r\nmore text\r\n--Kim--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n\r\nHello text\r\n--BBBx\r\nContent-Transfer-Encoding: base64\r\n\r\nquoted line\r\n--Kim--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nSummary: three points were agreed.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
     ], ids=["text-behind-the-closing-line", "pieces-under-another-token", "sentence-that-looks-like-a-header", "rules-of-dashes",
-            "signature-shaped-like-a-closing-line"])
+            "signature-shaped-like-a-closing-line", "text-around-the-parts-of-a-multipart-inside",
+            "line-that-says-base64-inside-a-text-part", "token-that-begins-another-line", "sentence-among-the-headers-of-a-part"])
     def test_no_line_that_was_shown_is_lost(self, body):
         """A reader of MIME drops what stands behind the closing line and reads a header where a sentence was; as text all of
         it was shown, so such a body stays text, and a last line that only looks like a closing line stays in its part."""
         result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
 
         shown = result.text.split("\n\n", 1)[1]
-        for line in body.split("\r\n"):
-            words = line.split(":", 1)[-1].strip() if line.lower().startswith("content-t") else line.strip()
-            assert words in shown or line.startswith(("--BBB", "Content-T"))
-        assert "Kim" in shown or "Kim" not in body
+        for line in body.replace("\r\n", "\n").split("\n"):
+            if not line.startswith(("--BBB", "--X", "Content-T")) or line.startswith("--BBBx"):
+                assert line.strip() in shown
 
     def test_blank_lines_before_the_delimiter_are_skipped(self):
         body = "\r\n" * 2000 + "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문 글\r\n--BBB--\r\n"
