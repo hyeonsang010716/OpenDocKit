@@ -64,6 +64,21 @@ class TestDamaged:
 
         assert list(damaged("a.hwpx", data)) == list(damaged("a.hwpx", data))
 
+    def test_the_copies_are_the_same_at_any_time(self, monkeypatch):
+        """A package is packed again for each damage of a part. Dated now, its parts gave other bytes once a two-second tick
+        of the ZIP clock had passed between two runs: on a slow runner, the test above failed now and then."""
+        import time
+
+        data = _hwpx()
+        first = list(damaged("a.hwpx", data))
+        later = time.time() + 3600
+        monkeypatch.setattr(time, "time", lambda: later)
+
+        assert list(damaged("a.hwpx", data)) == first
+        with zipfile.ZipFile(BytesIO(dict(first)["Contents/section0.xml: cut"])) as copy, \
+                zipfile.ZipFile(BytesIO(data)) as original:
+            assert [part.date_time for part in copy.infolist()] == [part.date_time for part in original.infolist()]
+
     def test_another_round_damages_other_places_and_does_not_repeat_the_whole_document(self):
         data = _hwpx()
         first, second = dict(damaged("a.hwpx", data)), dict(damaged("a.hwpx", data, 1))
