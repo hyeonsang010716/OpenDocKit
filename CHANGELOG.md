@@ -52,11 +52,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
-- **PDF: a page of very many glyphs no longer takes gigabytes.** A string is one token however long, so a 1.5 KB
-  file whose one string held a million glyphs took 20 s and 2.5 GB, and four million more than 3 GB; a `/ToUnicode`
-  map that gave one code 4,000 characters, drawn 4,000 times, took more than 3 GB in under a second. The glyphs a
-  page can show and the text they stand for are bounded before a page is opened; such a page is read by one reader
-  within a bound, or not read and said so.
+- **PDF: one string of a million glyphs no longer takes gigabytes.** A string is one token however long, so a
+  1.5 KB file whose one string held a million glyphs took 20 s and 2.5 GB, and thirty million more than 3 GB. What
+  pdfminer reads of a page is bounded where it reads it — the length of a string, the glyphs drawn and kept, the
+  text they stand for — and a page past it is read with simple extraction. A page whose font gives one code more
+  than 64 characters (4,000 of them, drawn 4,000 times, took more than 3 GB in under a second) is not opened by
+  pdfium. A page of millions of glyphs in short strings is still not bounded there: convert files nobody vouches
+  for in `IsolatedConverter`.
 - **Characters nobody sees are removed in plane 14 too.** The tag characters U+E0020–E007F mirror ASCII and are drawn
   by nothing: a sentence written in them inside a DOCX, a text file or an HTML page came through whole, read by a
   language model and by no reader of the document. They are removed with the other invisible characters, but for the
