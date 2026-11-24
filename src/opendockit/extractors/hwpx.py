@@ -915,6 +915,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
                                 _load_emphasis(header) if options.keep_emphasis else None,
                                 lambda: _load_boxed_fills(header))
         blocks = []
+        tracked = _tracks_deletions(header)
         sections = _section_order(package, names, extraction.warnings)
         broken: list[Exception] = []
         for number, name in enumerate(sections, 1):
@@ -927,6 +928,8 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
                 broken.append(exc)
                 extraction.warnings.append(f"Section {number}: corrupted and could not be read.")
                 continue
+            if tracked:
+                _drop_tracked_deletions(section)
 
             # Read per top-level paragraph and count characters. Once the limit is exceeded, the remaining paragraphs and sections are not read.
             # The notes the paragraph added and kept count too (a branch of a switch that gives nothing takes its notes back while
@@ -1017,11 +1020,94 @@ def _holds_content(cell: etree._Element) -> bool:
     return False
 
 
+def _tracks_deletions(header: etree._Element | None) -> bool:
+    """Whether the document lists a deletion among its tracked changes (hh:refList/hh:trackChanges, an hh:trackChange of
+    type Delete for each). Asked once of the header, so that a document without change tracking pays nothing for the
+    deletions of one with it: of 2,180 documents, the five that list one are the five whose sections hold the marks."""
+    references = _child(header, "refList") if header is not None else None
+    changes = _child(references, "trackChanges") if references is not None else None
+    return changes is not None and any(change.get("type") == "Delete" for change in changes)
+
+
+# What stands in a run beside its text and is kept inside a deleted range: a control — the two ends of a field have to
+# stay paired, a comment is its reviewer's and not the deleted text's, a header or the columns belong to the section —
+# and the properties of a section. A control that holds a note is not kept: the note is of the deleted text.
+_KEPT_IN_A_DELETION = frozenset({"ctrl", "secPr"})
+_NOTES = frozenset({"footNote", "endNote"})
+
+
+def _drop_tracked_deletions(section: etree._Element) -> None:
+    """Take out of the paragraphs of a section what was deleted under change tracking across the texts of a paragraph.
+
+    Hangul writes a deletion as hp:deleteBegin and hp:deleteEnd with one Id, inside hp:t. When what was deleted is set in
+    more than one character shape, or holds a table or a picture, the two marks are in different hp:t of one paragraph, with
+    the runs and the objects between them — and the end mark is written once more at the start of the run after it. So a
+    deletion runs from its begin to the first end of its Id among the texts of the same paragraph, and everything between
+    is left out: the text, the marks of a tab or a line break, and the tables, pictures and other objects of the runs. A
+    begin whose end is not in its paragraph deletes nothing, so a document that is cut or damaged loses no text. Run for
+    the documents whose header lists a deletion (`_tracks_deletions`); in another only the pairs inside one hp:t are
+    left out, as before.
+
+    Only the pairs inside one hp:t were left out before (`_t_text`): four documents of 2,192 held 32 pairs that are not,
+    all of them inside one paragraph, and wrote what they deleted as text - two names and titles in front of the one that
+    replaced them, a programme and the tables of the careers of people taken out of a proposal
+    (Pinned by: test_hwp.py::TestHwpxTrackChanges)."""
+    for paragraph in list(section.iter("{*}p")):
+        _drop_deletions_of(paragraph)
+
+
+def _drop_deletions_of(paragraph: etree._Element) -> None:
+    # The place of the last end of each Id among the marks of the paragraph's texts: a begin after it, or without one,
+    # opens nothing. Places are counted over those marks alone.
+    last_end: dict[str | None, int] = {}
+    place = 0
+    begins = False
+    texts = [node for run in paragraph if _local(run) == "run" for node in run if _local(node) == "t" and len(node)]
+    for text in texts:
+        for mark in text:
+            name = _local(mark)
+            if name == "deleteEnd":
+                last_end[mark.get("Id")] = place
+            elif name == "deleteBegin":
+                begins = True
+            place += 1
+    if not begins or not last_end:
+        return
+
+    open_ids: set[str | None] = set()
+    place = 0
+    for run in paragraph:
+        if _local(run) != "run":
+            continue
+        for node in list(run):
+            name = _local(node)
+            if name != "t":
+                if open_ids and (name not in _KEPT_IN_A_DELETION or any(_local(child) in _NOTES for child in node)):
+                    run.remove(node)
+                continue
+            if open_ids:
+                node.text = None
+            for mark in list(node):
+                name = _local(mark)
+                if name == "deleteBegin":
+                    if last_end.get(mark.get("Id"), -1) > place:
+                        open_ids.add(mark.get("Id"))
+                elif name == "deleteEnd":
+                    open_ids.discard(mark.get("Id"))
+                elif open_ids:
+                    node.remove(mark)  # a tab or a line break of the deleted text; what follows it goes with it
+                    place += 1
+                    continue
+                place += 1
+                if open_ids:
+                    mark.tail = None
+
+
 def _t_text(node: etree._Element) -> str:
     """Text of hp:t. A range deleted under change tracking (hp:deleteBegin to the hp:deleteEnd with the same Id) is left out — left as
     plain text, both the deleted and the inserted value read as valid values
-    (same direction as DOCX w:del). If the pair is not inside the same hp:t, where it ends cannot be known for sure, so it is left as is
-    (Known accepted gap: a deletion spanning runs with different character shapes remains. Pinned by: test_hwp.py::TestHwpxTrackChanges)."""
+    (same direction as DOCX w:del). A pair that is not inside the same hp:t is taken out of its paragraph before it is read
+    (`_drop_tracked_deletions`). Pinned by: test_hwp.py::TestHwpxTrackChanges."""
     children = list(node)
     parts = [node.text or ""]
     # Id → position of the last deleteEnd. Scanning all later siblings for every deleteBegin to find its pair took 12 seconds for

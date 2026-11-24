@@ -1122,10 +1122,19 @@ class TestHwpFormObjects:
         assert convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text == "앞"
 
 
+def _tracked(body: str, kinds: tuple[str, ...] = ("Insert", "Delete")) -> bytes:
+    """An HWPX whose header lists tracked changes of these kinds, as Hangul writes them beside the styles."""
+    changes = "".join(f'<hh:trackChange type="{kind}" date="2023-07-03T23:04:00Z" authorID="1" hide="{int(kind == "Delete")}" '
+                      f'id="{number}"/>' for number, kind in enumerate(kinds, 1))
+    listed = f'<hh:trackChanges itemCnt="{len(kinds)}">{changes}</hh:trackChanges></hh:refList>'
+    return builder.zip_with(builder.hwpx_bytes(body), edit={"Contents/header.xml": lambda header: header.replace("</hh:refList>", listed)})
+
+
 class TestHwpxTrackChanges:
     """Text deleted under change tracking (hp:deleteBegin ~ hp:deleteEnd) stayed as plain text, so '월 100,000원80,000원' read as
-    two values. Only the spans whose pair is inside the same hp:t are left out (same direction as DOCX w:del), and inserted text is
-    kept. The structure is from the hwpxlib sample 'ChangeTrack.hwpx'."""
+    two values. It is left out (same direction as DOCX w:del) from the begin to the first end of its Id among the texts of
+    the same paragraph, with the objects between, and inserted text is kept. The structure is from the hwpxlib sample
+    'ChangeTrack.hwpx' and from four documents under review."""
 
     def test_deleted_text_is_left_out_and_inserted_text_is_kept(self):
         body = ('<hp:p><hp:run><hp:t>월 <hp:deleteBegin Id="2" TcId="2"/>100,000원<hp:deleteEnd Id="2" TcId="2" paraend="0"/>'
@@ -1135,15 +1144,134 @@ class TestHwpxTrackChanges:
 
         assert result.text == "월 80,000원이다."
 
-    def test_deletion_without_its_end_in_the_same_text_is_kept(self):
-        """If the pair (the deleteEnd with the same Id) is not inside the same hp:t, there is no telling how far the deletion goes,
-        so the text is kept as is — no text is lost."""
+    def test_deletion_over_the_texts_of_a_paragraph_is_left_out(self):
+        """What was deleted is set in more than one character shape, so its two marks are in different hp:t. It stayed as
+        text: a real press release wrote two names and titles in front of the one that replaced them."""
         body = ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="3" TcId="3"/>나<hp:tab/>다</hp:t></hp:run>'
-                '<hp:run><hp:t>라<hp:deleteEnd Id="3" TcId="3" paraend="0"/>마</hp:t></hp:run></hp:p>')
+                '<hp:run><hp:t>라<hp:lineBreak/>바<hp:deleteEnd Id="3" TcId="3" paraend="0"/>마</hp:t></hp:run></hp:p>')
 
-        result = convert(builder.hwpx_bytes(body), "a.hwpx")
+        result = convert(_tracked(body), "a.hwpx")
 
-        assert result.text == "가나 다라마"
+        assert result.text == "가마"
+
+    def test_the_end_written_again_at_the_start_of_the_next_run_ends_nothing(self):
+        """Hangul writes the end of a range that crosses a run once more at the start of the run after it (so it does for
+        an insertion). The deletion ends at the first: the text after the second was never deleted."""
+        end = '<hp:deleteEnd Id="7" TcId="3" paraend="0"/>'
+        body = ('<hp:p><hp:run><hp:t><hp:insertBegin Id="5" TcId="1"/><hp:deleteBegin Id="7" TcId="3"/>옛 부장'
+                '<hp:insertEnd Id="5" TcId="1" paraend="0"/>옛 청장</hp:t></hp:run>'
+                f'<hp:run><hp:t>(여{end}</hp:t></hp:run><hp:run><hp:t>{end}새 원장</hp:t></hp:run>'
+                "<hp:run><hp:t>은 말했다.</hp:t></hp:run></hp:p>")
+
+        result = convert(_tracked(body), "a.hwpx")
+
+        assert result.text == "새 원장은 말했다."
+
+    def test_a_table_between_the_marks_is_deleted_with_its_text(self):
+        """A deleted table stands between the marks, which are in the texts before and after it, and its cells hold no
+        marks of their own: a proposal kept the tables of the careers of people taken out of it."""
+        table = ('<hp:tbl rowCnt="1" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "성명") + builder._hwpx_cell(0, 1, "홍길동")
+                 + "</hp:tr></hp:tbl>")
+        body = ('<hp:p><hp:run><hp:t>앞</hp:t></hp:run></hp:p>'
+                '<hp:p><hp:run><hp:t><hp:deleteBegin Id="2" TcId="2"/></hp:t></hp:run>'
+                f'<hp:run>{table}<hp:t><hp:deleteEnd Id="2" TcId="2" paraend="1"/></hp:t></hp:run></hp:p>'
+                '<hp:p><hp:run><hp:t>뒤</hp:t></hp:run></hp:p>')
+
+        result = convert(_tracked(body), "a.hwpx")
+
+        assert result.text == "앞\n\n뒤"
+
+    def test_a_table_after_the_end_stays(self):
+        def table(name):
+            return ('<hp:tbl rowCnt="1" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "성명") + builder._hwpx_cell(0, 1, name)
+                    + "</hp:tr></hp:tbl>")
+
+        body = ('<hp:p><hp:run><hp:t><hp:deleteBegin Id="2" TcId="2"/></hp:t></hp:run>'
+                f'<hp:run>{table("옛사람")}<hp:t><hp:deleteEnd Id="2" TcId="2" paraend="0"/></hp:t></hp:run>'
+                f'<hp:run>{table("새사람")}<hp:t/></hp:run></hp:p>')
+
+        result = convert(_tracked(body), "a.hwpx")
+
+        assert "새사람" in result.text
+        assert "옛사람" not in result.text
+
+    def test_a_deletion_inside_a_cell_is_left_out_there(self):
+        cell = ('<hp:tc><hp:subList><hp:p><hp:run><hp:t>값 <hp:deleteBegin Id="4" TcId="1"/>100</hp:t></hp:run>'
+                '<hp:run><hp:t>원<hp:deleteEnd Id="4" TcId="1" paraend="0"/>80원</hp:t></hp:run></hp:p></hp:subList>'
+                '<hp:cellAddr colAddr="1" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc>')
+        body = ('<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "요금") + cell
+                + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "기간") + builder._hwpx_cell(1, 1, "한 달")
+                + "</hp:tr></hp:tbl></hp:run></hp:p>")
+
+        result = convert(_tracked(body), "a.hwpx")
+
+        assert result.text == "| 요금 | 값 80원 |\n| --- | --- |\n| 기간 | 한 달 |"
+
+    @pytest.mark.parametrize(("body", "expected"), [
+        # the end is in the next paragraph: no deletion of Hangul's runs over a paragraph, so nothing is taken for deleted
+        ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="3"/>나</hp:t></hp:run><hp:run><hp:t>다</hp:t></hp:run></hp:p>'
+         '<hp:p><hp:run><hp:t>라<hp:deleteEnd Id="3"/>마</hp:t></hp:run></hp:p>', "가나다\n\n라마"),
+        # no end at all
+        ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="3"/>나</hp:t></hp:run><hp:run><hp:t>다</hp:t></hp:run></hp:p>', "가나다"),
+        # the end comes first
+        ('<hp:p><hp:run><hp:t>가<hp:deleteEnd Id="3"/>나</hp:t></hp:run><hp:run><hp:t>다<hp:deleteBegin Id="3"/>라</hp:t>'
+         "</hp:run></hp:p>", "가나다라"),
+        # the end of another deletion
+        ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="3"/>나</hp:t></hp:run><hp:run><hp:t>다<hp:deleteEnd Id="4"/>라</hp:t>'
+         "</hp:run></hp:p>", "가나다라"),
+    ])
+    def test_a_begin_without_its_end_in_the_paragraph_deletes_nothing(self, body, expected):
+        """A file that is cut, damaged or written otherwise loses no text."""
+        assert convert(_tracked(body), "a.hwpx").text == expected
+
+    def test_two_deletions_that_overlap_are_both_left_out(self):
+        body = ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="1"/>나</hp:t></hp:run>'
+                '<hp:run><hp:t>다<hp:deleteBegin Id="2"/>라<hp:deleteEnd Id="1"/>마</hp:t></hp:run>'
+                '<hp:run><hp:t>바<hp:deleteEnd Id="2"/>사</hp:t></hp:run></hp:p>')
+
+        assert convert(_tracked(body), "a.hwpx").text == "가사"
+
+    def test_text_inserted_and_then_deleted_is_left_out_and_other_insertions_stay(self):
+        body = ('<hp:p><hp:run><hp:t><hp:deleteBegin Id="1"/>옛<hp:insertBegin Id="2"/>넣었다 지운</hp:t></hp:run>'
+                '<hp:run><hp:t>글<hp:insertEnd Id="2"/><hp:deleteEnd Id="1"/><hp:insertBegin Id="3"/>새 글'
+                '<hp:insertEnd Id="3"/></hp:t></hp:run></hp:p>')
+
+        assert convert(_tracked(body), "a.hwpx").text == "새 글"
+
+    def test_a_footnote_of_deleted_text_goes_with_it(self):
+        note = ("<hp:ctrl><hp:footNote><hp:subList><hp:p><hp:run><hp:t>지운 글의 주</hp:t></hp:run></hp:p></hp:subList>"
+                "</hp:footNote></hp:ctrl>")
+        body = (f'<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="1"/>지운</hp:t>{note}</hp:run>'
+                '<hp:run><hp:t>글<hp:deleteEnd Id="1"/>나</hp:t></hp:run></hp:p>')
+
+        assert convert(_tracked(body), "a.hwpx").text == "가나"
+
+    def test_a_link_that_opens_in_a_deletion_and_closes_after_it_keeps_its_two_ends(self):
+        """The controls of a deleted range stay: a field whose end was taken out would never close."""
+        begin = ('<hp:ctrl><hp:fieldBegin id="9" type="HYPERLINK" name=""><hp:parameters cnt="1">'
+                 '<hp:stringParam name="Command">https\\://a.example;1;0;0;</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl>')
+        body = ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="1"/></hp:t></hp:run><hp:run>' + begin
+                + '<hp:t>지운</hp:t></hp:run><hp:run><hp:t>글<hp:deleteEnd Id="1"/>링크</hp:t>'
+                '<hp:ctrl><hp:fieldEnd beginIDRef="9"/></hp:ctrl><hp:t>나</hp:t></hp:run></hp:p>')
+
+        assert convert(_tracked(body), "a.hwpx").text == "가[링크](https://a.example)나"
+
+    def test_a_document_that_lists_no_deletion_is_not_looked_through(self, monkeypatch):
+        """The header lists the tracked changes of a document. One that lists no deletion is read as before — a pair inside
+        one hp:t is left out, a begin without its end there deletes nothing — and pays nothing for the others."""
+        from opendockit.extractors import hwpx
+
+        looked = []
+        monkeypatch.setattr(hwpx, "_drop_tracked_deletions", looked.append)
+        body = ('<hp:p><hp:run><hp:t>가<hp:deleteBegin Id="3"/>나</hp:t></hp:run><hp:run><hp:t>라<hp:deleteEnd Id="3"/>마'
+                '<hp:deleteBegin Id="4"/>바<hp:deleteEnd Id="4"/></hp:t></hp:run></hp:p>')
+
+        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == "가나라마"
+        assert convert(_tracked(body, kinds=("Insert", "CharShape")), "a.hwpx").text == "가나라마"
+        assert looked == []
+
+        convert(_tracked(body), "a.hwpx")
+        assert len(looked) == 1
 
 
 class TestSuperscript:
@@ -2262,6 +2390,22 @@ class TestLinearTimeOnCraftedInput:
 
         assert result.char_count == 16_000
         assert elapsed < 2, "took 12 s before the fix"
+
+    @pytest.mark.timing
+    def test_many_hwpx_deletions_over_the_texts_of_a_paragraph_are_read_in_linear_time(self):
+        """Each deletion is paired with its end in one pass over the marks of the paragraph (`_drop_deletions_of`)."""
+        import time
+
+        runs = "".join(f'<hp:run><hp:t>가<hp:deleteBegin Id="{index}"/>나<hp:tab/>다</hp:t></hp:run>'
+                       f'<hp:run><hp:t>라<hp:deleteEnd Id="{index}"/>마</hp:t></hp:run>' for index in range(16_000))
+        data = _tracked(f"<hp:p>{runs}</hp:p>")
+
+        started = time.perf_counter()
+        result = convert(data, "a.hwpx")
+        elapsed = time.perf_counter() - started
+
+        assert result.text == "가마" * 16_000
+        assert elapsed < 2
 
     def test_paired_hwpx_deletion_after_many_unpaired_ones_is_still_left_out(self):
         inner = "".join(f'<hp:deleteBegin Id="{index}"/>' for index in range(100))
