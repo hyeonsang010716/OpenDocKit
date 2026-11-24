@@ -197,6 +197,35 @@ class TestOmmlPhantom:
         assert result.text == "$a+b$"
 
 
+class TestOmmlEquationNumber:
+    """In a row of an equation array `#` sets the number of the equation apart (Word: type `x=x#(1)` and Enter). It was
+    written as a character of the equation, `x=x\\#(1)`."""
+
+    @staticmethod
+    def _array(*rows: str) -> str:
+        return ('<m:eqArr><m:eqArrPr><m:maxDist m:val="1"/></m:eqArrPr>' + "".join(f"<m:e>{row}</m:e>" for row in rows)
+                + "</m:eqArr>")
+
+    def test_number_of_an_equation_is_set_apart(self):
+        body = _equations(self._array(_run("x=x#") + _delimiters(_run("1"))))
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$x=x \\qquad (1)$"
+
+    def test_each_row_has_its_own_number(self):
+        body = _equations(self._array(_run("a=b#(1)"), _run("c=d"), _run("e=f#(3)")))
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$a=b \\qquad (1) \\\\ c=d \\\\ e=f \\qquad (3)$"
+
+    @pytest.mark.parametrize(("equation", "expected"), [
+        (_run("a#b"), "$a\\#b$"),
+        ('<m:eqArr><m:e>' + _fraction("a#", "b") + '</m:e></m:eqArr>', "$\\frac{a\\#}{b}$"),
+        ('<m:eqArr><m:e>' + _run("x=x#") + '</m:e></m:eqArr>', "$x=x\\#$"),
+        ('<m:eqArr><m:e>' + _run("#(1)") + '</m:e></m:eqArr>', "$\\#(1)$"),
+    ], ids=["outside-an-array", "inside-a-fraction", "nothing-after-it", "nothing-before-it"])
+    def test_other_number_signs_stay_characters(self, equation, expected):
+        assert convert(_docx_with_body(_equations(equation)), "a.docx").text == expected
+
+
 class TestOmmlLiteralText:
     """The text of an equation (m:t) is literal. An empty equation gave ` $$ `, which opens display math in Markdown renderers and
     swallowed what followed; a `$` in the text ended the math span early, and `%`, `#`, `{`, `}` and `\\` are LaTeX syntax."""

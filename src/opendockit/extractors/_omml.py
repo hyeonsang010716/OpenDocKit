@@ -194,12 +194,23 @@ def omml_to_latex(element: etree._Element) -> str:
         return "" if prop("phantPr", "show", "on") in _OFF_VALUES else part("e")
     if tag == _m("eqArr"):
         # A multi-line equation. Joining the rows with no separator gave `a+b=1a-b=3`. The same row separator as a matrix is used.
-        return " \\\\ ".join(omml_to_latex(child) for child in element.iterchildren(_m("e")))
+        return " \\\\ ".join(_numbered(child, omml_to_latex(child)) for child in element.iterchildren(_m("e")))
     if tag == _m("m"):
         rows = [" & ".join(omml_to_latex(cell) for cell in row.iterchildren(_m("e")))
                 for row in element.iterchildren(_m("mr"))]
         return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
     return _join_math(element)
+
+
+def _numbered(row: etree._Element, text: str) -> str:
+    """The row of an equation array with its number set apart. In a row, `#` is not a character: what follows it is the
+    number of the equation, which Word sets at the right margin (`x=x#(1)` is typed to number an equation). It was written as
+    the escaped character, `x=x\\#(1)` (Pinned by: test_office_equations.py::TestOmmlEquationNumber). Only a `#` in the text
+    of the row itself is one, the last of them."""
+    if not any("#" in (run.findtext(_m("t")) or "") for run in row.iterchildren(_m("r"))):
+        return text
+    equation, mark, number = text.rpartition("\\#")
+    return f"{equation} \\qquad {number}" if mark and equation and number else text
 
 
 def _literal(text: str) -> str:
