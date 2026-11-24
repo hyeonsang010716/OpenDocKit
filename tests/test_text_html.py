@@ -842,6 +842,9 @@ class TestTextOfOneAlphabet:
             ("CERCA ÍTEMS, ARTISTES I ÀLBUMS RÀPIDAMENT.", "mac_roman"),
             ("HAS D'HAVER INICIAT SESSIÓ A L'APPLE MUSIC PER REPRODUIR VÍDEOS", "cp850"),
             ("Forbereder tømming av papirkurv. Du kan frigjøre plass ved å slette filer.", "mac_roman"),
+            ("Größe ö ß ä ü", "cp1252"),
+            ("Trzeba wysłać to.", "cp1250"),
+            ("Trzeba mówić, wysłać to.", "cp1250"),
         ],
         ids=["signs-alone", "signs-that-are-letters-elsewhere", "letters-below-latin-1", "dos-accent-inside-a-word",
              "macintosh-capital-behind-a-small-letter", "macintosh-capital-behind-a-small-letter-in-latin-1",
@@ -852,7 +855,9 @@ class TestTextOfOneAlphabet:
              "turkish-that-reads-as-western-letters", "italian-that-reads-as-czech", "one-letter-of-latin-1",
              "letters-below-latin-1-in-two-kinds", "byte-of-iso-8859-15-in-clear-spanish",
              "macintosh-accents-that-are-signs-and-one-letter", "macintosh-small-letter-before-capitals",
-             "dos-small-letter-ending-a-word-of-capitals", "macintosh-norwegian-that-is-two-polish-letters"],
+             "dos-small-letter-ending-a-word-of-capitals", "macintosh-norwegian-that-is-two-polish-letters",
+             "fewer-than-two-ascii-letters-for-each-accent", "two-letters-of-another-alphabet",
+             "three-polish-letters-of-which-windows-1252-reads-one-the-same"],
     )
     def test_text_that_reads_more_than_one_way_is_left_to_the_statistics(self, text, encoding):
         """Nothing is said, and the answer is the one the statistics gave before: of signs, of letters that are another

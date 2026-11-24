@@ -148,6 +148,29 @@ class TestMultipartSplitAtTheDelimiterInUse:
 
         assert "--B0" in result.text and "본문" in result.text
 
+    def test_body_under_a_transfer_encoding_is_not_split(self):
+        """The body of a multipart under base64 or quoted-printable is not its bytes as written."""
+        body = "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello body\r\n--BBB--\r\n"
+        data = (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n'
+                + body).encode()
+
+        assert "--BBB" in convert(data, "a.eml").text
+
+    def test_header_of_a_part_is_known_in_any_case(self):
+        body = "--BBB\r\ncontent-type: text/plain; charset=utf-8\r\n\r\nHello body\r\n--BBB--\r\n"
+
+        assert convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml").text.endswith("Hello body")
+
+    def test_body_parsed_again_counts_also_when_no_part_came_of_it(self):
+        """Two bodies that are parsed again and stay text use the allowance up: the third is not parsed."""
+        wrong = "--B%d\r\nContent-Type: text/plain\r\nSummary: no header of a part\r\n\r\ntext %d\r\n--B%d--\r\n"
+        right = "--B3\r\nContent-Type: text/plain\r\n\r\nthird body\r\n--B3--\r\n"
+        parts = "".join(f'--OUT\r\nContent-Type: multipart/mixed; boundary="X{number}"\r\n\r\n{body}'
+                        for number, body in ((1, wrong % (1, 1, 1)), (2, wrong % (2, 2, 2)), (3, right)))
+        result = convert((_HEAD + 'Content-Type: multipart/mixed; boundary="OUT"\r\n\r\n' + parts + "--OUT--\r\n").encode(), "a.eml")
+
+        assert "--B3" in result.text and "third body" in result.text
+
     def test_mail_forwarded_inside_is_split_too(self):
         inner = (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\n\r\n'
                  "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n전달된 본문\r\n--BBB--\r\n")
