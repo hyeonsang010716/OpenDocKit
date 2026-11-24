@@ -452,6 +452,39 @@ wrongly but read.
 The `Hangul` workflow runs the recall of the samples, their parity and their damage on pull requests that touch the
 readers of HWP and HWPX or what they are built on.
 
+## Encodings: text without a stated charset
+
+```bash
+uv run python -m evals.fetch_encoding_texts ../corpus/encodings        # once: one text in 60 languages, about 600 KB
+uv run --python 3.12 python -m evals.encodings --texts ../corpus/encodings --baseline evals/baselines/encodings.json --show 3
+```
+
+A text file, a CSV, an HTML page or a mail part that names no charset and is not UTF-8 is read in a code page the reader
+guesses (`_encoding.decode_text`). A wrong guess is silent and looks like text, and no corpus of documents shows it:
+they are UTF-8 or say what they are. `evals/encodings.py` writes real text — the declaration of human rights in 60
+languages, the texts of the script twins and 41 more — in the Windows, ISO 8859, DOS and Macintosh code pages each
+language was written in, cut five ways (the start of a paragraph, a paragraph, four, the whole text, and one start among
+rows of ASCII), as text and as HTML, and compares what the reader gives with what was encoded.
+
+| samples | number | read right |
+|---|---|---|
+| of one language | 12,348 | 8,709 |
+| with a name or a sign of another language behind them | 35,336 | 24,089 |
+
+- **The second row is the one that found the defect.** A rule that looked the accented letters up in the alphabets of
+  each code page read 10,191 of the first row right, and read French with `Žižek` in it as Czech (`thčse ŕ la
+  conférence`), German with `5 µm` as Slovak (`5 ľm`) and English with `£5` as Polish. No text of one language shows
+  that, so every start of a paragraph is also written with each of 48 names and signs behind it.
+- **A count is no gate.** That rule read more French right than it lost, and every count of French went up. The
+  baseline keeps of each sample whether it was read right, and a run ends with status 1 when a sample that was read
+  right is read wrong: 30 code pages of a language had one under that rule.
+- **The baseline is written under Python 3.12.** The statistical part of the guess reads the Unicode tables of the
+  interpreter, and a handful of samples (12 of 47,684 between 3.12 and 3.14) go the other way under another version.
+  The workflow runs 3.12; a run under another version says so before its comparison.
+- **Most of what is read wrong is no defect of a rule but a text that reads two ways.** `è` is `č` in Windows-1250, a
+  Czech sentence in Windows-1250 is a row of Western letters in Windows-1252, and DOS and Macintosh text is hardly
+  guessed at all (`docs/decisions/encoding.md`). The numbers say where the reader stands, not what it should reach.
+
 ## What it does not measure yet
 
 - XLSX, PPTX and mail: the twins cover the text formats only. HTML as it is found on the web, with navigation and
