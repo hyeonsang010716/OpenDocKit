@@ -106,7 +106,8 @@ _SEVEN_BITS = bytes(range(0x80))
 # Where the letters of Latin-1 begin in Windows-1252 (`À`), and how many different letters of its alphabet a text shows for a
 # code page other than Windows-1252 to be its reading (`_alphabet_page`).
 _LATIN_1_LETTERS = 0xC0
-_OTHER_ALPHABET_LETTERS = 2
+_OTHER_ALPHABET_LETTERS = 3
+_WESTERN_LETTERS = 2
 # HTML tags (left out of statistical detection) and a non-ASCII byte.
 _MARKUP = re.compile(rb"<[^<>]*>")
 _HIGH_BYTE = re.compile(rb"[\x80-\xff]")
@@ -649,19 +650,22 @@ def _alphabet_page(sample: bytes) -> str | None:
     A reading fits when every byte outside ASCII is a letter of one alphabet or a sign of that code page, and it is a text one
     would write (`_alphabet_bytes`: `r‚union` and `libertŽ` are `réunion` of DOS and `liberté` of a Macintosh; Windows-1258
     only with a tone mark, each on a vowel). Then
-    - Windows-1252 is the answer when a Western alphabet fits with a letter of the Latin-1 block (`Š œ ž` below it are the
-      accents of DOS and Macintosh text read so; signs alone name no language) and every other code page that fits reads the
-      same text. When another alphabet reads it differently (`è` is `č` in Windows-1250), nothing is said;
+    - Windows-1252 is the answer when a Western alphabet fits with `_WESTERN_LETTERS` different letters of the Latin-1 block
+      that are at least every other byte outside ASCII (`Š œ ž` below that block, and in Macintosh and DOS text every accent
+      but a stray one, are signs; signs alone name no language), every other code page that fits reads the same text, and
+      none of the bytes that are letters in ISO 8859-15 is there. When another alphabet reads it differently (`è` is `č` in
+      Windows-1250), nothing is said;
     - another code page is the answer only when the text cannot be Windows-1252 at all - a byte it does not define, or a
       reading nobody would write, `wys³aæ` - and the code pages that fit read one text with `_OTHER_ALPHABET_LETTERS`
-      different letters. Text that Windows-1252 reads as letters is left alone even when they are the letters of no one
-      Western language: one foreign name does that to a French text (`Žižek` + `thèse à` is `thčse ŕ` in Windows-1250), and
-      `µ ¥ © «` are letters in ISO 8859-2.
+      different letters that Windows-1252 reads as something else. Text that Windows-1252 reads as letters is left alone
+      even when they are the letters of no one Western language: one foreign name does that to a French text (`Žižek` +
+      `thèse à` is `thčse ŕ` in Windows-1250), and `µ ¥ © «` are letters in ISO 8859-2.
     The first version let another alphabet win on its letters alone and let the statistics choose among the code pages that
     fit: Western text with `µ` or one Slavic name became Slovak or Czech, and English with `£ ©` Windows-1250
     (Pinned by: test_text_html.py::TestTextOfOneAlphabet).
-    Known accepted gap: a short text of a code page that is not in `_ALPHABETS` (DOS, ISO 8859-4) whose few accents are
-    Latin-1 letters of a Western alphabet is read as Windows-1252.
+    Known accepted gaps: text of a code page that is not in `_ALPHABETS` (DOS, Macintosh, ISO 8859-4) whose accents happen
+    to be two Latin-1 letters of one Western alphabet - capitals mostly, `VÖDEOS … SESSIÓ` - is read as Windows-1252; and
+    Central European or Baltic text with a foreign name in which every accent is a letter of one Western alphabet.
     """
     outside = sample.translate(None, _SEVEN_BITS)
     if not outside or len(sample) - len(sample.translate(None, _ASCII_LETTERS)) < _ALPHABET_ASCII_LETTERS * len(outside):
@@ -672,23 +676,28 @@ def _alphabet_page(sample: bytes) -> str | None:
     rows = [row for row in _alphabet_bytes() if high & row[1].keys() and high <= row[2]]
     if not rows:
         return None  # signs alone, or letters of no alphabet
-    # What stands around the bytes outside ASCII, each kind once: all that the searches for what nobody writes look at
-    around = b" ".join({sample[max(found.start() - 1, 0):found.end() + 1] for found in _HIGH_BYTES.finditer(sample)})
+    # What stands around the bytes outside ASCII, each kind once: all that the searches for what nobody writes look at (two
+    # bytes before and one behind)
+    around = b"  ".join({sample[max(found.start() - 2, 0):found.end() + 1] for found in _HIGH_BYTES.finditer(sample)})
     written = {page: unwritten.search(around) is None for page, _, _, unwritten in rows}
     letters_read: dict[str, int] = {}
     for page, letters, _, _ in rows:
         if not written[page] or (page == _VIETNAMESE and high.isdisjoint(_VIETNAMESE_MARKS)):
             continue
         if page == _WESTERN:
-            count = sum(byte >= _LATIN_1_LETTERS for byte in high & letters.keys())
+            # Its different letters of the Latin-1 block, when they are at least every other byte outside ASCII: in
+            # Macintosh or DOS text read so, the accents are signs (`Ubicaci—n`, `‡lbumes`) and one `¿` is an `À`
+            latin_1 = [byte for byte in high & letters.keys() if byte >= _LATIN_1_LETTERS]
+            count = len({letters[byte] for byte in latin_1})
+            count = count if 2 * sum(outside.count(byte) for byte in latin_1) >= len(outside) else 0
         else:
-            count = len({letters[byte] for byte in high & letters.keys()})
+            count = len({letters[byte] for byte in high & letters.keys() if _reads_otherwise(page, byte)})
         letters_read[page] = max(count, letters_read.get(page, 0))
     texts = {page: _strict(sample, page) for page in letters_read}
     if len(set(texts.values())) != 1 or None in texts.values():
         return None
     if _WESTERN in letters_read:
-        return _WESTERN if letters_read[_WESTERN] and high.isdisjoint(_ISO_8859_15_BYTES) else None
+        return _WESTERN if letters_read[_WESTERN] >= _WESTERN_LETTERS and high.isdisjoint(_ISO_8859_15_BYTES) else None
     if _strict(sample, _WESTERN) is not None and _alphabet_bytes()[0][3].search(around) is None:
         return None  # it may be Windows-1252 as well
     page = max(letters_read, key=letters_read.__getitem__)
@@ -696,13 +705,19 @@ def _alphabet_page(sample: bytes) -> str | None:
 
 
 @functools.cache
+def _reads_otherwise(page: str, byte: int) -> bool:
+    """Does `page` read this byte as another character than Windows-1252 does?"""
+    return bytes((byte,)).decode(page, errors="ignore") != bytes((byte,)).decode(_WESTERN, errors="ignore")
+
+
+@functools.cache
 def _alphabet_bytes() -> tuple[tuple[str, dict[int, str], frozenset[int], re.Pattern[bytes]], ...]:
     """Of each alphabet of `_ALPHABETS`: its code page, the small letter of each byte that is a letter of it (both cases; the
     tone marks for Vietnamese),
     those and the bytes that are a sign in that code page (no letter, no mark, no control and not undefined), and a search
-    for what nobody writes: a sign between two letters, a capital behind a small ASCII letter or between a capital and a
-    small one, a small letter between two capitals (`STêLEANNA` is `STÍLEANNA` of a Macintosh), a Vietnamese mark off a
-    vowel."""
+    for what nobody writes: a sign between two letters, a capital behind a small letter or between a capital and a small
+    one, a small accented letter before a capital that no small letter precedes (`STêLEANNA`, `êTEMS` are `STÍLEANNA`, `ÍTEMS`
+    of a Macintosh) or ending a word behind two capitals (`SESSIà` is `SESSIÓ` of DOS), a Vietnamese mark off a vowel."""
     rows = []
     every = range(0x80, 0x100)
     for page, lowercase in _ALPHABETS:
@@ -717,8 +732,9 @@ def _alphabet_bytes() -> tuple[tuple[str, dict[int, str], frozenset[int], re.Pat
         inside = re.escape(bytes(sorted(signs - letters.keys() - frozenset(_SIGNS_INSIDE_WORDS))))
         capitals = re.escape(bytes(byte for byte in every if kinds[byte] == "Lu"))
         smalls = re.escape(bytes(byte for byte in every if kinds[byte] == "Ll" and len(characters[byte].upper()) == 1))
-        unwritten = (b"(?<=" + word + b")[" + inside + b"](?=" + word + b")|(?<=[a-z])[" + capitals + b"]"
-                     b"|(?<=[A-Z])[" + capitals + b"](?=[a-z])|(?<=[A-Z])[" + smalls + b"](?=[A-Z])")
+        unwritten = (b"(?<=" + word + b")[" + inside + b"](?=" + word + b")|(?<=[a-z" + smalls + b"])[" + capitals + b"]"
+                     b"|(?<=[A-Z])[" + capitals + b"](?=[a-z])|(?<![a-z])[" + smalls + b"](?=[A-Z])"
+                     b"|(?<=[A-Z][A-Z])[" + smalls + b"](?![a-z" + smalls + b"])")
         if page == _VIETNAMESE:
             unwritten += b"|" + _MARK_OFF_A_VOWEL.pattern
         rows.append((page, letters, signs | letters.keys(), re.compile(unwritten)))

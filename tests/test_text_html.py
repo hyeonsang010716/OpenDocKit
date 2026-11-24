@@ -781,7 +781,7 @@ class TestTextOfOneAlphabet:
              "cp1252", "cp1252"),
             ("La reunión será mañana. Atención: el señor Ibáñez llegará después.", "cp1252", "cp1252"),
             ("item;qty\nA;1\nB;2\nC;3\nD;4\nE;5\nA reunião será amanhã às dez, não na sexta.\n", "cp1252", "cp1252"),
-            ("Hyvää päivää. Tämä on lyhyt viesti: kokous pidetään tänään kello kymmenen.", "cp1252", "cp1252"),
+            ("Größe und Maße der Tür: bitte prüfen, ob alles stimmt.", "cp1252", "cp1252"),
             ("L'avaluació és pública; el col·legi és a prop de l'estació.", "cp1252", "cp1252"),
             ("Spotkanie odbędzie się w poniedziałek. Proszę potwierdzić obecność do piątku, dziękujemy za pomoc.", "iso8859_2",
              "iso8859_2"),
@@ -789,7 +789,7 @@ class TestTextOfOneAlphabet:
              "iso8859_2"),
             ("Trzeba wysłać ten formularz do urzędu jeszcze dziś, proszę.", "cp1250", "cp1250"),
         ],
-        ids=["italian", "spanish", "portuguese-under-ascii-rows", "finnish", "catalan", "polish-iso-8859-2", "czech-iso-8859-2",
+        ids=["italian", "spanish", "portuguese-under-ascii-rows", "german", "catalan", "polish-iso-8859-2", "czech-iso-8859-2",
              "polish"],
     )
     def test_letters_that_leave_one_reading_name_the_code_page(self, text, encoding, read_as):
@@ -835,6 +835,13 @@ class TestTextOfOneAlphabet:
             ("Az ülés hétfőn lesz. Kérjük, péntekig erősítse meg a részvételét, köszönjük.", "cp1250"),
             ("Toplantı pazartesi günü yapılacak. Lütfen cumaya kadar katılımınızı bildirin, teşekkürler.", "cp1254"),
             ("Bollettino di martedì, però più tardi", "cp1252"),
+            ("Hyvää päivää. Tämä on lyhyt viesti: kokous pidetään tänään kello kymmenen.", "cp1252"),
+            ("Tšekki ja Žiguli, šakki", "cp1252"),
+            ("La reunión será mañana por la tarde, 10 ¤.", "cp1252"),
+            ("Autorizaciones: ubicación. ¿Quieres conectarte? Álbumes y música, añades este ítem.", "mac_roman"),
+            ("CERCA ÍTEMS, ARTISTES I ÀLBUMS RÀPIDAMENT.", "mac_roman"),
+            ("HAS D'HAVER INICIAT SESSIÓ A L'APPLE MUSIC PER REPRODUIR VÍDEOS", "cp850"),
+            ("Forbereder tømming av papirkurv. Du kan frigjøre plass ved å slette filer.", "mac_roman"),
         ],
         ids=["signs-alone", "signs-that-are-letters-elsewhere", "letters-below-latin-1", "dos-accent-inside-a-word",
              "macintosh-capital-behind-a-small-letter", "macintosh-capital-behind-a-small-letter-in-latin-1",
@@ -842,7 +849,10 @@ class TestTextOfOneAlphabet:
              "letters-of-several-languages", "no-ascii-letters", "utf-32-without-a-bom", "one-letter-of-two-alphabets",
              "byte-of-iso-8859-15", "one-polish-letter", "one-polish-letter-in-two-cases",
              "czech-that-reads-as-western-letters", "hungarian-that-reads-as-western-letters",
-             "turkish-that-reads-as-western-letters", "italian-that-reads-as-czech"],
+             "turkish-that-reads-as-western-letters", "italian-that-reads-as-czech", "one-letter-of-latin-1",
+             "letters-below-latin-1-in-two-kinds", "byte-of-iso-8859-15-in-clear-spanish",
+             "macintosh-accents-that-are-signs-and-one-letter", "macintosh-small-letter-before-capitals",
+             "dos-small-letter-ending-a-word-of-capitals", "macintosh-norwegian-that-is-two-polish-letters"],
     )
     def test_text_that_reads_more_than_one_way_is_left_to_the_statistics(self, text, encoding):
         """Nothing is said, and the answer is the one the statistics gave before: of signs, of letters that are another
@@ -881,6 +891,15 @@ class TestTextOfOneAlphabet:
         the code pages that fit. `µ ¥ © «` are letters in ISO 8859-2, a Slavic name takes a French text out of the French
         alphabet, and each of these came out in the letters of another language: `5 ľm`, `thčse ŕ la conférence`, `Ł5`."""
         assert decode_text(text.encode(encoding)) == (text, encoding)
+
+    def test_text_with_accents_that_run_on_is_not_looked_up(self, monkeypatch):
+        """Three bytes outside ASCII in a row is Cyrillic, Greek or a text of two-byte characters: the alphabets are for
+        accents that stand one or two at a time."""
+        from opendockit.extractors import _encoding
+
+        monkeypatch.setattr(_encoding, "_alphabet_page", lambda sample: pytest.fail("looked up"))
+
+        decode_text("La reunión será mañana. ÀÉÎ".encode("cp1252"))
 
     def test_byte_that_is_not_windows_1252_far_into_an_ambiguous_text_changes_nothing(self):
         data = ("Il bollettino è pronto. " * 9000).encode("cp1252") + b" abc\x8d end"

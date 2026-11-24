@@ -76,9 +76,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Text, HTML, CSV and mail without a stated charset: accented letters of Western text.** A short text in a
   Latin code page was read in whichever one made it look like the cleanest English: an Italian mail as
   Windows-1258 (`martedì` lost its `ì` to a mark on the `d`), Spanish as a DOS code page (`reuni¾n`), Polish in ISO
-  8859-2 as Windows-1252 (`obecno¶æ`). Where the accented letters fit the alphabet of one language and the text
-  reads no other way, that code page is taken; everything else is guessed as before. Of 12,348 samples in 60
-  languages 8,928 are read right, from 8,210, and none that was right is wrong now.
+  8859-2 as Windows-1252 (`obecno¶æ`). Where two or more accented letters fit the alphabet of one language and the
+  text reads no other way, that code page is taken; everything else is guessed as before. Of 12,348 samples in 60
+  languages in Windows and ISO code pages 8,709 are read right, from 8,210, and none that was right is wrong now.
 - **PDF: the characters of an embedded TrueType font without a `ToUnicode` map.** The font's own character table was
   read wrongly past its first segment: of the 2,691 glyphs Arial names, 1,261 came out as another character, and
   `25°C ± 2, price £ 10` read `25±C¡²¡2,¡price¡¤¡10`.
