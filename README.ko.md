@@ -66,6 +66,8 @@ result.warnings    # 건너뛰었거나 근사 처리한 내용을 평이한 문
   MIT / BSD / Apache 계열입니다(PyMuPDF, pyhwp 없음). ML 모델도 GPU도 필요 없습니다. 카피레프트 코드는 선택
   설치인 `heic` 추가 기능에만 있습니다.
 
+이 주장을 뒷받침하는 수치와 OpenDocKit이 뒤지는 부분은 [다른 도구와의 비교](#다른-도구와의-비교)에 있습니다.
+
 ## 설치
 
 ```bash
@@ -280,8 +282,8 @@ OpenDocKit, MarkItDown, Kreuzberg, Unstructured, Docling, kordoc을 GPU 없는 4
 - **HWP와 HWPX.** 이 두 형식을 읽는 도구는 OpenDocKit과 kordoc뿐입니다. PDF 점수와 로컬 스캔 인식은 kordoc이
   앞서고, OpenDocKit은 나머지 형식까지 같은 함수 하나로, Python에서 읽습니다.
 - **모르는 사람이 올린 파일을 받는 서버를 위해 만들었습니다.** 퍼저가 찾아낸 파일과 공격용 파일 113개에서 한 번도
-  죽거나 멈추지 않았고, 가장 크게 쓴 메모리가 97 MB였습니다. 그중 한 파일은 다른 도구 2개를 6 GB 너머로
-  밀어 올렸습니다.
+  죽거나 멈추지 않았고, 가장 크게 쓴 메모리가 97 MB였습니다. 그중 한 파일에서 다른 도구 2개는
+  메모리 6 GB를 넘겼습니다.
 - **부족한 점.** OCR이 없습니다. 스캔 문서와 이미지는 비전 모델이 있어야 읽고, Docling · Unstructured · kordoc은
   로컬에서 읽습니다. PDF에서 가장 약한 항목은 표입니다(0.776, kordoc은 0.981). 속도는 Kreuzberg가 전반적으로 훨씬
   빠르고, 구형 `.doc` / `.ppt`는 LibreOffice를 거칩니다.

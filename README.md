@@ -65,6 +65,8 @@ Most converters handle the happy path. OpenDocKit is built for the files people 
   Apache-style (no PyMuPDF, no pyhwp), with no ML models and no GPU. The only copyleft code is behind the opt-in
   `heic` extra.
 
+The numbers behind these claims, and the places where OpenDocKit loses, are in [How it compares](#how-it-compares).
+
 ## Installation
 
 ```bash
