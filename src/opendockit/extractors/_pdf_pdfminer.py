@@ -893,7 +893,7 @@ pdffont.PDFSimpleFont.__init__ = _names_win_ansi
 # A CFF font program (FontFile3 /Type1C) may bring an encoding of its own: which glyph each code draws. This many bytes of the
 # program are looked at (its header, strings, charset and encoding stand at its front in the files seen; a table past the
 # end is no table), and a font holds at most this many glyphs.
-_CFF_BYTES_MAX = 4 * 1024 * 1024
+_CFF_BYTES_MAX = 1024 * 1024
 # What is read of a program is bounded, for a program is read each time a file makes pdfminer build its font again (a font
 # written into the resources of a page or of a form has no object number to be remembered by): the dictionary that says
 # where its tables are is a few hundred bytes, and an encoding names 256 codes, so the glyphs past the first thousand have
@@ -927,41 +927,95 @@ def _type1_font_with_its_own_encoding(self: pdffont.PDFType1Font, rsrcmgr: objec
         program = resolve1(descriptor.get("FontFile3")) if isinstance(descriptor, dict) else None
         if not isinstance(program, PDFStream) or getattr(resolve1(program.get("Subtype")), "name", None) != "Type1C":
             return
-        named = getattr(program, _CFF_GLYPH_NAMES, None)
-        if named is None:
-            # Read once for a program: the same stream stands behind the font however often the font is built
-            named = _characters_of_glyph_names(_cff_glyph_names(program.get_data()[:_CFF_BYTES_MAX]))
-            setattr(program, _CFF_GLYPH_NAMES, named)
-    except DocumentTooLargeError:
-        raise
-    except Exception:  # noqa: BLE001 — a program that cannot be read says nothing; the font is read as before
-        try:
-            setattr(program, _CFF_GLYPH_NAMES, {})
-        except Exception:  # noqa: BLE001 — not a stream to note it on
-            pass
+    except Exception:  # noqa: BLE001 — a descriptor that cannot be read says nothing; the font is read as before
         return
+    read = getattr(program, _CFF_GLYPH_NAMES, None)
+    if read is None:
+        # Read once for a program: the same stream stands behind the font however often the font is built
+        read = {}, frozenset()
+        try:
+            head = _program_head(program)
+            if head is not None:
+                read = _characters_of_glyph_names(_cff_glyph_names(head))
+        except DocumentTooLargeError:
+            raise
+        except Exception:  # noqa: BLE001 — a program that cannot be read says nothing; the font is read as before
+            pass
+        setattr(program, _CFF_GLYPH_NAMES, read)
+    named, nameless = read
     if any(character != chr(code) for code, character in named.items() if code < 0x80 and chr(code).isalnum()):
         return
-    self.cid2unicode = {**self.cid2unicode, **named}
+    characters = {**self.cid2unicode, **named}
+    for code in nameless:
+        characters.pop(code, None)
+    self.cid2unicode = characters
 
 
 pdffont.PDFType1Font.__init__ = _type1_font_with_its_own_encoding
 
 
-def _characters_of_glyph_names(names: dict[int, str]) -> dict[int, str]:
-    """The characters of the glyph names that say text. A name that says none (`G38`), or one of the private use area, a
-    control, or U+FFFD (`oneoldstyle` is U+F731, `uni0000` a NUL) is left out, so its code reads as before: cleaning removes
-    such characters, and the page would lose the warning of a character without a mapping while still losing the character
-    (Pinned by: test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_glyph_name_of_no_text_reads_as_before)."""
+def _program_head(program: PDFStream) -> bytes | None:
+    """The first `_CFF_BYTES_MAX` bytes of a font program, inflated no further and charged to the document's limit: None
+    for a stream that is not stored plain or under one Flate filter without a predictor (no font program seen is).
+
+    `get_data` inflates the whole stream and keeps it: a 306 KB file whose FontFile3 inflates to 300 MB, which nothing read
+    before the encoding of a program was, took 1.6 GB (Pinned by:
+    test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_only_the_head_of_a_program_is_inflated)."""
+    data = program.rawdata
+    if data is None:
+        return None
+    if program.decipher:
+        data = program.decipher(program.objid, program.genno, data, program.attrs)
+    filters = program.get_filters()
+    if not filters:
+        return data[:_CFF_BYTES_MAX]
+    if len(filters) != 1 or filters[0][0] not in LITERALS_FLATE_DECODE or (filters[0][1] or {}).get("Predictor", 1) != 1:
+        return None
+    inflater, pieces, size = zlib.decompressobj(), [], 0
+    try:
+        while data and size < _CFF_BYTES_MAX and not inflater.eof:
+            pieces.append(inflater.decompress(data, _CFF_BYTES_MAX - size))
+            size += len(pieces[-1])
+            data = inflater.unconsumed_tail
+    except zlib.error:
+        pass  # what was inflated before the broken spot is read, as pdfminer reads a broken stream
+    budget = _INFLATE_BUDGET.get()
+    key = id(program) if program.objid is None else (program.objid, program.genno)
+    if budget is not None and key not in budget.charged:  # a stream measured whole (`_charge`) is charged already
+        budget.remaining -= size
+        if budget.remaining < 0:
+            budget.exceeded = True
+            raise DocumentTooLargeError(_TOO_LARGE)
+    return b"".join(pieces)
+
+
+def _characters_of_glyph_names(names: dict[int, str]) -> tuple[dict[int, str], frozenset[int]]:
+    """The characters of the glyph names that say text, by code, and the codes whose name says a character that is no text:
+    one of the private use area, a surrogate, an unassigned one, U+FFFD, or a control other than a tab or a line end
+    (`Asmall` is U+F761, `uni0000` a NUL).
+
+    Such a code has no character: it is not the one of StandardEncoding, which the font does not draw there, and cleaning
+    would remove the one of the private use area, so either way the page lost the character and with the second also the
+    warning of a character without a mapping. At a letter or a digit of ASCII it reads as before instead: a font of
+    old-style figures names the glyph of `1` `oneoldstyle`, and it is a 1. A name that says no character at all (`G38`) is
+    in neither (Pinned by: test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_glyph_name_of_no_text_has_no_character)."""
     named: dict[int, str] = {}
+    nameless = set()
     for code, name in names.items():
         try:
             characters = name2unicode(name)
         except (KeyError, ValueError):
             continue
-        if characters and "\ufffd" not in characters and all(unicodedata.category(one)[0] != "C" for one in characters):
+        if characters and all(_is_text(one) for one in characters):
             named[code] = characters
-    return named
+        elif not (code < 0x80 and chr(code).isalnum()):
+            nameless.add(code)
+    return named, frozenset(nameless)
+
+
+def _is_text(character: str) -> bool:
+    kind = unicodedata.category(character)
+    return character != "\ufffd" and kind not in ("Co", "Cs", "Cn") and (kind != "Cc" or character in "\t\n\r")
 
 
 def _cff_glyph_names(program: bytes) -> dict[int, str]:
@@ -1010,7 +1064,7 @@ def _cff_glyph_names(program: bytes) -> dict[int, str]:
     if kind & 0x7F == 0:        # the code of each glyph, from glyph 1
         codes = program[at + 1:at + 1 + program[at]]
         at += 1 + program[at]
-        for glyph, code in enumerate(codes[:len(string_ids) - 1], 1):
+        for glyph, code in enumerate(codes[:max(len(string_ids) - 1, 0)], 1):
             found[code] = name(string_ids[glyph])
     elif kind & 0x7F == 1:      # ranges of codes, their glyphs in order from glyph 1
         ranges, glyph = program[at], 1

@@ -5,6 +5,7 @@ from importlib.metadata import version
 import random
 import re
 import struct
+import zlib
 
 from pdfminer import pdffont
 import pytest
@@ -1037,22 +1038,76 @@ class TestEncodingBuiltIntoACffFont:
 
         assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "café"
 
-    @pytest.mark.parametrize("name", ["oneoldstyle", "Asmall", "uni0000", "uniFFFD", "uni00AD"])
-    def test_glyph_name_of_no_text_reads_as_before(self, name):
-        """A name of the private use area, a control or U+FFFD is no text: taken, it was cleaned away and the page lost the
-        warning of a character without a mapping while still losing the character."""
-        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (No \200 end) Tj ET",
+    @staticmethod
+    def _converted(program: bytes, text: bytes, flate: bool = False, **options: object):
+        stream = zlib.compress(program) if flate else program
+        data = _page_pdf(b"BT /F1 12 Tf 72 700 Td (" + text + b") Tj ET",
                          {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
                                  + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
                          {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
                              b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
-                          6: b"<< /Length %d /Subtype /Type1C >>\nstream\n%s\nendstream"
-                             % (len(_cff({0x80: name})), _cff({0x80: name}))})
+                          6: b"<< /Length %d /Subtype /Type1C%s >>\nstream\n%s\nendstream"
+                             % (len(stream), b" /Filter /FlateDecode" if flate else b"", stream)})
+        return convert(data, "a.pdf", ConvertOptions(page_markers=False, **options))
 
-        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+    @pytest.mark.parametrize("name", ["oneoldstyle", "Asmall", "uni0000", "uniFFFD", "uniE000"])
+    @pytest.mark.parametrize("code", [0x80, 0xE8], ids=["code-without-a-standard-character", "code-with-one"])
+    def test_glyph_name_of_no_text_has_no_character(self, name, code):
+        """A name of the private use area, a control or U+FFFD is no text. Taken, it was cleaned away and the page lost the
+        warning of a character without a mapping while still losing the character; left to StandardEncoding, code E8 read `Ł`,
+        which the font does not draw there."""
+        result = self._converted(_cff({code: name, 0xE9: "eacute"}), b"No %c caf\351" % code)
 
-        assert result.text == "No end"
+        assert result.text == "No café"
         assert any("no Unicode mapping" in warning for warning in result.warnings)
+
+    def test_glyph_name_of_no_text_at_a_digit_reads_as_before(self):
+        """A font of old-style figures names the glyph of `1` `oneoldstyle`: it is a 1, and the names beside it are taken."""
+        result = self._converted(_cff({0x31: "oneoldstyle", 0x61: "Asmall", 0xE9: "eacute"}), rb"caf\351 1a")
+
+        assert result.text == "café 1a"
+        assert not result.warnings
+
+    @pytest.mark.parametrize(("name", "text", "expected"), [("sfthyphen", rb"caf\351 co\255operate", "café co-operate"),
+                                                             ("uni0009", rb"caf\351 a\255b", "café a b")],
+                             ids=["soft-hyphen", "tab"])
+    def test_format_and_space_characters_are_text(self, name, text, expected):
+        assert self._converted(_cff({0xAD: name, 0xE9: "eacute"}), text).text == expected
+
+    def test_only_the_head_of_a_program_is_inflated(self, monkeypatch):
+        """`get_data` inflates the whole stream and keeps it: a 306 KB file whose font program inflates to 300 MB took
+        1.6 GB. Only the head is inflated, and no stream of the size of the program is decoded."""
+        from opendockit.extractors import _pdf_pdfminer
+
+        decoded = []
+        decode = _pdf_pdfminer._decode_unbounded
+
+        def noting(stream):
+            decode(stream)
+            decoded.append(len(stream.data or b""))
+
+        monkeypatch.setattr(_pdf_pdfminer, "_decode_unbounded", noting)
+        program = _cff(_FRENCH) + bytes(5_000_000)
+
+        assert self._converted(program, rb"caf\351", flate=True).text == "café"
+        assert max(decoded, default=0) < 1_000_000
+
+    def test_program_under_another_filter_is_not_read(self):
+        packed = zlib.compress(zlib.compress(_cff(_FRENCH)))
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C /Filter [/FlateDecode /FlateDecode] >>\nstream\n%s\nendstream"
+                             % (len(packed), packed)})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "cafØ"
+
+    def test_ranges_with_codes_named_beside_them(self):
+        program = _cff({0xE9: "eacute", 0xE8: "egrave"}, ranges=True, more={0xC9: "eacute"})
+
+        assert self._converted(program, rb"\351\350\311").text == "éèé"
 
     def test_dictionary_longer_than_a_font_writes_is_not_walked(self):
         assert _cff_font_text(_cff(_FRENCH, padding=5000), rb"caf\351 \350") == "cafØ Ł"
