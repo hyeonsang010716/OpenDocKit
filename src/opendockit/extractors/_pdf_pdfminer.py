@@ -125,7 +125,7 @@ _ASCII85_AROUND_A_MARK = b" \t\n\r\x0b\x0c"  # the white space of the library's 
 def _ascii85_body(data: bytes) -> bytes:
     """The data without the marks of its start (`<~` or `~`) and its end (`~>` or `~`), as pdfminer's `start_re` and `end_re`
     leave it. Those patterns begin with white space of any length, so a search that fails is tried again from every
-    character of a run: 80,000 spaces behind the filter took 13 s. This reads each end once (Pinned by:
+    character of a run: 80,000 spaces behind the filter took 12 s. This reads each end once (Pinned by:
     test_pdf_resource_limits.py::TestAscii85InPieces::test_marks_are_taken_off_as_the_patterns_of_the_library_do)."""
     start = data.lstrip(_ASCII85_AROUND_A_MARK)
     if start[:1] == b"<":

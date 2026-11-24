@@ -1911,13 +1911,13 @@ class TestAscii85InPieces:
 
         assert _pdf_pdfminer.ascii85decode(encoded) == self._whole(encoded) == data
 
-    @pytest.mark.parametrize("start", [b"", b"<~", b"~", b" \n<\t ~\r", b"<", b"<<~", b"< <~", b"\x0c~\x0c", b"~~", b"<~<~", b"\x00~"])
-    @pytest.mark.parametrize("end", [b"", b"~>", b"~", b" ~ >\n", b">", b"~>>", b"~~>", b"~>~", b"\x0c~\x0c>\x0c", b"~\n", b"~ > >", b"~\x00>"])
+    @pytest.mark.parametrize("start", [b"", b"<~", b"~", b" \n<\t ~\r", b"<", b"<<~", b"< <~", b"\x0c~\x0c", b"~~", b"<~<~", b"\x00~", b"\x0b<\x0b~\x0b"])
+    @pytest.mark.parametrize("end", [b"", b"~>", b"~", b" ~ >\n", b">", b"~>>", b"~~>", b"~>~", b"\x0c~\x0c>\x0c", b"~\n", b"~ > >", b"~\x00>", b"\x0b~\x0b>\x0b"])
     @pytest.mark.parametrize("middle", [b"", b"87cUR", b" 87cUR\n", b">", b"~", b" "])
     def test_marks_are_taken_off_as_the_patterns_of_the_library_do(self, start, end, middle):
         """The marks of the start and the end are read once from each end, not searched for with the library's patterns:
         behind white space of any length, a search that fails is tried again from every character of the run, and 80,000
-        spaces behind the filter took 13 s to decode."""
+        spaces behind the filter took 12 s to decode."""
         from pdfminer import ascii85
 
         data = start + middle + end
