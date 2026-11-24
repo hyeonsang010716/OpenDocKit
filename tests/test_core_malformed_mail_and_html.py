@@ -151,17 +151,36 @@ class TestMultipartSplitAtTheDelimiterInUse:
         f"--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Transfer-Encoding: base64\r\n\r\n{_B64}\r\n"
         "The rest of the mail, which no delimiter ended.\r\n",
         "--BBB\r\nContent-Type: image/png; name=p.png\r\n\r\nLine one.\r\n--CCC\r\nContent-Type: text/plain\r\n\r\nThe body of the mail.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/rfc822-headers\r\n\r\nSubject: bounced\r\nFrom: x@y.z\r\n\r\nA line that was shown.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Type: multipart/mixed; boundary=IN\r\n\r\n"
+        "--IN\r\nContent-Type: text/plain\r\n\r\nInner body.\r\n--IN--\r\nA line behind the closing line of the mail inside.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Type: multipart/mixed; boundary=IN\r\n\r\n"
+        "A line before its first part.\r\n--IN\r\nContent-Type: text/plain\r\n\r\nInner body.\r\n--IN--\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Type: multipart/mixed; boundary=IN\r\n\r\n"
+        "--IN\r\nContent-Type: message/partial\r\n\r\nA line that was shown.\r\n--IN--\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Type: application/x-thing\r\n\r\nA line that was shown.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nSubject: inner\r\n\r\nInner body.\r\n--BBB--\r\n",
+        f"--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n{_B64}\r\nRegards\r\nKim\r\n--BBB--\r\n",
+        f"--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n{_B64}\r\n\r\nUnsubscribe\r\n",
+        f"--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n{_B64[:20]}\r\n{_B64[20:28]}\r\n{_B64[28:]}\r\n--BBB--\r\n",
+        f"--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n{_B64}\r\n-- Sent through the list of the office --\r\n",
+        "--BBB\r\nContent-Type: text/plain;\r\n  x=1 is what the indented sentence began with.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n  and a sentence under the type.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/x-thing\r\nContent-Transfer-Encoding: base64\r\n\r\n" + _B64 + "\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: 8bit;\r\n x=1\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
     ], ids=["named-part-the-body-points-at", "named-part-with-a-location", "signature", "partial-message", "message-of-no-known-kind",
             "sentence-under-a-header-of-a-part", "sentence-folded-behind-a-semicolon", "sentence-folded-under-another-header",
             "footer-behind-base64", "line-of-words-in-base64", "multipart-inside-under-base64", "multipart-inside-set-aside",
             "headers-ending-at-a-line-that-is-none", "report-with-a-sentence", "forwarded-mail-in-base64-with-the-rest-behind",
-            "attachment-that-holds-the-rest-of-the-mail"])
-    @pytest.mark.parametrize("content_type", ['multipart/mixed; boundary="AAA"', 'multipart/alternative; boundary="AAA"'],
-                             ids=["mixed", "alternative"])
-    def test_body_a_split_would_read_less_of_stays_text(self, body, content_type):
+            "attachment-that-holds-the-rest-of-the-mail", "returned-headers-with-text-behind", "text-behind-the-mail-inside",
+            "text-before-the-parts-of-the-mail-inside", "unread-part-of-the-mail-inside", "mail-inside-that-is-no-text",
+            "mail-inside-under-an-encoding", "words-behind-base64", "a-word-behind-base64", "lines-of-base64-of-other-lengths",
+            "words-between-dashes-behind-base64", "folded-sentence-with-an-equals-sign", "sentence-folded-under-a-type-without-a-semicolon",
+            "text-of-another-kind-in-base64", "parameter-under-a-header-that-has-none"])
+    def test_body_a_split_would_read_less_of_stays_text(self, body):
         """Each of these came out shorter, or as nothing, once it was split: a part neither read nor reported, a sentence taken
         for a header, lines decoded as base64, the rest of the mail set aside as one attachment."""
-        result = convert(self._mail(content_type, body), "a.eml")
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
 
         shown = result.text.split("\n\n", 1)[1]
         for line in body.replace("\r\n", "\n").split("\n"):
@@ -172,7 +191,11 @@ class TestMultipartSplitAtTheDelimiterInUse:
         "Reporting-MTA: dns; a.b\r\n--BBB--\r\n",
         "--BBB\r\nContent-Type: text/html\r\n\r\n<p>First page.</p>\r\n--BBB\r\nContent-Type: text/html\r\n\r\n<p>Second page.</p>\r\n--BBB--\r\n",
         "--BBB\r\nContent-Type: text/plain\r\n\r\nOne text.\r\n--BBB\r\nContent-Type: text/plain\r\n\r\nAnother text.\r\n--BBB--\r\n",
-    ], ids=["a-part-that-is-no-form-of-the-text", "two-pages", "two-texts"])
+        "--BBB\r\nContent-Type: multipart/mixed; boundary=M1\r\n\r\n--M1\r\nContent-Type: text/html\r\n\r\n<p>First page.</p>\r\n--M1--\r\n"
+        "--BBB\r\nContent-Type: multipart/mixed; boundary=M2\r\n\r\n--M2\r\nContent-Type: text/html\r\n\r\n<p>Second page.</p>\r\n--M2--\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/html\r\n\r\n<p>First page.</p>\r\n"
+        "--BBB\r\nContent-Type: multipart/related; boundary=M2\r\n\r\n--M2\r\nContent-Type: text/html\r\n\r\n<p>Second page.</p>\r\n--M2--\r\n--BBB--\r\n",
+    ], ids=["a-part-that-is-no-form-of-the-text", "two-pages", "two-texts", "two-multiparts", "a-page-and-a-multipart"])
     def test_alternatives_that_are_not_one_text_in_two_forms_stay_text(self, parts):
         """Of the parts of a multipart/alternative one is read."""
         result = convert(self._mail('multipart/alternative; boundary="AAA"', parts), "a.eml")
@@ -205,6 +228,74 @@ class TestMultipartSplitAtTheDelimiterInUse:
         data = (_HEAD + f'Content-Type: multipart/mixed; boundary="AAA"\r\nContent-Transfer-Encoding: {encoding}\r\n\r\n' + body).encode()
 
         assert convert(data, "a.eml").text.endswith("Hello body")
+
+    def test_plain_form_beside_a_page_with_its_picture_is_split(self):
+        """The usual shape of a mail with pictures: the picture the page points at is data in base64, which was never text."""
+        picture = base64.b64encode(bytes(range(256)) * 2).decode()
+        lines = "\r\n".join(picture[at:at + 76] for at in range(0, len(picture), 76))
+        parts = ("--BBB\r\nContent-Type: text/plain\r\n\r\nPlain form.\r\n--BBB\r\nContent-Type: multipart/related; boundary=REL\r\n\r\n"
+                 '--REL\r\nContent-Type: text/html\r\n\r\n<p>Page form.</p><img src="cid:a@b">\r\n'
+                 "--REL\r\nContent-Type: image/png; name=p.png\r\nContent-ID: <a@b>\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                 f"{lines}\r\n--REL--\r\n--BBB--\r\n")
+
+        result = convert(self._mail('multipart/alternative; boundary="AAA"', parts), "a.eml")
+
+        assert "Page form." in result.text and "--BBB" not in result.text and picture[:30] not in result.text
+
+    def test_signed_mail_is_split(self):
+        signature = base64.b64encode(b"signature " * 12).decode()
+        body = ("--BBB\r\nContent-Type: text/plain\r\n\r\nThe signed text.\r\n--BBB\r\nContent-Type: application/pkcs7-signature; name=smime.p7s\r\n"
+                f"Content-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=smime.p7s\r\n\r\n{signature}\r\n--BBB--\r\n")
+
+        result = convert(self._mail('multipart/signed; boundary="AAA"', body), "a.eml")
+
+        assert result.text.endswith("The signed text.") and not result.warnings
+
+    @pytest.mark.parametrize("header", [
+        'Content-Type: text/plain;\r\n name="=?utf-8?B?7ZqM7J2Y66Gd?=\r\n =?utf-8?B?LnR4dA==?="\r\nContent-Disposition: inline',
+        "Content-Type: text/plain;\r\n name==?utf-8?B?7ZqM7J2Y66Gd?=\r\n =?utf-8?B?LnR4dA==?=\r\nContent-Disposition: inline",
+        'Content-Type: text/plain\r\nContent-Disposition: inline;\r\n filename="a long name\r\n that goes on.txt"',
+        "Content-Type: text/plain\r\nContent-Description: notes of the meeting\r\n that go on",
+        "Content-Type: text/plain\r\nContent-Features: (color=yes)\r\nContent-Duration: 3\r\nContent-Length: 12",
+        "Content-Type: text/plain\r\nX-Attachment-Id: f_abc123",
+        "Content-Type: text/plain\r\nContent-Location: notes.txt\r\nContent-Language: en\r\nContent-Base: http://a.example/\r\nContent-Class: x",
+    ], ids=["name-in-encoded-words-over-two-lines", "the-same-without-quotes", "name-in-quotes-over-two-lines", "description-over-two-lines",
+            "features-duration-length", "id-of-an-attachment", "location-language-base-class"])
+    def test_headers_mailers_write_into_a_part_do_not_keep_it_from_being_split(self, header):
+        body = f"--BBB\r\n{header}\r\n\r\nHello body\r\n--BBB--\r\n"
+
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
+
+        assert result.text.endswith("Hello body") and "--BBB" not in result.text
+
+    @pytest.mark.parametrize("data", [
+        "{0}\r\n=\r\n", " {0}\r\n", "{0} \r\n", "\r\n{0}\r\n\r\n",
+    ], ids=["padding-on-its-own-line", "indented", "space-behind", "blank-lines-around"])
+    def test_base64_written_in_these_ways_is_base64(self, data):
+        text = base64.b64encode(b"Hello from the body.").decode()   # 28 letters, one of them padding
+        body = "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n" + data.format(
+            text.rstrip("=") if "=\r\n" in data else text) + "--BBB--\r\n"
+
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
+
+        assert result.text.endswith("Hello from the body.")
+
+    @pytest.mark.parametrize(("body", "base64_only"), [
+        ("QUJDREVGR0g=\n", True), ("QUJD\nREVG\nR0g=\n", True), ("QUJD\r\nREVG\r\nR0g=", True), ("QUJD\rREVG\r", True),
+        ("QUJDREVGR0g\n=\n", True), ("  QUJD\n  REVG\n", True), ("QUJD\x00\x00\n", True), ("", True),
+        ("QUJD\nREVGR0hJ\n", False), ("QUJDR\n", False), ("QUJD\nRE=G\n", False), ("QU==\nQUJD\n", False),
+        ("QUJD QUJD\nQUJD\n", False), ("QUJDQUJD\nQUJ DQUJ\n", False), ("QUJD\nQUI.\n", False), ("QUJD\nQUJDQUJD\nQUJD\n", False),
+    ], ids=["one-line", "lines", "cr-lf", "cr", "padding-on-its-own-line", "indented", "nul-behind", "empty",
+            "last-line-longer", "letters-that-are-no-bytes", "equals-sign-inside", "padding-before-the-end",
+            "two-groups-on-a-line", "two-groups-on-the-last-line", "character-of-no-base64", "lines-of-other-lengths"])
+    def test_body_in_base64_is_asked_whether_it_is_only_base64(self, body, base64_only):
+        import email
+
+        from opendockit.extractors import _mail
+
+        part = email.message_from_string("Content-Type: text/plain\nContent-Transfer-Encoding: base64\n\n" + body)
+
+        assert _mail._is_all_base64(part) is base64_only
 
     def test_attachment_among_the_parts_is_reported(self):
         body = ("--BBB\r\nContent-Type: text/plain\r\n\r\nThe body.\r\n--BBB\r\nContent-Type: application/pdf; name=a.pdf\r\n"

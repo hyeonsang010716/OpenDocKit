@@ -444,17 +444,20 @@ def _readable_parts(message: Message) -> None:
 _DELIMITER_IN_USE = re.compile(rb"--([!#-\[\]-~][ !#-\[\]-~]{0,68}[!#-\[\]-~]|[!#-\[\]-~])[ \t]*\r?\n"
                                rb"Content-(?:Type|Transfer-Encoding|Disposition|ID|Description|Location|Language)[ \t]*:",
                                re.IGNORECASE)
-# Such a delimiter line further down in a body
-_DELIMITER_INSIDE = re.compile(rb"(?:^|\n)" + _DELIMITER_IN_USE.pattern, re.IGNORECASE)
+# A header of a part at the start of a line further down in a body: the line above it is then asked for a delimiter. Looked
+# for this way round, a body of lines of dashes is passed over at the speed of a search
+_PART_HEADER_INSIDE = re.compile(rb"\nContent-(?:Type|Transfer-Encoding|Disposition|ID|Description|Location|Language)[ \t]*:",
+                                 re.IGNORECASE)
 # The headers a part has: under any other name (`Content-wise: we agreed`) the line is a sentence of a text
 _PART_HEADERS = frozenset({"content-type", "content-transfer-encoding", "content-disposition", "content-id", "content-description",
                            "content-location", "content-language", "content-md5", "content-base", "content-class",
-                           "mime-version"})
-# A line a header of a part goes on with: a parameter (`charset="utf-8"`, `filename*0*=…`). Anything else folded under a
-# header is a sentence
-_HEADER_GOES_ON = re.compile(r"[ \t]*[!#-'*+\-.0-9A-Z^-z|~]+[ \t]*=")
-# What a body in base64 is not made of: a character of no base64 line, or two words on a line
-_MORE_THAN_BASE64 = re.compile(r"[^A-Za-z0-9+/=\s\x00]|\S[ \t]+\S")
+                           "content-features", "content-duration", "content-length", "mime-version", "x-attachment-id"})
+# A type or a disposition written over several lines: one word, then parameters (`charset="utf-8"`, `filename*0*=…`, a name
+# in quotes or in encoded words, which may go on over the lines). Anything else folded under the header is a sentence
+_FOLDED_PARAMETERS = re.compile(r"""[^\s;]+\s*(?:;\s*(?:[!#-'*+\-.0-9A-Z^-z|~]+\s*=\s*"""
+                                r"""(?:"[^"]*"|=\?[^\s;"]+\?=(?:\s+=\?[^\s;"]+\?=)*|[^\s;"]+)\s*)?)*""")
+# What a body in base64 is made of: the alphabet and its padding, line ends, blanks, and NUL bytes some mailers pad with
+_BASE64_BODY = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/= \t\r\n\x00"
 # A transfer encoding under which the body of a multipart is its bytes as they are
 _IDENTITY_ENCODINGS = frozenset({"", "7bit", "8bit", "binary"})
 # A mail is split again this way at most this many times, the mail and one inside it, and the parts found may nest this deep:
@@ -483,7 +486,7 @@ def _split_at_the_delimiter_in_use(part: Message) -> bool | None:
     - the parts inside nest deeper than `_MAX_NESTING_SPLIT_AGAIN`, or the parser finds no part this way either;
     - the part has a transfer encoding other than 7bit, 8bit or binary.
     What a split does pass over is what a mail with a right boundary passes over: the delimiter lines, the headers of the
-    parts, and the plain text beside an HTML alternative. A last line shaped like the closing line of another boundary is
+    parts, and the plain text beside an HTML alternative. The last lines shaped like the closing line of another boundary are
     taken out only of a last part in base64 (`_without_closing_lines_in_base64`).
     """
     if str(part.get("Content-Transfer-Encoding", "")).strip().lower() not in _IDENTITY_ENCODINGS:
@@ -512,41 +515,43 @@ def _split_at_the_delimiter_in_use(part: Message) -> bool | None:
 
 def _shows_every_line(multipart: Message) -> bool:
     """Is nothing of this multipart text that a reader of MIME passes over?
-    - No line before the first delimiter or behind the closing line of it or of a multipart inside it.
+    - No line before the first delimiter or behind the closing line of it, of a multipart inside it, or of the multipart of
+      a mail forwarded in it.
     - No header of a part but those a part has (`_PART_HEADERS`: `Content-wise: we agreed` is a sentence), and none that goes
-      on with a line that is no parameter (a sentence folded under `Content-Type: text/plain;`).
+      on over a line with anything but the parameters of a type or a disposition, or a description (`_FOLDED_PARAMETERS`).
     - No part that is neither read (text/plain, text/html, a forwarded mail, a report) nor reported as an attachment
-      (`_is_attachment`, and no signature, which is not reported): a `text/calendar` part without a name, a named picture with
-      a Content-ID, a `message/partial`, or a part whose type a folded sentence made unreadable, came out as nothing.
-    - No part in base64, of the mail or of a mail forwarded in it, whose body is more than base64 (a footer a list server put
-      behind it, a byte outside ASCII), and no multipart inside that the parser left whole under a transfer encoding:
-      decoded, their lines came out as bytes of nothing.
-    - No attachment that holds parts as text (the rest of the mail, under a delimiter that never came again), and no multipart
-      left whole that is set aside as an attachment.
-    - No report that holds more than its fields (a line that is none ends them, and the rest is passed over), and in a
-      multipart/alternative nothing beside the one plain and the one HTML form of the text (a multipart may stand for one).
+      (`_is_attachment`, and no signature, which is not reported) nor data in base64, which was never text (a picture the
+      page points at, a signature): an unnamed `text/calendar`, returned headers, a `message/partial`, or a part whose type
+      a folded sentence made unreadable, came out as nothing.
+    - No part in base64, of the mail or of a mail forwarded in it, whose body is more than base64 (`_is_all_base64`), and no
+      multipart inside that the parser left whole under a transfer encoding or as an attachment.
+    - No attachment that holds parts as text (the rest of the mail, under a delimiter that never came again).
+    - No report that holds more than its fields, no forwarded mail under a transfer encoding or of a kind that is not read,
+      and in a multipart/alternative nothing beside one plain form of the text and one page (text/html, or a multipart).
     Known accepted gap: what a mail with a right boundary does not show is not shown: the delimiter lines, the headers of the
-    parts (a `Content-Description`), the plain text beside an HTML alternative, and of a mail forwarded inside the headers a
-    reader of mail leaves out."""
+    parts (a `Content-Description` and what it goes on with, a comment behind `MIME-Version`), the plain text beside a page in
+    an alternative, the lines of a part reported as an attachment, and of a mail forwarded inside the headers a reader of
+    mail leaves out. And one word of four or eight letters behind base64 that ends at a full line is decoded with it."""
     stack = [multipart]
     while stack:
         current = stack.pop()
         if (current.preamble or "").strip() or (current.epilogue or "").strip():
             return False
         if current.get_content_subtype() == "alternative":
-            # One of the alternatives is read: beside it only the other form of the same text may stand
+            # One of the alternatives is read: beside it only the other form of the same text may stand, a multipart for the page
             kinds = [child.get_content_type() for child in current.get_payload() if isinstance(child, Message)]
-            if (any(kind not in ("text/plain", "text/html") and not kind.startswith("multipart/") for kind in kinds)
-                    or kinds.count("text/plain") > 1 or kinds.count("text/html") > 1):
+            pages = kinds.count("text/html") + sum(kind.startswith("multipart/") for kind in kinds)
+            if kinds.count("text/plain") > 1 or pages > 1 or kinds.count("text/plain") + pages != len(kinds):
                 return False
         for child in current.get_payload():
             if not isinstance(child, Message):
                 return False
             for name, value in child.items():
-                if name.lower() not in _PART_HEADERS:
+                name, value = name.lower(), str(value)
+                if name not in _PART_HEADERS:
                     return False
-                value = str(value)
-                if "\n" in value and any(_HEADER_GOES_ON.match(line) is None for line in value.splitlines()[1:]):
+                if "\n" in value and name != "content-description" and (
+                        name not in ("content-type", "content-disposition") or _FOLDED_PARAMETERS.fullmatch(value) is None):
                     return False
             kind = child.get_content_type()
             if child.get_content_maintype() == "multipart":
@@ -564,16 +569,22 @@ def _shows_every_line(multipart: Message) -> bool:
                     return False
                 continue
             if kind in _FORWARD_TYPES:
-                if not all(_is_all_base64(leaf) for leaf in child.walk() if not leaf.is_multipart()):
+                # The mail inside is read as a mail, so what it holds is asked the same: its parts, or its one body
+                inside = child.get_payload()
+                inside = inside[0] if isinstance(inside, list) and len(inside) == 1 and isinstance(inside[0], Message) else None
+                if inside is None or str(child.get("Content-Transfer-Encoding", "")).strip().lower() not in _IDENTITY_ENCODINGS:
+                    return False
+                if inside.is_multipart():
+                    stack.append(inside)
+                elif inside.get_content_maintype() != "multipart" and (
+                        inside.get_content_type() not in ("text/plain", "text/html") or not _is_all_base64(inside)):
                     return False
                 continue
-            if kind == "text/rfc822-headers":
-                continue
-            # (a text part without a disposition or a name is no attachment: `_is_attachment` is not asked, at a fifth of the time)
+            # (a text part without a disposition or a name is no attachment: `_is_attachment` is not asked)
             body_text = kind in ("text/plain", "text/html")
             reported = ((not body_text or "Content-Disposition" in child or "name" in str(child.get("Content-Type", "")).lower())
                         and _reported(child, multipart))
-            if not body_text and not (reported and kind not in _SIGNATURE_TYPES):
+            if not body_text and not (reported and kind not in _SIGNATURE_TYPES) and not _is_data_in_base64(child):
                 return False  # a part that is neither read nor reported: as text its lines were shown
             if reported and _holds_parts_as_text(child):
                 return False  # the rest of the mail under a delimiter that never came again, set aside as one attachment
@@ -582,22 +593,53 @@ def _shows_every_line(multipart: Message) -> bool:
     return True
 
 
+def _is_data_in_base64(part: Message) -> bool:
+    """Is the part data in base64 and nothing else: a picture the page points at, a signature? Nothing of it was text."""
+    return (part.get_content_maintype() not in ("text", "message")
+            and str(part.get("Content-Transfer-Encoding", "")).strip().lower() == "base64" and _is_all_base64(part))
+
+
 def _holds_parts_as_text(part: Message) -> bool:
     """Does the body of a part, written as it is, hold a delimiter line with a header of a part under it?"""
     if str(part.get("Content-Transfer-Encoding", "")).strip().lower() not in _IDENTITY_ENCODINGS:
         return False
     body = part.get_payload(decode=True)
-    return isinstance(body, bytes) and _DELIMITER_INSIDE.search(body) is not None
+    if not isinstance(body, bytes):
+        return False
+    for header in _PART_HEADER_INSIDE.finditer(body):
+        start = body.rfind(b"\n", 0, header.start()) + 1
+        if _DELIMITER_IN_USE.match(body, start) is not None:
+            return True
+    return False
 
 
 def _is_all_base64(part: Message) -> bool:
     """Is the body of a part in base64 nothing but base64 (True for a part in another encoding)? A line of text in it - a
-    footer put behind it, the rest of a mail whose delimiter never came - is decoded with it into bytes of nothing. NUL bytes
-    behind the data are padding some mailers write."""
+    footer put behind it, the rest of a mail whose delimiter never came - is decoded with it into bytes of nothing. Base64
+    is letters of its alphabet in lines of one length, the last one no longer, four letters for three bytes, and `=` only
+    at its end; NUL bytes behind the data are padding some mailers write, and a line may stand indented.
+    Known accepted gap: one word of four, eight… letters of the alphabet behind data that ends at a full line."""
     if str(part.get("Content-Transfer-Encoding", "")).strip().lower() != "base64":
         return True
     body = _text_as_written(part)
-    return body is not None and _MORE_THAN_BASE64.search(body) is None
+    if body is None:
+        return False
+    data = body.encode("ascii")
+    if data.translate(None, _BASE64_BODY):
+        return False
+    lines = [line for line in data.replace(b"\r", b"\n").split(b"\n") if line]  # the blank ones first: a body may be those alone
+    lines = [line for line in (line.strip(b" \t\x00") for line in lines) if line]
+    padding = 0
+    while lines and not lines[-1].strip(b"="):
+        padding += len(lines.pop())  # padding on a line of its own
+    if not lines:
+        return True
+    last = lines.pop()
+    lengths = set(map(len, lines))
+    return (len(lengths) <= 1 and (not lengths or len(last) <= max(lengths)) and b"=" not in last.rstrip(b"=")
+            and not any(b"=" in line or b" " in line or b"\t" in line or b"\x00" in line for line in lines)
+            and b" " not in last and b"\t" not in last and b"\x00" not in last
+            and (sum(map(len, lines)) + len(last) + padding) % 4 == 0)
 
 
 def _reported(part: Message, message: Message) -> bool:
@@ -634,8 +676,9 @@ def _without_closing_lines_in_base64(multipart: Message) -> None:
         while end and body[end - 1] in " \t\r\n":
             end -= 1
         start = max(body.rfind("\n", 0, end), body.rfind("\r", 0, end)) + 1
-        if end - start < 4 or not body.startswith("--", start) or not body.endswith("--", start, end):
-            break
+        if (end - start < 4 or not body.startswith("--", start) or not body.endswith("--", start, end)
+                or " " in body[start:end] or "\t" in body[start:end]):
+            break  # a closing line is a token between dashes: `-- Sent through the list --` is a line of words
         end = kept = start
     if kept < len(body):
         last.set_payload(body[:kept])

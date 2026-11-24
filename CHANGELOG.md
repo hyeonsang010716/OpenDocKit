@@ -79,7 +79,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Mail: a message that declares one boundary and writes another is read.** Its parts were not found, and the
   body came out as the delimiter line, the headers of the part and pages of base64. The parts are now split at the
   delimiter the body opens with, and only where no line that was shown is passed over: a body with a part the reader
-  neither reads nor reports, a sentence among the headers of a part, or text behind base64 stays text.
+  neither reads nor reports, a sentence among the headers of a part, or lines of words behind base64 stays text.
 - **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
 - **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
   `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
