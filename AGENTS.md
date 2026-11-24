@@ -16,6 +16,7 @@ uv run python -m evals.recall --documents <docx, pptx, xlsx, hwpx, hwp> [--basel
 uv run python -m evals.changes --documents <folders> --save <file> | --against <file>   # what a change does to the text of any documents: run it on main, then on the change (evals/README.md)
 uv run python -m evals.parity --documents <hwp and hwpx> [--baseline evals/baselines/parity-hangul-samples.json]   # one document as HWP and as HWPX: the same text?
 uv run python -m evals.damage --documents <folder>   # damaged copies of the documents, each converted in a worker: none may end it, hang or raise
+uv run --python 3.12 python -m evals.encodings --texts <folder> [--baseline evals/baselines/encodings.json]   # text without a stated charset, written in each code page of its language: read right?
 uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved
 uv run opendockit <file> [--json | --count] [--describe]   # --describe calls a vision model (OPENAI_API_KEY, costs money)
 ```
@@ -49,6 +50,9 @@ document that justifies it.
   (`evals/recall.py`): no document may miss or join more words than it did, and none that was converted may be refused.
   A change to how the characters, the marks or the direction of a line are read is run against the script twins
   (nineteen languages, `evals/README.md`): no mean may fall there either.
+  A change to how the encoding of text without a stated charset is guessed (`_encoding.py`) is run against the
+  encodings scorecard (`evals/encodings.py`): no sample that was read right may be read wrong, and the baseline is
+  written again only with the reason in the decision row.
 - A deliberate trade-off gets a row in `docs/decisions/` and a `Pinned by:` comment at the code site.
 - Extractors only produce sections; normalization, headings, images and limits belong to `converter.py`.
 - Tables go through `render_table` / `TableGrid`.

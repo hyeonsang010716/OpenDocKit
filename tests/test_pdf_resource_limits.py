@@ -1617,3 +1617,201 @@ class TestManyLinesReachingOutOfTheirCells:
 
         assert time.perf_counter() - started < allowed(5), "13 seconds before"
         assert result.text.count("X") == 300
+
+
+def _glyphs_pdf(*pages: bytes | list[bytes], to_unicode: bytes | None = None, inherited: bool = False, in_a_form: bool = False,
+                map_filter: bytes = b"/FlateDecode") -> bytes:
+    """A PDF with one page per content (a list: the streams of its `/Contents`), in a font whose code `A` stands for the text
+    `to_unicode` (the hexadecimal string of the map, without its brackets) when given. `inherited`: the pages take their
+    resources from the page tree. `in_a_form`: the font with the map is that of a form the page does not draw."""
+    mapped = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica" + (b" /ToUnicode 90 0 R" if to_unicode else b"") + b" >>"
+    plain = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    resources = (b"/Resources << /Font << /F1 %s >> /XObject << /X 91 0 R >> >>" % plain if in_a_form
+                 else b"/Resources << /Font << /F1 %s >> >>" % mapped)
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>"}
+    kids, number = [], 3
+    for content in pages:
+        streams = content if isinstance(content, list) else [content]
+        listed = b" ".join(b"%d 0 R" % (number + 1 + index) for index in range(len(streams)))
+        objects[number] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents [%s] %s >>"
+                           % (listed, b"" if inherited else resources))
+        for index, stream in enumerate(streams):
+            objects[number + 1 + index] = _flate_stream(stream)
+        kids.append(b"%d 0 R" % number)
+        number += 1 + len(streams)
+    objects[2] = b"<< /Type /Pages /Kids [%s] /Count %d %s >>" % (b" ".join(kids), len(kids), resources if inherited else b"")
+    if to_unicode:
+        cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /T def /CMapType 2 def\n"
+                b"1 begincodespacerange <00> <FF> endcodespacerange\n1 beginbfchar <41> <" + to_unicode + b"> endbfchar\n"
+                b"endcmap CMapName currentdict /CMap defineresource pop end end")
+        packed = zlib.compress(cmap, 9)
+        objects[90] = b"<< /Length %d /Filter %s >>\nstream\n" % (len(packed), map_filter) + packed + b"\nendstream"
+    if in_a_form:
+        form = b"BT /F2 6 Tf (A) Tj ET"
+        objects[91] = (b"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /Font << /F2 %s >> >> /Length %d >>\n"
+                       b"stream\n%s\nendstream" % (mapped, len(form), form))
+    return _raw_pdf(objects)
+
+
+def _lines_of(*words: bytes) -> bytes:
+    """A line of text for each word, each drawn by one operator."""
+    return b"BT /F1 6 Tf 20 800 Td 7 TL " + b"".join(b"(%s told of it at length) Tj T*\n" % word for word in words) + b"ET"
+
+
+_LONG_TEXT = b"0042" * 70    # 70 characters for one code: no ligature, no word a writer drew as a glyph
+_LIGATURE = b"0066" + b"0066" + b"0069"
+
+
+class TestGlyphsOfAPage:
+    """A string is one token whatever its length, and pdfium's count of the characters of a page leaves out what lies off
+    it: a 1.5 KB file whose one string holds a million glyphs took pdfminer 20 s and 2.5 GB, thirty million more than 3 GB.
+    And a /ToUnicode map may give a code any text, a character of pdfium's text page for each unit of it for each glyph: one
+    code standing for 2,000 characters, drawn 2,000 times (18 KB), took 1.2 GB there."""
+
+    @staticmethod
+    def _no_pdfium(monkeypatch) -> None:
+        from opendockit.extractors import _pdf_glyph_repair
+        from opendockit.extractors import pdf as pdf_module
+
+        def opened(*args):
+            raise AssertionError("pdfium opened a page it is not let open")
+
+        monkeypatch.setattr(pdf_module, "_survey_page", opened)
+        monkeypatch.setattr(pdf_module, "_pdfium_page", opened)
+        monkeypatch.setattr(_pdf_glyph_repair, "_read_glyphs", opened)
+
+    def test_page_of_more_glyphs_than_pdfminer_keeps_goes_to_pdfium(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_KEPT_GLYPHS", 300)
+        rows = b"BT /F1 6 Tf 20 800 Td 7 TL " + b"".join(b"(%s) Tj T*\n" % (b"A" * 40) for _ in range(20)) + b"ET"
+
+        result = convert(_glyphs_pdf(_lines_of(b"Anna", b"Boris"), rows), "a.pdf")
+
+        assert "Anna told of it" in result.text and "A" * 40 in result.text
+        assert any("(2)" in warning and "simple extraction" in warning for warning in result.warnings)
+
+    def test_glyphs_are_counted_anew_for_each_page(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_KEPT_GLYPHS", 150)
+        pages = [_lines_of(*words.split()) for words in (b"apple river stone cloud", b"tiger maple ocean pearl",
+                                                         b"cedar storm amber flint")]
+
+        result = convert(_glyphs_pdf(*pages), "a.pdf")
+
+        assert all(line in result.text for line in ("cloud told", "pearl told", "flint told")) and not result.warnings
+
+    def test_copies_on_one_spot_do_not_count_as_kept(self, monkeypatch):
+        """Bold drawn by printing a line four times is one line of glyphs to keep."""
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_KEPT_GLYPHS", 250)   # 12 times 41 glyphs are drawn, 3 times 41 are kept
+        line = b"BT /F1 6 Tf 20 700 Td (A heading printed over itself many times) Tj ET\n"
+
+        result = convert(_glyphs_pdf(line * 12 + _lines_of(b"Anna", b"Boris")), "a.pdf")
+
+        assert "A heading printed over itself many times" in result.text and "Boris told" in result.text
+        assert not result.warnings
+
+    def test_glyphs_drawn_are_bounded_too(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_READ_GLYPHS", 300)
+        line = b"BT /F1 6 Tf 20 700 Td (A heading printed over itself many times) Tj ET\n"
+
+        result = convert(_glyphs_pdf(_lines_of(b"Anna", b"Boris"), line * 12), "a.pdf")
+
+        assert any("(2)" in warning and "simple extraction" in warning for warning in result.warnings)
+
+    @pytest.mark.parametrize("content", [
+        b"BT /F1 6 Tf 20 800 Td (" + b"A" * 1500 + b") Tj ET",
+        b"BT /F1 6 Tf 20 800 Td <" + b"41" * 1500 + b"> Tj ET",
+        [b"BT /F1 6 Tf 20 800 Td (" + b"A" * 700, b"A" * 800 + b") Tj ET"],
+        [b"BT /F1 6 Tf 20 800 Td <" + b"41" * 700, b"41" * 800 + b"> Tj ET"],
+    ], ids=["string", "hexadecimal", "string-over-two-streams", "hexadecimal-over-two-streams"])
+    def test_page_with_a_string_too_long_to_read_whole_goes_to_pdfium(self, monkeypatch, content):
+        """pdfminer reads a string whole before it draws its first glyph. The length is taken where pdfminer reads the
+        string, so it is the string as pdfminer sees it: also one that begins in one stream of the page and ends in the next."""
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_STRING_BYTES", 1000)
+
+        result = convert(_glyphs_pdf(_lines_of(b"Anna", b"Boris"), content), "a.pdf")
+
+        assert "Anna told of it" in result.text
+        assert any("(2)" in warning and "simple extraction" in warning for warning in result.warnings)
+
+    def test_string_within_the_bound_is_read_as_before(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_STRING_BYTES", 1000)
+
+        result = convert(_glyphs_pdf(_lines_of(b"Anna", b"Boris", b"Clara")), "a.pdf")
+
+        assert "Clara told of it at length" in result.text and not result.warnings
+
+    @pytest.mark.parametrize("pdf", [
+        {"to_unicode": _LONG_TEXT},
+        {"to_unicode": _LONG_TEXT, "inherited": True},
+        {"to_unicode": _LONG_TEXT, "in_a_form": True},
+        {"to_unicode": _LONG_TEXT + b"!"},
+        {"to_unicode": b"00 42\n" * 70},
+        {"to_unicode": b"0042" * 65},
+    ], ids=["own-resources", "inherited-resources", "font-of-a-form", "text-with-a-byte-that-is-no-digit", "text-with-spaces",
+            "sixty-five-characters"])
+    def test_pdfium_does_not_open_a_page_whose_font_gives_a_code_a_long_text(self, monkeypatch, pdf):
+        self._no_pdfium(monkeypatch)
+
+        result = convert(_glyphs_pdf(_lines_of(b"Anna", b"Boris"), **pdf), "a.pdf")
+
+        assert "Boris told of it at length" in result.text
+        assert not any("were not read" in warning for warning in result.warnings)
+
+    def test_such_a_page_that_pdfminer_gives_up_is_not_read(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_READ_TEXT", 500)
+        self._no_pdfium(monkeypatch)
+        page = b"BT /F1 6 Tf 20 800 Td 7 TL " + b"(A) Tj T*\n" * 30 + b"ET"   # thirty glyphs of seventy characters each
+
+        result = convert(_glyphs_pdf(page, to_unicode=_LONG_TEXT), "a.pdf")
+
+        assert "B" not in result.text and any("(1)" in warning and "were not read" in warning for warning in result.warnings)
+        assert len(result.warnings) == 2 and "No text was extracted" in "".join(result.warnings)   # said once, not as failed too
+
+    def test_such_a_page_past_the_time_budget_is_not_read(self, monkeypatch):
+        self._no_pdfium(monkeypatch)
+
+        result = convert(_glyphs_pdf(_lines_of(b"Anna"), to_unicode=_LONG_TEXT), "a.pdf", ConvertOptions(pdf_time_budget=0))
+
+        assert "Anna" not in result.text and any("were not read" in warning for warning in result.warnings)
+
+    def test_such_a_page_of_more_objects_than_the_survey_lets_through_is_not_read(self, monkeypatch):
+        """The survey that keeps a page of very many drawn objects from pdfminer is pdfium's, which is not asked here."""
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PAGE_OBJECTS", 50)
+        self._no_pdfium(monkeypatch)
+        page = _lines_of(b"Anna") + b"\n" + b"0 0 1 1 re f\n" * 60
+
+        result = convert(_glyphs_pdf(page, to_unicode=_LONG_TEXT), "a.pdf")
+
+        assert "Anna" not in result.text and any("were not read" in warning for warning in result.warnings)
+
+    def test_such_a_page_is_past_the_bounds_of_the_page_tree_too(self):
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        with pdfplumber.open(BytesIO(_glyphs_pdf(_lines_of(b"Anna"), to_unicode=_LONG_TEXT))) as document:
+            assert pdf_module._past_bounds(document.pages[0], _pdf_pdfminer._InflateBudget(10**9))
+        with pdfplumber.open(BytesIO(_glyphs_pdf(_lines_of(b"Anna"), to_unicode=_LIGATURE))) as document:
+            assert not pdf_module._past_bounds(document.pages[0], _pdf_pdfminer._InflateBudget(10**9))
+
+    @pytest.mark.parametrize("to_unicode", [None, _LIGATURE, b"0042" * 64], ids=["no-map", "ligature", "sixty-four-characters"])
+    def test_page_of_ordinary_fonts_is_surveyed_by_pdfium_as_before(self, monkeypatch, to_unicode):
+        from opendockit.extractors import pdf as pdf_module
+
+        surveyed = []
+        survey = pdf_module._survey_page
+        monkeypatch.setattr(pdf_module, "_survey_page", lambda *args: surveyed.append(1) or survey(*args))
+
+        result = convert(_glyphs_pdf(b"BT /F1 6 Tf 20 800 Td (Row of the report, with some words) Tj ET", to_unicode=to_unicode),
+                         "a.pdf")
+
+        assert surveyed == [1] and "Row of the report" in result.text
+
+    def test_map_that_cannot_be_decoded_is_not_looked_through(self):
+        """Known accepted gap: the look before a page is read gives way where the page's structure is broken."""
+        import pdfplumber
+
+        data = _glyphs_pdf(_lines_of(b"Anna"), to_unicode=_LONG_TEXT, map_filter=b"/NoSuchDecode")
+        with pdfplumber.open(BytesIO(data)) as document:
+            assert not _pdf_pdfminer._gives_a_code_long_text(document.pages[0], _pdf_pdfminer._InflateBudget(10**9))
