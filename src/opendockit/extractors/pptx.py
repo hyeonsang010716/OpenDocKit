@@ -60,7 +60,7 @@ from opendockit.extractors._package import (
     related_part,
 )
 from opendockit.extractors._symbols import SYMBOL_GLYPHS, symbol_font_text
-from opendockit.markdown import TableGrid, clean_characters, solid_length
+from opendockit.markdown import TableGrid, clean_characters, escape_block_marks, solid_length
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind
 
 
@@ -942,12 +942,25 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
     rendered = []
     counters: dict[int, tuple[str, int, int]] = {}  # level → (number scheme, start number of the run, last number)
     for paragraph in text_frame.paragraphs:
-        lines = [" ".join(line.split()) for line in _paragraph_text(paragraph, inline).split("\n")]
         # A line of nothing but characters cleaning removes (`clean_characters`: zero-width space, soft hyphen, private-use and
         # control characters …) is empty: formatted, their run was taken out already and the paragraph skipped, unformatted it
         # wrote a bare number
         # (Pinned by: test_inline_formatting.py::TestInvisibleCharacters::test_paragraph_of_invisible_characters_is_empty).
-        lines = [line for line in lines if clean_characters(line).strip()]
+        # A line that starts with a letter or a digit is not asked: cleaning removes none of them, and most lines start so.
+        # A `#` or a `>` typed at the start of a line is text, as in a PDF and a Hangul document (`markdown.escape_block_marks`):
+        # `> 750 mln` on a slide is more than 750 million, not a quote, and `# macOS, Linux, WSL` in a box of commands is a
+        # comment, which stood as a heading above the title of its slide. Of 145 real presentations, 6 hold such a line
+        # (Pinned by: test_pptx_typed_marks.py).
+        lines = []
+        for line in _paragraph_text(paragraph, inline).split("\n"):
+            line = " ".join(line.split())
+            if not line:
+                continue
+            first = line[0]
+            if first.isalnum():
+                lines.append(line)
+            elif clean_characters(line).strip():
+                lines.append(escape_block_marks(line) if first in "#>" else line)
         level = _paragraph_level(paragraph)
         bullet = _bullet(paragraph._p, level, list_styles)
         is_numbered = bullet is not None and bullet.tag == f"{{{_DRAWING}}}buAutoNum"
