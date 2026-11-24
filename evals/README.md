@@ -455,7 +455,7 @@ readers of HWP and HWPX or what they are built on.
 ## Encodings: text without a stated charset
 
 ```bash
-uv run python -m evals.fetch_encoding_texts ../corpus/encodings        # once: one text in 60 languages, about 600 KB
+uv run python -m evals.fetch_encoding_texts ../corpus/encodings        # once: one text in 59 languages, about 1.1 MB
 uv run --python 3.12 python -m evals.encodings --texts ../corpus/encodings --baseline evals/baselines/encodings.json --show 3
 ```
 
@@ -474,13 +474,16 @@ rows of ASCII), as text and as HTML, and compares what the reader gives with wha
 - **The second row is the one that found the defect.** A rule that looked the accented letters up in the alphabets of
   each code page read 10,191 of the first row right, and read French with `Žižek` in it as Czech (`thčse ŕ la
   conférence`), German with `5 µm` as Slovak (`5 ľm`) and English with `£5` as Polish. No text of one language shows
-  that, so every start of a paragraph is also written with each of 48 names and signs behind it.
+  that, so the starts of the first eight paragraphs are also written with each of 48 names and signs behind them.
 - **A count is no gate.** That rule read more French right than it lost, and every count of French went up. The
   baseline keeps of each sample whether it was read right, and a run ends with status 1 when a sample that was read
-  right is read wrong: 30 code pages of a language had one under that rule.
-- **The baseline is written under Python 3.12.** The statistical part of the guess reads the Unicode tables of the
-  interpreter, and a handful of samples (12 of 47,684 between 3.12 and 3.14) go the other way under another version.
-  The workflow runs 3.12; a run under another version says so before its comparison.
+  right is read wrong, or a code page and language of the baseline is missing from the run: 30 code pages of a
+  language had a lost sample under that rule.
+- **The baseline is written under Python 3.12.** The statistical part of the guess (charset-normalizer) gives some
+  samples two code pages that are nearly as likely, and which of them comes first is not the same under every version
+  of Python: 12 of 47,684 samples are read otherwise under 3.13 and 3.14, and a run there ends with status 1 on code
+  that did not change. The card names the versions of Python and of charset-normalizer it was made with, the workflow
+  runs 3.12, and a run with other versions says so before its comparison.
 - **Most of what is read wrong is no defect of a rule but a text that reads two ways.** `è` is `č` in Windows-1250, a
   Czech sentence in Windows-1250 is a row of Western letters in Windows-1252, and DOS and Macintosh text is hardly
   guessed at all (`docs/decisions/encoding.md`). The numbers say where the reader stands, not what it should reach.

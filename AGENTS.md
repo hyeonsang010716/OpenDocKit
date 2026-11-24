@@ -16,7 +16,7 @@ uv run python -m evals.recall --documents <docx, pptx, xlsx, hwpx, hwp> [--basel
 uv run python -m evals.changes --documents <folders> --save <file> | --against <file>   # what a change does to the text of any documents: run it on main, then on the change (evals/README.md)
 uv run python -m evals.parity --documents <hwp and hwpx> [--baseline evals/baselines/parity-hangul-samples.json]   # one document as HWP and as HWPX: the same text?
 uv run python -m evals.damage --documents <folder>   # damaged copies of the documents, each converted in a worker: none may end it, hang or raise
-uv run python -m evals.encodings --texts <folder> [--baseline evals/baselines/encodings.json]   # text without a stated charset, written in each code page of its language: read right?
+uv run --python 3.12 python -m evals.encodings --texts <folder> [--baseline evals/baselines/encodings.json]   # text without a stated charset, written in each code page of its language: read right?
 uv run python examples/run_examples.py   # reconvert the sample documents (needs LibreOffice for the .doc / .ppt samples); `git diff examples/output` shows what moved
 uv run opendockit <file> [--json | --count] [--describe]   # --describe calls a vision model (OPENAI_API_KEY, costs money)
 ```
