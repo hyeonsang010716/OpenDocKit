@@ -45,6 +45,66 @@ _UPPERCASE_ACCENT_SYLLABLES = frozenset(
 # A run of three or more non-ASCII bytes. Accents and punctuation in Western European text sit one or two at a time between
 # ASCII letters, while Cyrillic, Greek or Thai text and text in multi-byte encodings runs on for whole words.
 _HIGH_BYTE_RUN = re.compile(rb"[\x80-\xff]{3}")
+# The letters outside ASCII of the languages written in the Latin code pages of Windows and in ISO 8859-2, a language a row,
+# lowercase (`_one_alphabet_page`). Signs a language sets inside or against its words stand with its letters: the Spanish
+# `¿ ¡ º ª`.
+_CENTRAL, _CENTRAL_ISO, _VIETNAMESE = "cp1250", "iso8859_2", "cp1258"
+_ALPHABETS = (
+    ("cp1252", "àâæçéèêëîïôœùûüÿ"),      # French
+    ("cp1252", "äöüß"),                   # German
+    ("cp1252", "áéíñóúü¿¡ºª"),            # Spanish, Galician
+    ("cp1252", "àèéìíîòóùúºª"),           # Italian
+    ("cp1252", "áâãàçéêíóôõúüºª"),        # Portuguese
+    ("cp1252", "àçèéíïòóúü·"),            # Catalan
+    ("cp1252", "áàäéèëêíïóöúü"),          # Dutch
+    ("cp1252", "áéèêëîïóôöúûüý"),         # Afrikaans
+    ("cp1252", "åäöé"),                   # Swedish
+    ("cp1252", "æøåéèêóòôà"),             # Danish, Norwegian
+    ("cp1252", "äöåšž"),                  # Finnish
+    ("cp1252", "áðéíóúýþæö"),             # Icelandic
+    ("cp1252", "áðíóúýæø"),               # Faroese
+    ("cp1252", "áéíóúàèìòù"),             # Irish, Scottish Gaelic
+    ("cp1252", "âêîôûáéïö"),              # Welsh
+    ("cp1252", "çë"),                     # Albanian
+    ("cp1252", "äëéöüèêîôûâ"),            # Luxembourgish
+    ("cp1252", "ñùêéèüâô"),               # Breton
+    ("cp1252", "äöüõšž"),                 # Estonian
+    ("cp1250", "ąćęłńóśźż"),              # Polish
+    ("cp1250", "áčďéěíňóřšťúůýž"),        # Czech
+    ("cp1250", "áäčďéíĺľňóôŕšťúýž"),      # Slovak
+    ("cp1250", "áéíóöőúüű"),              # Hungarian
+    ("cp1250", "čćđšž"),                  # Croatian, Bosnian, Slovene
+    ("cp1250", "ăâîşţ"),                  # Romanian
+    ("iso8859_2", "ąćęłńóśźż"),
+    ("iso8859_2", "áčďéěíňóřšťúůýž"),
+    ("iso8859_2", "áäčďéíĺľňóôŕšťúýž"),
+    ("iso8859_2", "áéíóöőúüű"),
+    ("iso8859_2", "čćđšž"),
+    ("iso8859_2", "ăâîşţ"),
+    ("iso8859_16", "ăâîșț"),              # Romanian with the comma below, which Windows-1250 writes as a cedilla
+    ("cp1257", "ąčęėįšųūž"),              # Lithuanian
+    ("cp1257", "āčēģīķļņšūž"),            # Latvian
+    ("cp1257", "äöüõšž"),                 # Estonian
+    ("cp1254", "çğıöşüâîûİ"),             # Turkish
+    ("cp1258", "àáâăèéêíóôơùúưđ"),        # Vietnamese; its tone marks are in `_VIETNAMESE_MARKS`
+)
+# The tone marks of Vietnamese in Windows-1258, bytes of their own behind the vowel they belong to, and such a mark behind
+# something that is no vowel: in Italian read so, the mark of `martedì` stands on its `d`.
+_VIETNAMESE_MARKS = b"\xCC\xD2\xDE\xEC\xF2"
+_MARK_OFF_A_VOWEL = re.compile(rb"(?<![AEIOUYaeiouy\xC2\xC3\xCA\xD4\xD5\xDD\xE2\xE3\xEA\xF4\xF5\xFD])[\xCC\xD2\xDE\xEC\xF2]")
+# Signs that stand between two letters in text: the apostrophes and the acute used for one, the dashes, the space that does not
+# break, the soft hyphen and the dot of the Catalan `l·l`. They are at these bytes in every Latin code page of Windows.
+_SIGNS_INSIDE_WORDS = b"\x91\x92\x96\x97\xa0\xad\xb4\xb7"
+# A text of one alphabet has at least this many ASCII letters for each byte outside ASCII: Czech and Lithuanian have five,
+# and a Cyrillic or Greek word read as Latin letters has none.
+_ALPHABET_ASCII_LETTERS = 2
+_ASCII_LETTERS = bytes(range(0x41, 0x5B)) + bytes(range(0x61, 0x7B))
+_SEVEN_BITS = bytes(range(0x80))
+# Where the letters of Latin-1 begin in Windows-1252 (`À`), and how many different letters of its alphabet a text shows for
+# another code page to be its one reading, or to be it against letters of several Western languages (`_alphabet_pages`).
+_LATIN_1_LETTERS = 0xC0
+_OTHER_ALPHABET_LETTERS = 2
+_LETTERS_AGAINST_MIXED = 3
 # HTML tags (left out of statistical detection) and a non-ASCII byte.
 _MARKUP = re.compile(rb"<[^<>]*>")
 _HIGH_BYTE = re.compile(rb"[\x80-\xff]")
@@ -82,7 +142,8 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     control bytes of one script below U+2000 (`_high_bytes_of_one_block`) → strict UTF-8 →
     almost UTF-8 (only when the end is cut or very few bytes are broken, or UTF-8 is declared and has a complete multi-byte
     character per broken one; replacement) → declared charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with
-    replacement (only when very few bytes are broken) → statistical detection → UTF-8 with replacement characters. The name
+    replacement (only when very few bytes are broken) → the Latin code page whose alphabet the letters fit
+    (`_alphabet_pages`) → statistical detection → UTF-8 with replacement characters. The name
     of an encoding decoded with replacement characters (�) gets `(replaced)` appended (`decoding_warning` turns it into a warning).
     Checking CP949 before statistical detection is deliberate: charset-normalizer sometimes misjudges short CP949 Hangul as
     UTF-16, Big5 etc. and emits unrelated characters in the Hangul syllable range. Strict CP949 decoding mostly fails on
@@ -189,9 +250,21 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     if markup:
         text_only = _MARKUP.sub(b" ", sample)
         sample = text_only if _HIGH_BYTE.search(text_only) else sample
+    # Accents that sit one or two at a time between ASCII letters: the letters name the alphabet, and with it the code page,
+    # where the statistics of a short text do not (Pinned by: test_text_html.py::TestTextOfOneAlphabet)
+    sparse = _HIGH_BYTE_RUN.search(data) is None
+    pages = _alphabet_pages(data[:200_000]) if sparse else ()
+    if len(pages) == 1:
+        text = _strict(data, pages[0])
+        if text is not None:
+            return text, pages[0]
     matches = from_bytes(sample)
     best = _plausible_best(matches, sample)
-    if _reads_as_western(data, matches, best):
+    among = _best_of(matches, pages) if len(pages) > 1 else None
+    if among is not None or (len(pages) > 1 and _WESTERN in pages):
+        # Several alphabets fit and read the text differently: the statistics choose among those code pages only
+        best = among
+    if sparse and (among is None or _WESTERN in pages) and _reads_as_western(data, matches, best):
         return data.decode(_WESTERN), _WESTERN
     if best is not None and best.encoding:
         try:
@@ -559,10 +632,116 @@ def _reads_as_western(data: bytes, matches: CharsetMatches, best: CharsetMatch |
     candidates and read `naïve façade` as CP1257 (`naļve faēade`), `price €20` as CP437 and `25°C` as CP932. Text with clear
     language evidence (long Polish, Czech or Turkish text) follows the guess (Pinned by: test_text_html.py::TestWesternText).
     """
-    if _HIGH_BYTE_RUN.search(data) or _strict(data, _WESTERN) is None:
+    if _strict(data, _WESTERN) is None:
         return False
     western = next((match for match in matches if _WESTERN in (match.encoding, *match.could_be_from_charset)), None)
     return best is None or best.coherence <= (western.coherence if western is not None else 0.0)
+
+
+def _alphabet_pages(sample: bytes) -> tuple[str, ...]:
+    """The Latin code pages in which the letters outside ASCII of this text are the alphabet of one language: none when no
+    alphabet fits, one when every code page that fits gives the same text, and several when they read it differently.
+
+    Language statistics cannot tell these code pages apart in a short text: `martedì` in Windows-1252 was read as Windows-1258
+    (the `ì` a tone mark on the `d`), `reunión` as CP775 (`reuni¾n`), and Czech, Hungarian and Turkish as Windows-1252. The
+    bytes can: `à è é ì ò ù` are all Italian letters in Windows-1252 and the letters of no one language in Windows-1250
+    (`ŕ č é ě ň ů`: `ŕ` is Slovak, `ě` and `ů` Czech), and `ą ę ł ś ż` are Polish in Windows-1250 and mostly signs in
+    Windows-1252.
+
+    A reading fits when every byte outside ASCII is a letter of one alphabet or a sign of that code page, and it is a text one
+    would write (`_alphabet_bytes`: `r‚union` and `libertŽ` are `réunion` of DOS and `liberté` of a Macintosh). Of what fits,
+    - Windows-1252 is the one reading only with a letter of the Latin-1 block: `Š œ ž` below it are accents of DOS and
+      Macintosh text read so, and signs alone (`m³`, `£5`) name no language. Without a letter it still stands against another
+      reading (`mł`, `Ł5`);
+    - another code page is the one reading only with `_OTHER_ALPHABET_LETTERS` different letters, and Windows-1258 only with
+      a tone mark: a few words at most are Vietnamese without one, and Icelandic read so has none;
+    - letters of several Western languages in one text, `Søren` and `où`, are no reading to take, and stand against another
+      alphabet of which the text shows fewer than `_LETTERS_AGAINST_MIXED` letters (`Sřren`, `oů`);
+    - of Windows-1250 and ISO 8859-2, which write the same alphabets, the one that reads more of the bytes as letters stays:
+      `są` in one is `s±` in the other.
+    Known accepted gap: a short text of a code page that is not in `_ALPHABETS` (DOS, ISO 8859-4) whose few accents are
+    letters of an alphabet here is read by that alphabet.
+    (Pinned by: test_text_html.py::TestTextOfOneAlphabet)
+    """
+    outside = sample.translate(None, _SEVEN_BITS)
+    if not outside or len(sample) - len(sample.translate(None, _ASCII_LETTERS)) < _ALPHABET_ASCII_LETTERS * len(outside):
+        return ()
+    if b"\x00" in sample:
+        return ()  # no text of single bytes: UTF-32 without a BOM is `L\0\0\0u\0\0\0`, its accents sparse
+    high = frozenset(outside)
+    rows = [row for row in _alphabet_bytes() if (high & row[1] or row[0] == _WESTERN) and high <= row[2]]
+    if not any(high & letters for _, letters, _, _ in rows):
+        return ()  # signs alone, or letters of no alphabet
+    # What stands around the bytes outside ASCII, each kind once: all that the searches for what nobody writes look at
+    around = b" ".join({sample[max(found.start() - 1, 0):found.end() + 1] for found in _HIGH_BYTES.finditer(sample)})
+    written = {page: unwritten.search(around) is None for page, _, _, unwritten in rows}
+    letters_read: dict[str, int] = {}
+    for page, letters, _, _ in rows:
+        if not written[page] or (page == _VIETNAMESE and high.isdisjoint(_VIETNAMESE_MARKS)):
+            continue
+        found = high & letters
+        count = sum(byte >= _LATIN_1_LETTERS for byte in found) if page == _WESTERN else len(found)
+        letters_read[page] = max(count, letters_read.get(page, 0))
+    if (_WESTERN not in letters_read and high <= _western_bytes()
+            and max(letters_read.values(), default=0) < _LETTERS_AGAINST_MIXED
+            and (written[_WESTERN] if _WESTERN in written else _alphabet_bytes()[0][3].search(around) is None)):
+        letters_read[_WESTERN] = 0
+    if _CENTRAL in letters_read and _CENTRAL_ISO in letters_read and letters_read[_CENTRAL] != letters_read[_CENTRAL_ISO]:
+        del letters_read[min(_CENTRAL, _CENTRAL_ISO, key=letters_read.__getitem__)]
+    texts: dict[str, list[str]] = {}
+    for page in letters_read:
+        text = _strict(sample, page)
+        if text is not None:
+            texts.setdefault(text, []).append(page)
+    if len(texts) != 1:
+        return tuple(page for pages in texts.values() for page in pages)
+    page = next(iter(texts.values()))[0]
+    return (page,) if letters_read[page] >= (1 if page == _WESTERN else _OTHER_ALPHABET_LETTERS) else ()
+
+
+def _best_of(matches: CharsetMatches, pages: tuple[str, ...]) -> CharsetMatch | None:
+    """The statistical guess with the most language evidence among the code pages other than Windows-1252 that fit an alphabet
+    (`_alphabet_pages`), the earlier guess on a tie."""
+    best = None
+    for match in matches:
+        names = (match.encoding, *match.could_be_from_charset)
+        if any(page in names for page in pages if page != _WESTERN) and (best is None or match.coherence > best.coherence):
+            best = match
+    return best
+
+
+@functools.cache
+def _western_bytes() -> frozenset[int]:
+    """The bytes of the letters of every Western alphabet and of the signs of Windows-1252."""
+    return frozenset().union(*(allowed for page, _, allowed, _ in _alphabet_bytes() if page == _WESTERN))
+
+
+@functools.cache
+def _alphabet_bytes() -> tuple[tuple[str, frozenset[int], frozenset[int], re.Pattern[bytes]], ...]:
+    """Of each alphabet of `_ALPHABETS`: its code page, the bytes of its letters (both cases; the tone marks for Vietnamese),
+    those and the bytes that are a sign in that code page (no letter, no mark, no control and not undefined), and a search
+    for what nobody writes: a sign between two letters, a capital behind a small ASCII letter or between a capital and a
+    small one, a small letter between two capitals (`STêLEANNA` is `STÍLEANNA` of a Macintosh), a Vietnamese mark off a
+    vowel."""
+    rows = []
+    every = range(0x80, 0x100)
+    for page, lowercase in _ALPHABETS:
+        both = lowercase + "".join(letter.upper() for letter in lowercase if len(letter.upper()) == 1)
+        letters = frozenset(byte for byte in both.encode(page) if byte >= 0x80) | (
+            frozenset(_VIETNAMESE_MARKS) if page == _VIETNAMESE else frozenset())
+        characters = {byte: bytes((byte,)).decode(page, errors="ignore") for byte in every}
+        kinds = {byte: unicodedata.category(character) if character else "Cn" for byte, character in characters.items()}
+        signs = frozenset(byte for byte in every if kinds[byte][0] not in "LMC")
+        word = b"[A-Za-z" + re.escape(bytes(byte for byte in every if kinds[byte][0] in "LM")) + b"]"
+        inside = re.escape(bytes(sorted(signs - letters - frozenset(_SIGNS_INSIDE_WORDS))))
+        capitals = re.escape(bytes(byte for byte in every if kinds[byte] == "Lu"))
+        smalls = re.escape(bytes(byte for byte in every if kinds[byte] == "Ll" and len(characters[byte].upper()) == 1))
+        unwritten = (b"(?<=" + word + b")[" + inside + b"](?=" + word + b")|(?<=[a-z])[" + capitals + b"]"
+                     b"|(?<=[A-Z])[" + capitals + b"](?=[a-z])|(?<=[A-Z])[" + smalls + b"](?=[A-Z])")
+        if page == _VIETNAMESE:
+            unwritten += b"|" + _MARK_OFF_A_VOWEL.pattern
+        rows.append((page, letters, letters | signs, re.compile(unwritten)))
+    return tuple(rows)
 
 
 def _replace_double_byte(error: UnicodeDecodeError) -> tuple[str, int]:

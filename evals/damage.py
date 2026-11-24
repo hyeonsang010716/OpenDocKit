@@ -56,7 +56,6 @@ _NUMBER = re.compile(rb'="(\d{1,4})"')
 _NUMBERS = (b"0", b"-1", b"65535", b"99999999")
 _VALUES = (b"\xff\xff", b"\xff\x7f", b"\xff\xff\xff\x7f", b"\xff\xff\xff\xff", b"\x00\x00\x00\x00", b"\x00\x00\x01\x00")
 FAILURES = ("died", "hung", "raised")
-_WRITTEN = (1980, 1, 1, 0, 0, 0)  # the time every part of an archive written again is stamped with
 
 
 class Dice:
@@ -102,6 +101,7 @@ def _of_a_package(data: bytes, dice: Dice) -> Iterator[tuple[str, bytes]]:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             parts = {info.filename: archive.read(info) for info in archive.infolist()}
+            dates = {info.filename: info.date_time for info in archive.infolist()}
     except Exception:  # noqa: BLE001 - no package this module can take apart: the damage of the file is all it gets
         return
 
@@ -109,10 +109,12 @@ def _of_a_package(data: bytes, dice: Dice) -> Iterator[tuple[str, bytes]]:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
             for name, body in changed.items():
-                # A part named by a string is stamped with the time it is written at: two runs made two archives
-                entry = zipfile.ZipInfo(name, date_time=_WRITTEN)
-                entry.compress_type = zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED
-                archive.writestr(entry, body)
+                # Dated as the document dates the part: given a name, `writestr` dates it now, and the same damage gave
+                # other bytes once a two-second tick of the ZIP clock had passed
+                # (Pinned by: test_evals_damage.py::TestDamaged::test_the_copies_are_the_same_at_any_time).
+                part = zipfile.ZipInfo(name, date_time=dates[name])
+                part.external_attr = 0o600 << 16   # what `writestr` gives a part it is handed by name
+                archive.writestr(part, body, zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED)
         return buffer.getvalue()
 
     for name in sorted((name for name in parts if name.lower().endswith(".xml")), key=lambda name: (-len(parts[name]), name))[:PARTS]:
