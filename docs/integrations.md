@@ -1,11 +1,12 @@
 # Integrations
 
-OpenDocKit's result can be handed straight to LangChain, to LlamaIndex, to Open WebUI, or to an agent through the Model Context Protocol.
+OpenDocKit's result can be handed straight to LangChain, to LlamaIndex, to LightRAG, to Open WebUI, or to an agent through the Model Context Protocol.
 Each integration is an optional extra: none of them is installed, or imported, unless you ask for it.
 
 ```bash
 pip install "opendockit[langchain]"     # OpenDocKitLoader, OpenDocKitParser
 pip install "opendockit[llamaindex]"    # OpenDocKitReader
+pip install "opendockit[lightrag]"      # the `opendockit` parser engine of LightRAG
 pip install "opendockit[mcp]"           # the opendockit-mcp server
 pip install "opendockit[open-webui]"    # the opendockit-open-webui document loader
 ```
@@ -69,6 +70,35 @@ docs = reader.load_data("report.hwp")
 # or by extension, for a whole folder
 extensions = [".hwp", ".hwpx", ".pdf", ".docx", ".pptx", ".xlsx"]
 docs = SimpleDirectoryReader("inbox", file_extractor=dict.fromkeys(extensions, reader)).load_data()
+```
+
+## LightRAG
+
+[LightRAG](https://github.com/HKUDS/LightRAG) finds parser engines that other packages bring. With OpenDocKit installed
+next to it, an engine named `opendockit` is there when LightRAG starts; no code is needed. A routing rule says which
+documents it reads:
+
+```bash
+pip install "opendockit[lightrag]"
+export LIGHTRAG_PARSER="hwp:opendockit,hwpx:opendockit,doc:opendockit,ppt:opendockit,xls:opendockit"
+```
+
+With that rule LightRAG accepts Hangul documents and the old Office formats, which its local engines do not read, and
+everything else goes where it went before. Add `pdf:opendockit`, `docx:opendockit` and so on to have those converted
+to Markdown with their tables and headings as well. One document can also be sent by a hint in its name
+(`report.[opendockit].pdf`) or by `parse_engine="opendockit"` in an upload.
+
+The engine reads PDF, DOCX, PPTX, XLSX, HWP, HWPX, DOC, PPT, XLS, ODT, ODS, ODP, RTF, EPUB, HTML, MHTML, mail (`.eml`),
+CSV and TSV. It stores the whole document as Markdown, without page markers. A scan has no text to store, so LightRAG
+marks it failed with a sentence that says so; send scans to an engine that reads images. What the converter skipped or
+approximated is kept with the document (`parse_warnings`). `.doc` and `.ppt` need LibreOffice on the machine.
+
+Used as a library, without its server, LightRAG loads the engines of other packages when asked to:
+
+```python
+from lightrag.parser.plugins import load_third_party_parsers
+
+load_third_party_parsers()
 ```
 
 ## Options and errors
