@@ -197,6 +197,105 @@ class TestOmmlPhantom:
         assert result.text == "$a+b$"
 
 
+class TestOmmlEquationNumber:
+    """In a row of an equation array `#` sets the number of the equation apart (Word: type `x=x#(1)` and Enter). It was
+    written as a character of the equation, `x=x\\#(1)`."""
+
+    @staticmethod
+    def _array(*rows: str) -> str:
+        return ('<m:eqArr><m:eqArrPr><m:maxDist m:val="1"/></m:eqArrPr>' + "".join(f"<m:e>{row}</m:e>" for row in rows)
+                + "</m:eqArr>")
+
+    def test_number_of_an_equation_is_set_apart(self):
+        body = _equations(self._array(_run("x=x#") + _delimiters(_run("1"))))
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$x=x \\qquad (1)$"
+
+    def test_each_row_has_its_own_number(self):
+        body = _equations(self._array(_run("a=b#(1)"), _run("c=d"), _run("e=f#(3)")))
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$a=b \\qquad (1) \\\\ c=d \\\\ e=f \\qquad (3)$"
+
+    @pytest.mark.parametrize(("row", "expected"), [
+        (_run("x=x#") + _fraction("a#", "b"), "$x=x \\qquad \\frac{a\\#}{b}$"),
+        (_run("y=1#") + _fraction("a#", "b") + _run("(1)"), "$y=1 \\qquad \\frac{a\\#}{b}(1)$"),
+        (_run("a#(1)") + "<m:rad><m:radPr><m:degHide/></m:radPr><m:deg/><m:e>" + _run("#") + "</m:e></m:rad>",
+         "$a \\qquad (1)\\sqrt{\\#}$"),
+        (_run("a#b") + _script("sSup", "c", "#2"), "$a \\qquad bc^{\\#2}$"),
+        (_run("a#b#(2)"), "$a\\#b \\qquad (2)$"),
+        ("<m:r><m:t>x=x</m:t><m:t>#(1)</m:t></m:r>", "$x=x \\qquad (1)$"),
+        (_run("x=x# ") , "$x=x\\#$"),
+    ], ids=["fraction-with-one-behind", "fraction-with-one-between", "radical-with-one-behind", "script-with-one-behind",
+            "two-in-the-row", "second-text-of-a-run", "only-a-space-behind"])
+    def test_only_the_last_number_sign_of_the_row_itself_is_the_mark(self, row, expected):
+        """The mark is found in the runs of the row, not in what the row is written as: cut there, a `#` inside a fraction
+        behind the row's own took the gap and the real mark stayed a character."""
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
+
+    def test_private_use_character_of_the_document_is_not_taken_for_the_mark(self):
+        row = _run("a\uE000b#(1)")
+
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$ab \\qquad (1)$"
+
+    def test_number_sign_that_a_script_group_encloses_stays_the_character(self):
+        row = "<m:r><m:t>a^#</m:t><m:t>b</m:t></m:r>"
+
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$a^{\\#}b$"
+
+    @pytest.mark.parametrize(("row", "expected"), [
+        (_run("a^#") + _run("(1)"), "$a^\\#(1)$"),
+        (_delimiters(_run("a"), "\uE000", ")") + _run("=c#(2)"), "$a)=c \\qquad (2)$"),
+    ], ids=["script-mark-before-it", "private-use-character-in-an-attribute"])
+    def test_mark_is_not_cut_where_it_would_break_the_equation(self, row, expected):
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
+
+    @pytest.mark.timing
+    def test_rows_of_a_long_array_take_linear_time(self):
+        """The property of the array was looked up for every row, a search over all rows each time: 40,000 rows took 42 s."""
+        from tests.timing import fastest
+
+        def rows(count: int) -> bytes:
+            return _docx_with_body(_equations(self._array(*(_run(f"x{index}=y#({index})") for index in range(count)))))
+
+        short, long = rows(1_000), rows(8_000)
+
+        assert fastest(lambda: convert(long, "a.docx")) < 24 * fastest(lambda: convert(short, "a.docx")) + 0.05
+
+    def test_last_run_with_a_number_sign_holds_the_mark(self):
+        row = _run("a#b") + _fraction("p", "q") + _run("=c#(2)")
+
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$a\\#b\\frac{p}{q}=c \\qquad (2)$"
+
+    @pytest.mark.timing
+    def test_arrays_inside_one_another_are_written_once(self):
+        """A row whose own `#` has nothing behind it was written a second time, and with an array of the same kind inside it
+        the work doubled at each level: 18 levels, 2.3 KB, took 12 s."""
+        from tests.timing import fastest
+
+        def nested(depth: int) -> bytes:
+            inner = _run("a#")
+            for _ in range(depth):
+                inner = "<m:d><m:e>" + self._array(inner) + "</m:e></m:d>" + _run("#")
+            return _docx_with_body(_equations(self._array(inner)))
+
+        shallow, deep = nested(6), nested(18)
+
+        assert fastest(lambda: convert(deep, "a.docx")) < 6 * fastest(lambda: convert(shallow, "a.docx")) + 0.05
+
+    @pytest.mark.parametrize("properties", ["", '<m:eqArrPr><m:maxDist m:val="0"/></m:eqArrPr>'], ids=["no-property", "set-off"])
+    def test_array_that_does_not_spread_over_the_line_has_no_number(self, properties):
+        body = _equations(f"<m:eqArr>{properties}<m:e>{_run('n=#A')}</m:e><m:e>{_run('m=B')}</m:e></m:eqArr>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$n=\\#A \\\\ m=B$"
+
+    @pytest.mark.parametrize(("equation", "expected"), [
+        (_run("a#b"), "$a\\#b$"),
+        ('<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>' + _fraction("a#", "b") + '</m:e></m:eqArr>', "$\\frac{a\\#}{b}$"),
+        ('<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>' + _run("x=x#") + '</m:e></m:eqArr>', "$x=x\\#$"),
+        ('<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>' + _run("#(1)") + '</m:e></m:eqArr>', "$\\#(1)$"),
+    ], ids=["outside-an-array", "inside-a-fraction", "nothing-after-it", "nothing-before-it"])
+    def test_other_number_signs_stay_characters(self, equation, expected):
+        assert convert(_docx_with_body(_equations(equation)), "a.docx").text == expected
 class TestOmmlHiddenParts:
     """The degree of a radical and a limit of an n-ary operator can be switched off (m:degHide, m:subHide, m:supHide) and are
     then not drawn, whatever the element still holds: a square root with a hidden degree of 2 came out as `\\sqrt[2]{x}`."""

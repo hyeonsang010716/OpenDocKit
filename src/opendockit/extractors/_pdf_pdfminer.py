@@ -893,8 +893,14 @@ pdffont.PDFSimpleFont.__init__ = _names_win_ansi
 # A CFF font program (FontFile3 /Type1C) may bring an encoding of its own: which glyph each code draws. This many bytes of the
 # program are looked at (its header, strings, charset and encoding stand at its front in the files seen; a table past the
 # end is no table), and a font holds at most this many glyphs.
-_CFF_BYTES_MAX = 4 * 1024 * 1024
-_CFF_GLYPHS_MAX = 65_535
+_CFF_BYTES_MAX = 1024 * 1024
+# What is read of a program is bounded, for a program is read each time a file makes pdfminer build its font again (a font
+# written into the resources of a page or of a form has no object number to be remembered by): the dictionary that says
+# where its tables are is a few hundred bytes, and an encoding names 256 codes, so the glyphs past the first thousand have
+# no code.
+_CFF_DICTIONARY_BYTES_MAX = 4096
+_CFF_GLYPHS_MAX = 1024
+_CFF_GLYPH_NAMES = "opendockit_cff_glyph_names"  # attribute of the stream of a program: what `_cff_glyph_names` read from it
 _CFF_ROS = (12, 30)  # the operator that makes a font CID-keyed: it has no encoding
 _type1_font_init = pdffont.PDFType1Font.__init__
 
@@ -921,23 +927,122 @@ def _type1_font_with_its_own_encoding(self: pdffont.PDFType1Font, rsrcmgr: objec
         program = resolve1(descriptor.get("FontFile3")) if isinstance(descriptor, dict) else None
         if not isinstance(program, PDFStream) or getattr(resolve1(program.get("Subtype")), "name", None) != "Type1C":
             return
-        names = _cff_glyph_names(program.get_data()[:_CFF_BYTES_MAX])
-    except DocumentTooLargeError:
-        raise
-    except Exception:  # noqa: BLE001 — a program that cannot be read says nothing; the font is read as before
+    except Exception:  # noqa: BLE001 — a descriptor that cannot be read says nothing; the font is read as before
         return
-    named: dict[int, str] = {}
-    for code, name in names.items():
+    read = getattr(program, _CFF_GLYPH_NAMES, None)
+    if read is None:
+        # Read once for a program: the same stream stands behind the font however often the font is built
+        read = {}, frozenset()
         try:
-            named[code] = name2unicode(name)
-        except (KeyError, ValueError):
-            continue
+            head = _program_head(program)
+            if head is not None:
+                read = _characters_of_glyph_names(_cff_glyph_names(head))
+        except DocumentTooLargeError:
+            raise
+        except Exception:  # noqa: BLE001 — a program that cannot be read says nothing; the font is read as before
+            pass
+        setattr(program, _CFF_GLYPH_NAMES, read)
+    named, nameless = read
     if any(character != chr(code) for code, character in named.items() if code < 0x80 and chr(code).isalnum()):
         return
-    self.cid2unicode = {**self.cid2unicode, **named}
+    characters = {**self.cid2unicode, **named}
+    for code in nameless:
+        characters.pop(code, None)
+    self.cid2unicode = characters
 
 
 pdffont.PDFType1Font.__init__ = _type1_font_with_its_own_encoding
+
+
+def _program_head(program: PDFStream) -> bytes | None:
+    """The first `_CFF_BYTES_MAX` bytes of a font program, inflated no further and charged to the document's limit: None
+    for a stream that is stored otherwise than plain or under one Flate filter without a predictor, with ASCII filters
+    before it or none (Distiller's ASCII format writes `[/ASCII85Decode /FlateDecode]`; an ASCII filter only shrinks).
+
+    `get_data` inflates the whole stream and keeps it: a file whose FontFile3 inflates to 300 MB would hold it all for an
+    encoding that stands in its first kilobytes (Pinned by:
+    test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_only_the_head_of_a_program_is_inflated)."""
+    data = program.rawdata
+    if data is None:
+        return None
+    if program.decipher:
+        data = program.decipher(program.objid, program.genno, data, program.attrs)
+    filters = program.get_filters()
+    for index, (name, params) in enumerate(filters):
+        if name in LITERALS_ASCII85_DECODE:
+            data = ascii85decode(data)
+        elif name in LITERALS_ASCIIHEX_DECODE:
+            data = asciihexdecode(data)
+        elif name in LITERALS_FLATE_DECODE and index == len(filters) - 1 and (params or {}).get("Predictor", 1) == 1:
+            break
+        else:
+            return None
+    else:
+        return data[:_CFF_BYTES_MAX]
+    inflater, pieces, size = zlib.decompressobj(), [], 0
+    try:
+        while data and size < _CFF_BYTES_MAX and not inflater.eof:
+            pieces.append(inflater.decompress(data, _CFF_BYTES_MAX - size))
+            size += len(pieces[-1])
+            data = inflater.unconsumed_tail
+    except zlib.error:
+        pass  # what was inflated before the broken spot is read, as pdfminer reads a broken stream
+    budget = _INFLATE_BUDGET.get()
+    key = id(program) if program.objid is None else (program.objid, program.genno)
+    if budget is not None and key not in budget.charged:  # a stream measured whole (`_charge`) is charged already
+        budget.remaining -= size
+        if budget.remaining < 0:
+            budget.exceeded = True
+            raise DocumentTooLargeError(_TOO_LARGE)
+    return b"".join(pieces)
+
+
+# The endings of the glyph names of the private use area that draw a character in another cut: `oneoldstyle` a 1,
+# `ampersandsmall` an ampersand, `Asmall` a small capital A
+_GLYPH_CUTS = ("taboldstyle", "oldstyle", "small", "superior", "inferior")
+
+
+def _characters_of_glyph_names(names: dict[int, str]) -> tuple[dict[int, str], frozenset[int]]:
+    """The characters of the glyph names that say text, by code, and the codes whose name says a character that is no text:
+    one of the private use area, a surrogate, an unassigned one, U+FFFD, or a control other than a tab or a line end
+    (`Asmall` is U+F761, `uni0000` a NUL).
+
+    Such a code has no character: it is not the one of StandardEncoding, which the font does not draw there (`oneoldstyle`
+    at E8 read `Ł`), and cleaning would remove the one of the private use area, so either way the page lost the character
+    and with the second also the warning of a character without a mapping. But where the name is another cut of the very
+    character StandardEncoding has at that code - `oneoldstyle` at the code of `1`, `dollaroldstyle` at `$`, `Asmall` at
+    `a` - the code reads as before: it is that character. A name that says no character at all (`G38`) is in neither
+    (Pinned by: test_pdf_fonts.py::TestEncodingBuiltIntoACffFont::test_glyph_name_of_no_text_has_no_character)."""
+    named: dict[int, str] = {}
+    nameless = set()
+    for code, name in names.items():
+        try:
+            characters = name2unicode(name)
+        except (KeyError, ValueError):
+            continue
+        if characters and all(_is_text(one) for one in characters):
+            named[code] = characters
+        elif not _another_cut_of_the_standard_character(code, name):
+            nameless.add(code)
+    return named, frozenset(nameless)
+
+
+def _another_cut_of_the_standard_character(code: int, name: str) -> bool:
+    standard = EncodingDB.std2unicode.get(code)
+    if standard is None:
+        return False
+    for cut in _GLYPH_CUTS:
+        if name.endswith(cut) and len(name) > len(cut):
+            try:
+                return name2unicode(name[:-len(cut)]).casefold() == standard.casefold()
+            except (KeyError, ValueError):
+                return False
+    return False
+
+
+def _is_text(character: str) -> bool:
+    kind = unicodedata.category(character)
+    return character != "\ufffd" and kind not in ("Co", "Cs", "Cn") and (kind != "Cc" or character in "\t\n\r")
 
 
 def _cff_glyph_names(program: bytes) -> dict[int, str]:
@@ -945,10 +1050,12 @@ def _cff_glyph_names(program: bytes) -> dict[int, str]:
     nothing for a program that uses a predefined encoding - StandardEncoding is what the font is read with already, and
     the Expert sets hold no text - for a CID-keyed one, and for one whose charset is predefined other than ISOAdobe.
     Raises `struct.error`, `IndexError` or `ValueError` when the program ends early or is not laid out as one."""
-    names, at = _cff_index(program, program[2])     # the Name INDEX stands behind the header, whose size is its third byte
+    _, at = _cff_index(program, program[2])     # the Name INDEX stands behind the header, whose size is its third byte
     dictionaries, at = _cff_index(program, at)
     strings, at = _cff_index(program, at)
-    first, last = dictionaries[0]
+    first, last = _cff_object(program, dictionaries, 0)
+    if last - first > _CFF_DICTIONARY_BYTES_MAX:
+        raise ValueError
     top = _cff_dictionary(program[first:last])
     encoding, charset, glyphs = (top.get(operator, (0,))[-1] for operator in (16, 15, 17))
     if _CFF_ROS in top or encoding in (0, 1) or charset in (1, 2) or not glyphs:
@@ -976,27 +1083,31 @@ def _cff_glyph_names(program: bytes) -> dict[int, str]:
         standard = pdffont.CFFFont.STANDARD_STRINGS
         if string_id < len(standard):
             return standard[string_id]
-        first, last = strings[string_id - len(standard)]
-        return program[first:last].decode("latin-1")
+        first, last = _cff_object(program, strings, string_id - len(standard))
+        return program[first:min(last, first + _CFF_NAME_BYTES_MAX)].decode("latin-1")
 
     found: dict[int, str] = {}
     kind, at = program[encoding], encoding + 1
     if kind & 0x7F == 0:        # the code of each glyph, from glyph 1
         codes = program[at + 1:at + 1 + program[at]]
         at += 1 + program[at]
-        for glyph, code in enumerate(codes, 1):
-            if glyph < len(string_ids):
-                found[code] = name(string_ids[glyph])
+        for glyph, code in enumerate(codes[:max(len(string_ids) - 1, 0)], 1):
+            found[code] = name(string_ids[glyph])
     elif kind & 0x7F == 1:      # ranges of codes, their glyphs in order from glyph 1
         ranges, glyph = program[at], 1
         at += 1
-        for _ in range(ranges):
-            start, left = program[at], program[at + 1]
-            at += 2
+        for index in range(ranges):
+            start, left = program[at + 2 * index], program[at + 2 * index + 1]
             for code in range(start, min(start + left, 0xFF) + 1):
-                if glyph < len(string_ids):
-                    found[code] = name(string_ids[glyph])
+                if glyph >= len(string_ids):
+                    break
+                found[code] = name(string_ids[glyph])
                 glyph += 1
+            else:
+                glyph += max(start + left - 0xFF, 0)  # the codes of the range past 255 take their glyphs too
+                continue
+            break
+        at += 2 * ranges
     else:
         raise ValueError
     if kind & 0x80:             # codes that draw a glyph another code draws already, named by their string
@@ -1007,24 +1118,41 @@ def _cff_glyph_names(program: bytes) -> dict[int, str]:
 
 
 _CFF_ISO_ADOBE_GLYPHS = 229  # the predefined charset ISOAdobe: glyph n is string n
+_CFF_NAME_BYTES_MAX = 128    # a glyph name is at most 127 characters (Adobe Technical Note 5176 and PostScript names)
 
 
-def _cff_index(program: bytes, at: int) -> tuple[list[tuple[int, int]], int]:
-    """The (start, end) of each object of the INDEX at `at`, and where the INDEX ends."""
+def _cff_index(program: bytes, at: int) -> tuple[tuple[int, int, int], int]:
+    """The INDEX at `at` as (the number of its objects, the size of an offset, where its offsets begin), and where the INDEX
+    ends. Only its last offset is read: the objects are looked up one at a time (`_cff_object`), for an INDEX may claim
+    65,535 of them."""
     (count,) = struct.unpack_from(">H", program, at)
     if not count:
-        return [], at + 2
+        return (0, 0, 0), at + 2
     size = program[at + 2]
     if not 1 <= size <= 4:
         raise ValueError
-    table = program[at + 3:at + 3 + (count + 1) * size]
-    if len(table) != (count + 1) * size:
+    offsets = at + 3
+    base = offsets + (count + 1) * size - 1
+    if base + 1 > len(program):
         raise ValueError
-    offsets = [int.from_bytes(table[index:index + size], "big") for index in range(0, len(table), size)]
-    base = at + 3 + len(table) - 1
-    if offsets[0] != 1 or base + offsets[-1] > len(program) or offsets != sorted(offsets):
+    end = base + int.from_bytes(program[offsets + count * size:offsets + (count + 1) * size], "big")
+    if end > len(program) or end <= base:
         raise ValueError
-    return [(base + offsets[index], base + offsets[index + 1]) for index in range(count)], base + offsets[-1]
+    return (count, size, offsets), end
+
+
+def _cff_object(program: bytes, index: tuple[int, int, int], number: int) -> tuple[int, int]:
+    """Where object `number` of an INDEX (`_cff_index`) starts and ends."""
+    count, size, offsets = index
+    if not 0 <= number < count:
+        raise IndexError
+    base = offsets + (count + 1) * size - 1
+    at = offsets + number * size
+    start = int.from_bytes(program[at:at + size], "big")
+    end = int.from_bytes(program[at + size:at + 2 * size], "big")
+    if not 1 <= start <= end or base + end > len(program):
+        raise ValueError
+    return base + start, base + end
 
 
 def _cff_dictionary(data: bytes) -> dict[int | tuple[int, int], tuple[int, ...]]:
