@@ -8,7 +8,13 @@ import bisect
 import codecs
 import email
 import email.base64mime
-from email.errors import HeaderParseError, InvalidBase64LengthDefect
+from email.errors import (
+    FirstHeaderLineIsContinuationDefect,
+    HeaderParseError,
+    InvalidBase64LengthDefect,
+    InvalidHeaderDefect,
+    MisplacedEnvelopeHeaderDefect,
+)
 import email.header
 from email.header import Header, decode_header
 from email.message import Message, _parseparam
@@ -458,6 +464,12 @@ _FOLDED_PARAMETERS = re.compile(r"""[^\s;]+\s*(?:;\s*(?:[!#-'*+\-.0-9A-Z^-z|~]+\
                                 r"""(?:"[^"]*"|=\?[^\s;"]+\?=(?:\s+=\?[^\s;"]+\?=)*|[^\s;"]+)\s*)?)*""")
 # What a body in base64 is made of: the alphabet and its padding, line ends, blanks, and NUL bytes some mailers pad with
 _BASE64_BODY = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/= \t\r\n\x00"
+# What the parser records when it drops a line among the headers of a part without making a header of it: a line that begins
+# with `From ` behind the first header, an indented line before the first header, a line that begins with a colon. (A line
+# that begins with `From ` before the first header is kept as the envelope line, which no reader shows.)
+_HEADER_LINE_DROPPED = (MisplacedEnvelopeHeaderDefect, FirstHeaderLineIsContinuationDefect, InvalidHeaderDefect)
+# Transfer encodings the standard library decodes as uuencode: the text around the block is not part of what is decoded
+_UUENCODINGS = frozenset({"x-uuencode", "uuencode", "uue", "x-uue"})
 # A transfer encoding under which the body of a multipart is its bytes as they are
 _IDENTITY_ENCODINGS = frozenset({"", "7bit", "8bit", "binary"})
 # A mail is split again this way at most this many times, the mail and one inside it, and the parts found may nest this deep:
@@ -526,6 +538,8 @@ def _shows_every_line(multipart: Message) -> bool:
     - No part in base64, of the mail or of a mail forwarded in it, whose body is more than base64 (`_is_all_base64`), and no
       multipart inside that the parser left whole under a transfer encoding or as an attachment.
     - No attachment that holds parts as text (the rest of the mail, under a delimiter that never came again).
+    - No line among the headers of a part, of a block of a report or of a forwarded mail that the parser dropped
+      (`_drops_a_line_among_its_headers`), and no part under uuencode, where only the block is decoded.
     - No report that holds more than its fields, no forwarded mail under a transfer encoding or of a kind that is not read,
       and in a multipart/alternative nothing beside one plain form of the text and one page (text/html, or a multipart).
     Known accepted gap: what a mail with a right boundary does not show is not shown: the delimiter lines, the headers of the
@@ -545,7 +559,7 @@ def _shows_every_line(multipart: Message) -> bool:
             if kinds.count("text/plain") > 1 or pages > 1 or kinds.count("text/plain") + pages != len(kinds):
                 return False
         for child in current.get_payload():
-            if not isinstance(child, Message):
+            if not isinstance(child, Message) or _drops_a_line_among_its_headers(child):
                 return False
             for name, value in child.items():
                 name, value = name.lower(), str(value)
@@ -566,7 +580,8 @@ def _shows_every_line(multipart: Message) -> bool:
                 # A report is blocks of fields: a line that is none ends a block, and what follows is not written with the fields
                 blocks = child.get_payload()
                 if not isinstance(blocks, list) or any(not isinstance(block, Message) or not isinstance(block.get_payload(), str)
-                                                       or block.get_payload().strip() for block in blocks):
+                                                       or block.get_payload().strip() or _drops_a_line_among_its_headers(block)
+                                                       for block in blocks):
                     return False
                 continue
             if kind in _FORWARD_TYPES:
@@ -574,6 +589,8 @@ def _shows_every_line(multipart: Message) -> bool:
                 inside = child.get_payload()
                 inside = inside[0] if isinstance(inside, list) and len(inside) == 1 and isinstance(inside[0], Message) else None
                 if inside is None or str(child.get("Content-Transfer-Encoding", "")).strip().lower() not in _IDENTITY_ENCODINGS:
+                    return False
+                if _drops_a_line_among_its_headers(inside) or _is_uuencoded(inside):
                     return False
                 if inside.is_multipart():
                     stack.append(inside)
@@ -585,6 +602,8 @@ def _shows_every_line(multipart: Message) -> bool:
                 continue
             if kind == "text/rfc822-headers":
                 return False  # read as the headers before the first blank line, whatever name it has: the rest is passed over
+            if _is_uuencoded(child):
+                return False  # only the block between `begin` and `end` is decoded: a line around it is passed over
             # (a text part without a disposition or a name is no attachment: `_is_attachment` is not asked)
             body_text = kind in ("text/plain", "text/html")
             reported = ((not body_text or "Content-Disposition" in child or "name" in str(child.get("Content-Type", "")).lower())
@@ -596,6 +615,17 @@ def _shows_every_line(multipart: Message) -> bool:
             if not _is_all_base64(child):
                 return False
     return True
+
+
+def _drops_a_line_among_its_headers(part: Message) -> bool:
+    """Did the parser pass over a line among the headers of this part, or keep one as an envelope line? `From the start we
+    agreed` under `Content-Type:`, an indented sentence above it, `: a note` - none becomes a header, so none is seen among
+    the headers; the parser notes each as a defect of the part."""
+    return bool(part.get_unixfrom()) or any(isinstance(defect, _HEADER_LINE_DROPPED) for defect in part.defects)
+
+
+def _is_uuencoded(part: Message) -> bool:
+    return str(part.get("Content-Transfer-Encoding", "")).strip().lower() in _UUENCODINGS
 
 
 def _is_data_in_base64(part: Message) -> bool:

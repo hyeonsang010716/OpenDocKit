@@ -174,6 +174,23 @@ class TestMultipartSplitAtTheDelimiterInUse:
         "A line that was shown.\r\n--BBB--\r\n",
         "--BBB\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nMonday12\r\nTuesday3\r\nFriday45\r\n--BBB--\r\n",
         "--BBB\r\nContent-Type: text/plain\r\nX-Note: a sentence that was shown\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nFrom the start this sentence was shown.\r\nContent-Transfer-Encoding: 8bit\r\n\r\nBody.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n\r\nOne\r\n--BBB\r\nFrom the minutes, a sentence that was shown.\r\nContent-Type: text/plain\r\n\r\n"
+        "Two\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n\r\nOne\r\n--BBB\r\n  An indented sentence that was shown.\r\nContent-Type: text/plain\r\n\r\n"
+        "Two\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n: a note that was shown\r\nContent-ID: <a@b>\r\n\r\nBody.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; a.example\r\nFrom the server, a sentence that was shown.\r\n"
+        "Arrival-Date: Mon, 1 Jan 2024\r\n\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/delivery-status\r\n\r\n  An indented sentence that was shown.\r\nReporting-MTA: dns; a.example\r\n\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nFrom the start this sentence was shown.\r\nDate: Mon, 1 Jan 2024\r\n\r\n"
+        "Inner body.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\n  An indented sentence that was shown.\r\nSubject: inner\r\n\r\nInner body.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nFrom the minutes, a sentence that was shown.\r\nSubject: inner\r\n\r\nInner body.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: x-uuencode\r\n\r\nA sentence before the block, shown.\r\n"
+        "begin 644 a.txt\r\n#86)C\r\n`\r\nend\r\nA sentence behind the block, shown.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Transfer-Encoding: uue\r\n\r\nA sentence before the block, shown.\r\n"
+        "begin 644 a.txt\r\n#86)C\r\n`\r\nend\r\n--BBB--\r\n",
     ], ids=["named-part-the-body-points-at", "named-part-with-a-location", "signature", "partial-message", "message-of-no-known-kind",
             "sentence-under-a-header-of-a-part", "sentence-folded-behind-a-semicolon", "sentence-folded-under-another-header",
             "footer-behind-base64", "line-of-words-in-base64", "multipart-inside-under-base64", "multipart-inside-set-aside",
@@ -184,7 +201,13 @@ class TestMultipartSplitAtTheDelimiterInUse:
             "words-between-dashes-behind-base64", "folded-sentence-with-an-equals-sign", "sentence-folded-under-a-type-without-a-semicolon",
             "text-of-another-kind-in-base64", "parameter-under-a-header-that-has-none",
             "multipart-of-the-mail-inside-under-base64", "returned-headers-with-a-file-name", "words-of-one-length-as-data",
-            "sentence-under-a-name-of-the-sender's-own"])
+            "sentence-under-a-name-of-the-sender's-own",
+            "sentence-that-begins-with-From-among-the-headers", "sentence-that-begins-with-From-under-a-later-delimiter",
+            "indented-sentence-under-a-later-delimiter", "line-that-begins-with-a-colon-among-the-headers",
+            "sentence-that-begins-with-From-in-a-report", "indented-sentence-opening-a-report",
+            "sentence-that-begins-with-From-among-the-headers-of-the-mail-inside", "indented-sentence-opening-the-mail-inside",
+            "sentence-that-begins-with-From-opening-the-mail-inside", "text-around-a-uuencoded-block",
+            "mail-inside-with-text-before-a-uuencoded-block"])
     def test_body_a_split_would_read_less_of_stays_text(self, body):
         """Each of these came out shorter, or as nothing, once it was split: a part neither read nor reported, a sentence taken
         for a header, lines decoded as base64, the rest of the mail set aside as one attachment."""
@@ -193,6 +216,16 @@ class TestMultipartSplitAtTheDelimiterInUse:
         shown = result.text.split("\n\n", 1)[1]
         for line in body.replace("\r\n", "\n").split("\n"):
             assert line.strip() in shown
+
+    @pytest.mark.parametrize("encoding", ["x-uuencode", "uuencode", "uue", "x-uue", "X-UUencode"])
+    def test_part_under_any_name_of_uuencode_stays_text(self, encoding):
+        """Only the block between `begin` and `end` is decoded: the sentences around it were shown and would be gone."""
+        body = (f"--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: {encoding}\r\n\r\nA sentence before the block.\r\n"
+                "begin 644 a.txt\r\n#86)C\r\n`\r\nend\r\nA sentence behind the block.\r\n--BBB--\r\n")
+
+        text = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml").text
+
+        assert "A sentence before the block." in text and "A sentence behind the block." in text and "--BBB--" in text
 
     @pytest.mark.parametrize("parts", [
         "--BBB\r\nContent-Type: text/html\r\n\r\n<p>Page form.</p>\r\n--BBB\r\nContent-Type: message/delivery-status\r\n\r\n"
