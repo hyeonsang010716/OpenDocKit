@@ -28,7 +28,7 @@ from opendockit.extractors._pdf_model import (
     _word_chars,
 )
 from opendockit.extractors._pdf_ruled_tables import _in_cell
-from opendockit.markdown import render_table
+from opendockit.markdown import escape_block_marks, render_table
 
 
 # Dot leader left in the page text (5 or more dots/middle dots or 3 or more ellipses; they may be spaced one apart). Shortened to a
@@ -73,7 +73,7 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
             text = f"{'#' * _ATTACHMENT_BAR_LEVEL} {bars[index]}"
         else:
             text = (f"{'#' * level} {_paragraph_text(paragraph, ' ')}" if level
-                    else _escaped_block_marks(_paragraph_text(paragraph)))
+                    else escape_block_marks(_paragraph_text(paragraph)))
         items.append((paragraph.top, text, False))
         spans.append((min(line.x0 for line in paragraph.lines), max(line.x1 for line in paragraph.lines)))
         sizes.append((paragraph.lines[-1].bottom, len(paragraph.lines)))
@@ -585,17 +585,6 @@ def _weight_breaks(previous: _Line, line: _Line) -> bool:
         # A bold line that is itself a sentence ('Do not discard this notice!') closes the paragraph it is set in
         return previous.text.rstrip().endswith((".", "!", "?", ":", "。")) and not _ends_like_a_sentence(line.text.strip())
     return False
-
-
-# A line start Markdown reads as the mark of a block: `#` … `######` and a space (a heading) or `>` (a quote)
-_BLOCK_MARK_START = re.compile(r"^(?:#{1,6}(?=\s|$)|>)", re.MULTILINE)
-
-
-def _escaped_block_marks(text: str) -> str:
-    """Body text whose lines start with a heading or quote mark, escaped (`\\#`, `\\>`). The text of a page is text, never
-    structure: a form row '# DNA replications' (a count column) became a Markdown heading (Pinned by:
-    test_pdf_headings.py::TestBodyTextMarks)."""
-    return _BLOCK_MARK_START.sub(lambda match: "\\" + match.group(0), text)
 
 
 def _paragraph_text(paragraph: _Paragraph, joint: str = "\n") -> str:

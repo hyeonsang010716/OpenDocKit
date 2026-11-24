@@ -91,6 +91,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
   note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
   list item is outlined lost their headline. Titles by size and outline headings are both headings now.
+- **HWP, HWPX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`), as in a PDF. A manual that shows
+  what is typed at a prompt (`# arch -k`) came out with 273 headings of its own lines, and the `>>` in front of the
+  summary lines of a press release made each a quote in a quote.
 - **HWPX: a tracked deletion set in more than one character shape, or holding a table or a picture, is left out.**
   Only a deletion inside one run of text was. A press release under review wrote two names and titles in front of the
   one that replaced them, and a proposal kept a programme and the tables of the careers of people taken out of it.
