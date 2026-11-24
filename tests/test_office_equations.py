@@ -249,6 +249,46 @@ class TestOmmlEquationNumber:
     def test_mark_is_not_cut_where_it_would_break_the_equation(self, row, expected):
         assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
 
+    def test_array_that_spreads_without_saying_how_far_is_numbered_too(self):
+        """`<m:maxDist/>` without a value is on, as every on/off property of an equation is."""
+        array = "<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>" + _run("x=x#(1)") + "</m:e></m:eqArr>"
+
+        assert convert(_docx_with_body(_equations(array)), "a.docx").text == "$x=x \\qquad (1)$"
+
+    @pytest.mark.parametrize(("row", "expected"), [
+        (_run("a\uE000\uE001b#(1)"), "$ab \\qquad (1)$"),
+        (_run("a\uE000\uE001\uE002b#(1)"), "$ab\\#(1)$"),
+    ], ids=["two-of-the-marks-in-the-row", "all-of-them"])
+    def test_mark_is_one_the_row_does_not_hold(self, row, expected):
+        """With every mark in the row there is none to stand for the `#`: it stays the character."""
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
+
+    @pytest.mark.parametrize(("row", "expected"), [
+        (_run("a_#") + _run("(1)"), "$a_\\#(1)$"),
+        (_run("x=x # (1)"), "$x=x \\qquad (1)$"),
+        (_run(" x=x#(1) "), "$x=x \\qquad (1)$"),
+        (_run("{a}#(1)"), "$\\{a\\} \\qquad (1)$"),
+        (_run("a}#(1)"), "$a\\} \\qquad (1)$"),
+        (_run("#(1)"), "$\\#(1)$"),
+    ], ids=["subscript-mark-before-it", "spaces-around-it", "spaces-around-the-row", "braces-written-in-the-text",
+            "closing-brace-written-in-the-text", "nothing-before-it"])
+    def test_what_stands_around_the_number_sign(self, row, expected):
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
+
+    def test_row_is_left_as_it_was_read(self):
+        """The mark is put into the text of the run while the row is written: written twice, the row reads the same."""
+        from lxml import etree
+
+        from opendockit.extractors import _omml
+
+        namespace = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+        array = etree.fromstring(f'<m:eqArr xmlns:m="{namespace}"><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e><m:r><m:t>x=x#(1)</m:t></m:r>'
+                                 "</m:e></m:eqArr>")
+        before = etree.tostring(array)
+
+        assert _omml.omml_to_latex(array) == _omml.omml_to_latex(array) == "x=x \\qquad (1)"
+        assert etree.tostring(array) == before
+
     @pytest.mark.timing
     def test_rows_of_a_long_array_take_linear_time(self):
         """The property of the array was looked up for every row, a search over all rows each time: 40,000 rows took 42 s."""
