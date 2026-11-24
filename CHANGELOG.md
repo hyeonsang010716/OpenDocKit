@@ -91,6 +91,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
   note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
   list item is outlined lost their headline. Titles by size and outline headings are both headings now.
+- **HWP, HWPX: the warning of a body replaced by the preview says what happened**: no text was found in the body. It
+  said the body could not be parsed, of documents whose body was read to its end and held none.
 
 ## [0.3.15] - 2026-11-23
 

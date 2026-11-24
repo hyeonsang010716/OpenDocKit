@@ -961,7 +961,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
     preview_text = preview.decode("utf-8", errors="replace")
     if not body.strip() and preview_has_words(preview_text):
         body = preview_text
-        extraction.warnings.append("The body could not be parsed, so the preview text saved by Hancom Office was used instead "
+        extraction.warnings.append("No text was found in the body, so the preview text saved by Hancom Office was used instead "
                                    "(it may contain only the beginning).")
     extraction.warnings.extend(renderer.unread_warnings())
     if renderer.omitted_rows:
