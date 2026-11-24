@@ -136,6 +136,7 @@ async with IsolatedConverter(workers=2) as converter:      # 默认每个文件 
 opendockit report.pdf                 # Markdown 输出到标准输出，警告输出到标准错误
 opendockit report.pdf --json          # 分节、元数据、警告、图片
 opendockit report.pdf --count         # 只输出字符数
+opendockit report.pdf -o report.md    # 直接写入文件（UTF-8；在 Windows PowerShell 中请用这种方式）
 opendockit scan.pdf --describe        # 用视觉模型描述图片（使用 OPENAI_API_KEY）
 ```
 
