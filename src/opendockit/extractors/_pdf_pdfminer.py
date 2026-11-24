@@ -175,12 +175,17 @@ class _InflateBudget:
     line_work: int | None = None  # line-grouping work left to the layout being grouped (None outside `group_textlines`)
     line_spent_layout: object = None  # the layout whose line grouping gave up last: its boxes are not grouped (`_group_few_textboxes`)
     unruled_pages: set[int] = field(default_factory=set)  # pages whose ruled tables were not looked for (`_MAX_RULE_CROSSINGS`)
+    long_texts: dict[int, tuple[object, bool]] = field(default_factory=dict)  # ToUnicode stream → a code of it stands for a long text
+    page_glyphs: int = 0  # glyphs pdfminer has drawn on the page being read (`_MAX_READ_GLYPHS`, reset per page)
+    page_kept: int = 0  # those it kept (`_MAX_KEPT_GLYPHS`)
+    page_text: int = 0  # characters the kept ones stand for (`_MAX_READ_TEXT`)
 
     def new_page(self) -> None:
         """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`). Pinned by:
         test_audit_pdf_text.py::TestTooManyTextBoxes::test_the_forms_of_a_page_are_not_charged_for_those_of_the_page_before,
         TestTooMuchLineGrouping::test_the_forms_of_a_page_start_with_a_whole_allowance."""
         self.grouping_cost, self.figure_line_work = 0, _LINE_GROUPING_WORK
+        self.page_glyphs = self.page_kept = self.page_text = 0
 
 
 _INFLATE_BUDGET: ContextVar[_InflateBudget | None] = ContextVar("pdf_inflate_budget", default=None)
@@ -662,6 +667,103 @@ class _FormWalk:
         return total, read
 
 
+# The text a /ToUnicode map gives one code is long when it is written in more characters of the map than this, from its `<` to
+# its `>` whatever stands between: 64 characters of text. Over 3,506 maps of 1,626 public PDFs the longest is 49 (one test
+# file of a viewer; 23 below it): ligatures, and words a writer drew as one glyph.
+_LONG_GLYPH_TEXT = re.compile(rb"<[^<>]{257,}>")
+# Dictionaries of resources and forms followed for the fonts of a page (`_gives_a_code_long_text`)
+_FONT_RESOURCES_FOLLOWED = 5000
+
+
+def _gives_a_code_long_text(page: object, budget: _InflateBudget) -> bool:
+    """Does a /ToUnicode map of a font of the page - in its resources, those pdfium takes from `/Parent`, or those of a form in
+    them - give one code a long text (`_LONG_GLYPH_TEXT`)?
+
+    pdfium's text page holds a character for each unit of that text for each glyph drawn, 0.3 KB each: an 18 KB file whose one
+    code stands for 2,000 characters, drawn 2,000 times, took 1.2 GB there, and 4,000 by 4,000 more than 3 GB within a second.
+    No text of a document is written so, and pdfium is not let open such a page (Pinned by:
+    test_pdf_resource_limits.py::TestGlyphsOfAPage).
+
+    Known accepted gap: False when the fonts cannot be looked through - a map that does not decode, resources that go on past
+    `_FONT_RESOURCES_FOLLOWED` dictionaries - as for every estimate taken before a page is read; and what else gives a glyph
+    more than one character in pdfium (/ActualText, the letters of a compatibility character) is not looked for."""
+    try:
+        page_obj = page.page_obj
+        pending, seen = [page_obj.resources, _parent_resources(page_obj)], set()
+        while pending:
+            current = resolve1(pending.pop())
+            if not isinstance(current, dict) or id(current) in seen:
+                continue
+            seen.add(id(current))
+            if len(seen) > _FONT_RESOURCES_FOLLOWED:
+                return False
+            fonts = resolve1(current.get("Font"))
+            for font in fonts.values() if isinstance(fonts, dict) else ():
+                font = resolve1(font)
+                table = resolve1(font.get("ToUnicode")) if isinstance(font, dict) else None
+                if not isinstance(table, PDFStream):
+                    continue
+                if id(table) not in budget.long_texts:
+                    budget.long_texts[id(table)] = (table, _LONG_GLYPH_TEXT.search(table.get_data()) is not None)
+                if budget.long_texts[id(table)][1]:
+                    return True
+            xobjects = resolve1(current.get("XObject"))
+            for xobject in xobjects.values() if isinstance(xobjects, dict) else ():
+                xobject = resolve1(xobject)
+                if _is_form(xobject):
+                    pending.append(xobject.attrs.get("Resources"))
+        return False
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — the look is a bonus. Page reading meets a broken structure itself and handles it
+        return False
+
+
+# What pdfminer draws on one page before the page is given up. It keeps about 2.5 KB a glyph and takes some 5 microseconds to
+# draw one, and the count pdfium gives of a page (`_MAX_PAGE_CHARS` in pdf.py: above 200,000 the page is not given to pdfminer)
+# leaves out what lies off the page: one string of a million glyphs (a 1.5 KB file) took 20 s and 2.5 GB. A glyph removed as a
+# copy on the same spot (`_MAX_OVERPRINTS`: of bold drawn by printing four times, the fourth) is not kept and counts only for
+# the time; the copies that stay count as kept.
+_MAX_KEPT_GLYPHS = 250_000
+_MAX_READ_GLYPHS = 1_000_000
+_MAX_READ_TEXT = 2_000_000
+
+
+class _TooManyGlyphs(Exception):
+    """A page draws more glyphs, or stands for more text, than pdfminer is let read (`_MAX_KEPT_GLYPHS`, `_MAX_READ_GLYPHS`,
+    `_MAX_READ_TEXT`)."""
+
+
+# Bytes of one string of a content stream pdfminer reads before the page is given up (`_TooManyGlyphs`). It reads a string
+# whole before it draws its first glyph and keeps some 70 bytes for each: one string of 30 MB (a 30 KB file) took 2.2 GB.
+_MAX_STRING_BYTES = 2_000_000
+_string_of_any_length = PDFContentParser._parse_string
+_hex_string_of_any_length = PDFContentParser._parse_hexstring
+
+
+def _parse_bounded_string(self: PDFContentParser, s: bytes, i: int) -> int:
+    """`_parse_string` of the parser of content streams, which gives a page up when the string being read is longer than
+    `_MAX_STRING_BYTES`. The count is of the string as pdfminer itself reads it, across the buffers and the streams of a
+    page; strings of the objects of a document are read by another parser and are not bounded here (Pinned by:
+    test_pdf_resource_limits.py::TestGlyphsOfAPage)."""
+    at = _string_of_any_length(self, s, i)
+    if len(self._curtoken) > _MAX_STRING_BYTES and _INFLATE_BUDGET.get() is not None:
+        raise _TooManyGlyphs
+    return at
+
+
+def _parse_bounded_hex_string(self: PDFContentParser, s: bytes, i: int) -> int:
+    """`_parse_hexstring` bounded like `_parse_bounded_string`: two digits stand for a byte."""
+    at = _hex_string_of_any_length(self, s, i)
+    if len(self._curtoken) > 2 * _MAX_STRING_BYTES and _INFLATE_BUDGET.get() is not None:
+        raise _TooManyGlyphs
+    return at
+
+
+PDFContentParser._parse_string = _parse_bounded_string
+PDFContentParser._parse_hexstring = _parse_bounded_hex_string
+
+
 # Upper bound on expanding font ranges. pdfminer expands the ranges of a CID font's /W and /W2 (`c1 c2 w`) and the bfrange/cidrange
 # of mapping tables (ToUnicode, Encoding CMap) into a dictionary one entry at a time. A 3KB PDF with the single line
 # `/W [40000 400000000 500]` used tens of GB (the decompression limit does not measure expansion). One font's table is expanded
@@ -773,11 +875,15 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
     the next character's position is the same). For a character under fill opacity (`_FILL_ALPHA`) the fill colour is replaced by
     the visible colour blended onto a white background (`_blended_fill`). The function is not copied."""
     advance = _render_char_all_copies(self, *args, **kwargs)
-    if _INFLATE_BUDGET.get() is None:
+    budget = _INFLATE_BUDGET.get()
+    if budget is None:
         return advance
     objs = self.cur_item._objs
     char = objs[-1] if objs else None
     if isinstance(char, LTChar):
+        budget.page_glyphs += 1
+        if budget.page_glyphs > _MAX_READ_GLYPHS:
+            raise _TooManyGlyphs
         _blended_fill(char.graphicstate)
         font = kwargs.get("font", args[1] if len(args) > 1 else None)
         _symbol_font_glyph(char, font)
@@ -792,6 +898,10 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
         if copies[key] > _MAX_OVERPRINTS:
             objs.pop()
         else:
+            budget.page_kept += 1
+            budget.page_text += len(char._text)
+            if budget.page_kept > _MAX_KEPT_GLYPHS or budget.page_text > _MAX_READ_TEXT:
+                raise _TooManyGlyphs
             _set_on_its_letter(objs)
     return advance
 
