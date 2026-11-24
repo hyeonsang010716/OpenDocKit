@@ -242,6 +242,25 @@ class TestOmmlEquationNumber:
 
         assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$a^{\\#}b$"
 
+    @pytest.mark.parametrize(("row", "expected"), [
+        (_run("a^#") + _run("(1)"), "$a^\\#(1)$"),
+        (_delimiters(_run("a"), "\uE000", ")") + _run("=c#(2)"), "$a)=c \\qquad (2)$"),
+    ], ids=["script-mark-before-it", "private-use-character-in-an-attribute"])
+    def test_mark_is_not_cut_where_it_would_break_the_equation(self, row, expected):
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
+
+    @pytest.mark.timing
+    def test_rows_of_a_long_array_take_linear_time(self):
+        """The property of the array was looked up for every row, a search over all rows each time: 40,000 rows took 42 s."""
+        from tests.timing import fastest
+
+        def rows(count: int) -> bytes:
+            return _docx_with_body(_equations(self._array(*(_run(f"x{index}=y#({index})") for index in range(count)))))
+
+        short, long = rows(1_000), rows(8_000)
+
+        assert fastest(lambda: convert(long, "a.docx")) < 24 * fastest(lambda: convert(short, "a.docx")) + 0.05
+
     def test_last_run_with_a_number_sign_holds_the_mark(self):
         row = _run("a#b") + _fraction("p", "q") + _run("=c#(2)")
 
