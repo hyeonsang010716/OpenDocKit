@@ -1621,7 +1621,7 @@ class TestManyLinesReachingOutOfTheirCells:
 
 class TestAscii85InPieces:
     """The decoder of the standard library holds some forty bytes for each one it reads, so a file of 10 MB behind an
-    ASCII85 filter took 390 MB to convert. Long data is decoded a piece at a time, to the same bytes."""
+    ASCII85 filter took 405 MB to convert. Long data is decoded a piece at a time, to the same bytes."""
 
     @staticmethod
     def _encoded(data: bytes, width: int = 0) -> bytes:
@@ -1642,15 +1642,66 @@ class TestAscii85InPieces:
 
         assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
 
-    def test_data_with_an_abbreviation_is_decoded_whole(self, short_pieces, monkeypatch):
-        """`z` stands for four zero bytes in one character: the fives no longer fall where the pieces are cut."""
-        data = b"abc" + bytes(9) + b"defgh" * 30
-        encoded = self._encoded(data)
-        calls = []
-        whole = _pdf_pdfminer._ascii85_whole
-        monkeypatch.setattr(_pdf_pdfminer, "_ascii85_whole", lambda given: calls.append(1) or whole(given))
+    @pytest.mark.parametrize("data", [
+        b"abc" + bytes(9) + b"defgh" * 30,
+        bytes(400),
+        (bytes(4) + b"\x01\x02\x03\x04") * 40,
+        (b"\x01\x02\x03\x04\x05\x06\x07\x08" + bytes(8)) * 25 + b"xy",
+        bytes(range(1, 200)) + bytes(12) + bytes(range(1, 200)) + bytes(3),
+        b"".join(bytes(4 * (index % 3)) + bytes([index + 1] * 4) for index in range(60)),
+    ], ids=["one-run", "zeros-only", "every-other-four", "runs-of-eight", "two-halves", "runs-of-several-lengths"])
+    @pytest.mark.parametrize("width", [0, 7], ids=["one-line", "lines-of-7"])
+    def test_data_with_the_abbreviation_of_four_zero_bytes_is_cut_where_a_five_ends(self, short_pieces, monkeypatch, data, width):
+        """`z` is one character where five stand otherwise: a piece ends where the others come to a multiple of five."""
+        encoded = self._encoded(data, width)
+        monkeypatch.setattr(_pdf_pdfminer, "_ascii85_whole", lambda given: pytest.fail("decoded whole"))
 
-        assert b"z" in encoded and _pdf_pdfminer.ascii85decode(encoded) == data and calls == [1]
+        assert b"z" in encoded and _pdf_pdfminer.ascii85decode(encoded) == data
+
+    @pytest.mark.parametrize("place", [1, 2, 3, 4, 41, 43, 199])
+    def test_abbreviation_inside_a_five_raises_as_the_whole_does(self, short_pieces, place):
+        encoded = bytearray(self._encoded(bytes(range(1, 251))))
+        encoded[place:place] = b"z"
+
+        with pytest.raises(ValueError):
+            _pdf_pdfminer._ascii85_whole(bytes(encoded))
+        with pytest.raises(ValueError):
+            _pdf_pdfminer.ascii85decode(bytes(encoded))
+
+    def test_piece_of_abbreviations_behind_a_cut_five_raises_as_the_whole_does(self, short_pieces):
+        """No place to cut: fewer than five characters, then more abbreviations than a piece holds."""
+        encoded = b"abcd" + b"z" * 60 + b"abcde" * 10
+
+        with pytest.raises(ValueError):
+            _pdf_pdfminer._ascii85_whole(encoded)
+        with pytest.raises(ValueError):
+            _pdf_pdfminer.ascii85decode(encoded)
+
+    @pytest.mark.parametrize("space", [b"\r\n", b"\r", b"\t", b"\x0b", b" "], ids=["cr-lf", "cr", "tab", "vertical-tab", "space"])
+    def test_white_space_of_any_kind_the_library_passes_over_is_taken_out(self, short_pieces, space):
+        """A stream wrapped with CR LF: left in, the fives would fall out of step at the cuts."""
+        data = bytes(range(1, 251))
+        encoded = space.join(self._encoded(data, 6).split(b"\n"))   # lines of six: a cut of forty falls inside a five
+
+        assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
+
+    @pytest.mark.parametrize("start", [b"<~", b"~", b" <~ ", b"< ~\n"], ids=["bracket", "tilde", "spaced", "split"])
+    def test_start_of_long_data_is_passed_over_as_in_the_whole(self, short_pieces, start):
+        data = bytes(range(1, 251))
+        encoded = start + self._encoded(data) + b"~>"
+
+        assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
+
+    def test_piece_is_a_number_of_fives(self):
+        assert _pdf_pdfminer._ASCII85_PIECE % 5 == 0
+
+    def test_readers_of_this_module_decode_in_pieces_too(self):
+        """The charge of a stream and the head of a font program read the filter themselves."""
+        import inspect
+
+        for reader in (_pdf_pdfminer._charge, _pdf_pdfminer._program_head):
+            assert "ascii85decode(data)" in inspect.getsource(reader)
+        assert _pdf_pdfminer._charge.__globals__["ascii85decode"] is _pdf_pdfminer.ascii85decode
 
     @pytest.mark.parametrize("damage", [b"\x00", b"v", b"~", b"\x0c", b"y"], ids=["nul", "v", "tilde", "form-feed", "y"])
     @pytest.mark.parametrize("place", [3, 57, 200])

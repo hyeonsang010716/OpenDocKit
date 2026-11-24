@@ -53,7 +53,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Security
 
 - **PDF: a stream behind an ASCII85 filter no longer takes forty times its size to decode.** A 10 MB file took
-  390 MB and takes 133 MB; the bytes decoded are the same.
+  405 MB and takes 134 MB; the bytes decoded are the same.
 - **Characters nobody sees are removed in plane 14 too.** The tag characters U+E0020–E007F mirror ASCII and are drawn
   by nothing: a sentence written in them inside a DOCX, a text file or an HTML page came through whole, read by a
   language model and by no reader of the document. They are removed with the other invisible characters, but for the

@@ -118,6 +118,7 @@ _DOCUMENT_CMAP_CODES = 12_000_000
 # ASCII85 data is decoded this many characters at a time (a multiple of the five that make four bytes).
 _ASCII85_PIECE = 5 * 65_536
 _ASCII85_WHITE_SPACE = b" \t\n\r\x0b"  # what the standard library's decoder passes over
+_ASCII85_ZEROS = ord("z")  # the abbreviation of four zero bytes: one character where five stand otherwise
 _ascii85_whole = pdfminer_ascii85.ascii85decode
 
 
@@ -125,15 +126,28 @@ def ascii85decode(data: bytes) -> bytes:
     """pdfminer's `ascii85decode`, with the data decoded a piece at a time.
 
     The decoder of the standard library is written in Python and holds some forty bytes for each one it reads: a file of
-    10 MB behind the filter took 390 MB to convert and now takes 133 MB, one of 31 MB 1,080 MB and now 250 MB. Without the abbreviations
-    `z` and `y` every five characters stand for four bytes wherever they are cut, so the pieces decode to the same bytes, and
-    data with an abbreviation, or damaged so that the library raises, is decoded - or raised on - whole as before
-    (Pinned by: test_pdf_resource_limits.py::TestAscii85InPieces)."""
+    10 MB behind the filter took 405 MB to convert and now takes 134 MB, one of 31 MB 1,077 MB and now 250 MB. Five characters
+    stand for four bytes, and `z` alone for four zero bytes, so data cut where a five ends decodes to the same bytes piece
+    by piece: a piece ends where the characters before it that are not `z` come to a multiple of five. Data the library
+    raises on raises in the piece that holds the fault, and data with a `y` (which the library raises on) or no longer
+    than a piece is given to the library whole as before (Pinned by: test_pdf_resource_limits.py::TestAscii85InPieces)."""
     body = pdfminer_ascii85.end_re.sub(b"", pdfminer_ascii85.start_re.sub(b"", data))
-    if len(body) <= _ASCII85_PIECE or b"z" in body or b"y" in body:
+    if len(body) <= _ASCII85_PIECE or b"y" in body:
         return _ascii85_whole(data)
     body = body.translate(None, _ASCII85_WHITE_SPACE)
-    return b"".join(pdfminer_ascii85.a85decode(body[at:at + _ASCII85_PIECE]) for at in range(0, len(body), _ASCII85_PIECE))
+    pieces, at, length = [], 0, len(body)
+    while at < length:
+        end = min(at + _ASCII85_PIECE, length)
+        if end < length:
+            over = (end - at - body.count(b"z", at, end)) % 5   # characters of a five that is cut
+            while over:
+                end -= 1
+                over -= body[end] != _ASCII85_ZEROS
+            if end == at:
+                return _ascii85_whole(data)   # fewer than five characters before a `z`: the library raises
+        pieces.append(pdfminer_ascii85.a85decode(body[at:end]))
+        at = end
+    return b"".join(pieces)
 
 
 pdftypes.ascii85decode = ascii85decode  # `PDFStream.decode` looks the function up in its module
