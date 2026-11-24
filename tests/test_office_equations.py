@@ -256,8 +256,8 @@ class TestOmmlEquationNumber:
         assert convert(_docx_with_body(_equations(array)), "a.docx").text == "$x=x \\qquad (1)$"
 
     @pytest.mark.parametrize(("row", "expected"), [
-        (_run("ab#(1)"), "$ab \\qquad (1)$"),
-        (_run("ab#(1)"), "$ab\\#(1)$"),
+        (_run("a\uE000\uE001b#(1)"), "$ab \\qquad (1)$"),
+        (_run("a\uE000\uE001\uE002b#(1)"), "$ab\\#(1)$"),
     ], ids=["two-of-the-marks-in-the-row", "all-of-them"])
     def test_mark_is_one_the_row_does_not_hold(self, row, expected):
         """With every mark in the row there is none to stand for the `#`: it stays the character."""
