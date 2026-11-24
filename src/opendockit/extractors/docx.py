@@ -89,7 +89,15 @@ from opendockit.extractors._package import (
     related_part,
     transitional_package,
 )
-from opendockit.markdown import CellHeading, TableGrid, clean_characters, join_blocks, merged_copy, solid_length
+from opendockit.markdown import (
+    CellHeading,
+    TableGrid,
+    clean_characters,
+    escape_block_marks,
+    join_blocks,
+    merged_copy,
+    solid_length,
+)
 from opendockit.models import ConvertOptions, Extraction, Section, SectionKind, renumber_image_markers
 
 
@@ -487,13 +495,16 @@ class _DocxRenderer:
         found: dict[str, list[etree._Element]] = {_TEXT_BOX: [], _SHAPE_TEXT: [], _WORD_ART: []}
         for element in (paragraph.iter(_TEXT_BOX, _SHAPE_TEXT, _WORD_ART) if boxes else ()):
             found[element.tag].append(element)
-        with self._own_lists():
-            after.extend(
-                block
-                for box in found[_TEXT_BOX]
-                if _is_read_box(box, paragraph)
-                for block in self.render_container(box)
-            )
+        # The lists of the body are set aside only when there is a text box to read: setting them aside and putting them
+        # back for every paragraph, almost none of which holds one, was a fiftieth of the time of a paragraph
+        if found[_TEXT_BOX]:
+            with self._own_lists():
+                after.extend(
+                    block
+                    for box in found[_TEXT_BOX]
+                    if _is_read_box(box, paragraph)
+                    for block in self.render_container(box)
+                )
         # The text of a shape pasted from PowerPoint (lc:lockedCanvas) is not w:t but the a:t of a:txBody. It goes after the paragraph
         # like a text box (Pinned by: test_office.py::TestDocxFieldsAndRuns::test_text_of_a_pasted_drawing_shape_is_kept).
         after.extend(
@@ -576,6 +587,13 @@ class _DocxRenderer:
             number = (list_prefix or "").strip()
             number = "" if number == "-" else number.removeprefix("- ")
             return [f"{'#' * heading} {number + ' ' if number else ''}{' '.join(text.split())}", *after]
+        # A `#` or a `>` typed at the start of a line of a paragraph that is no heading is text, as in a PDF, a Hangul document
+        # and a slide (`markdown.escape_block_marks`): the comment of a command (`# Point to your OLS config`) came out as a
+        # heading and `> 21 days` as a quote. Of 300 real documents, 5 hold such a line. Not in a cell: a row of a table is
+        # one line that starts with `|`, or HTML, where a backslash is a backslash (Pinned by: test_docx_typed_marks.py).
+        if not self._grids and (text[:1] in "#>" or "\n" in text):
+            text = escape_block_marks(text)
+
         def written(block: str) -> str:
             """The paragraph as written here, remembering its heading in a layout box."""
             if not box_heading:

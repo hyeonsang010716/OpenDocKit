@@ -246,8 +246,11 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   emphasis that starts inside a word, and a single emphasized character glued to its word are not marked.
 - A span that ends in punctuation directly followed by a letter (`**…)**에`) is shown literally by strict CommonMark
   renderers. `*` and `_` typed elsewhere in the document text are not escaped.
-- A `#` or a `>` typed at the start of a line is escaped (`\#`, `\>`) in the body text of PDF, HWP, HWPX and PPTX; in
-  the other formats, and in a table cell, it is written as typed, so a line that starts with `# ` reads as a heading.
+- A `#` or a `>` typed at the start of a line is escaped (`\#`, `\>`) in the body text of PDF, HWP, HWPX, PPTX and
+  DOCX. In ODT, RTF, HTML and EPUB, and in a table cell, it is written as typed, so a line that starts with `# ` reads
+  as a heading: about half of the ODT and RTF files found with such a line were typed as Markdown on purpose.
+- A word typed in angle brackets (`<F5>`, `<filename>`) is written as typed. A program that draws the Markdown as HTML
+  takes it for a tag and does not show it; sanitize or escape before drawing a result on a page.
 - HTML mail with long tracking addresses now carries those addresses, and they count against `max_chars`. Use
   `keep_links=False` for mail if that matters.
 
