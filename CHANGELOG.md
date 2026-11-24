@@ -117,6 +117,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
   note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
   list item is outlined lost their headline. Titles by size and outline headings are both headings now.
+- **DOCX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`). The comment of a command
+  (`# Point to your OLS config`) came out as a heading and `> 21 days` as a quote. ODT, RTF, HTML and EPUB write the
+  two marks as typed, on purpose: half of the ODT and RTF files found with such a line were typed as Markdown.
 - **PPTX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`). `> 750 mln` on a slide was a quote, and
   the comment of a command in a text box (`# macOS, Linux, WSL`) a heading above the title of its slide.
 - **HWP, HWPX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`), as in a PDF. A manual that shows
