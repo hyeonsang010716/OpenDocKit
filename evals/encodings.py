@@ -64,6 +64,7 @@ _PARAGRAPHS = 40   # of a text, from its start
 _WITH_A_NAME = 8   # starts of paragraphs each name and sign is written behind
 _START_CHARS = 90
 _ASCII_ROWS = [f"Item {number};Quantity {number * 3};Unit price {number + 10}.00;Status OK" for number in range(1, 21)]
+_PAGE_HEAD = "<html><head><title>x</title></head><body>"
 PLAIN, MIXED = "one language", "with a name or a sign"
 
 
@@ -135,14 +136,14 @@ def run(texts: Path) -> tuple[dict, dict[str, dict[str, dict[int, str]]]]:
                 data = encoded(text, page)
                 if data is None or data.isascii():
                     continue
-                html = encoded("<html><head><title>x</title></head><body>"
+                html = encoded(_PAGE_HEAD
                                + "".join(f"<p>{line}</p>" for line in text.split("\n")) + "</body></html>", page)
                 for payload, markup in ((data, False), (html, True)):
                     right = _read_right(payload, page, markup=markup)
                     marks[kind].append(_RIGHT if right else _WRONG)
                     if not right:
                         wrong.setdefault(f"{page} {language}", {}).setdefault(kind, {})[len(marks[kind]) - 1] = \
-                            decode_text(payload, markup=markup)[0][:120]
+                            decode_text(payload, markup=markup)[0].removeprefix(_PAGE_HEAD)[:120]   # the sample, not its page
             if not marks[PLAIN] and not marks[MIXED]:
                 continue   # a text none of whose samples the code page can write
             cells[f"{page} {language}"] = {kind: "".join(marks[kind]) for kind in (PLAIN, MIXED)}

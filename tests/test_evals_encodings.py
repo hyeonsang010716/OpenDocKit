@@ -83,6 +83,25 @@ class TestRun:
         assert asked[0] == (b"Il bol", False) and asked[1] == (b"<html>", True)
         assert [markup for _, markup in asked] == [False, True] * (len(asked) // 2)
 
+    def test_sample_that_is_ascii_in_the_code_page_is_not_asked(self, tmp_path):
+        """Nothing is guessed about ASCII: only the samples with a name or a sign behind them are left of such a text."""
+        card, _ = run(_texts(tmp_path, ita=["Plain words only, nothing outside ASCII here."]))
+
+        cell = card["cells"]["cp1252 ita"]
+        assert cell[PLAIN] == "" and len(cell[MIXED]) == 2 * sum(not name.isascii() and encoded(name, "cp1252") is not None
+                                                                 for name in encodings.NAMES_AND_SIGNS)
+
+    def test_text_read_in_two_characters_for_one_is_right(self, tmp_path, monkeypatch):
+        """Windows-1258 writes a tone mark behind its vowel: the reader's text is compared as composed characters."""
+        import unicodedata
+
+        monkeypatch.setattr(encodings, "decode_text",
+                            lambda data, markup=False: (unicodedata.normalize("NFC", data.decode("cp1258")), "cp1258"))
+
+        card, _ = run(_texts(tmp_path, vie=["Tất cả mọi người sinh ra đều được tự do và bình đẳng về nhân phẩm và quyền."]))
+
+        assert set(card["cells"]["cp1258 vie"][PLAIN]) == {"1"}
+
     def test_text_no_sample_of_which_a_code_page_writes_has_no_cell(self, tmp_path):
         card, _ = run(_texts(tmp_path, tur=["Az\u0259rbaycan dilind\u0259 bir c\u00fcml\u0259."], ita=_ITALIAN))
 
@@ -188,7 +207,8 @@ class TestMain:
 
         assert main(["--texts", str(folder), "--baseline", str(baseline), "--show", "2"]) == 1
         shown = [line for line in capsys.readouterr().out.splitlines() if line.startswith("--- ")]
-        assert len(shown) == 2 and "<html>" in shown[0] and "regione" in shown[1]   # the second and third marks
+        assert len(shown) == 2 and "<p>Il bollettino" in shown[0] and "<html>" not in shown[0]   # the second mark: the page
+        assert "regione" in shown[1]   # the third: the whole paragraph
 
     def test_nothing_is_shown_unless_asked(self, tmp_path, monkeypatch, capsys):
         folder, baseline = _texts(tmp_path, ita=_ITALIAN), tmp_path / "baseline.json"

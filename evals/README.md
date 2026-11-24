@@ -461,8 +461,8 @@ uv run --python 3.12 python -m evals.encodings --texts ../corpus/encodings --bas
 
 A text file, a CSV, an HTML page or a mail part that names no charset and is not UTF-8 is read in a code page the reader
 guesses (`_encoding.decode_text`). A wrong guess is silent and looks like text, and no corpus of documents shows it:
-they are UTF-8 or say what they are. `evals/encodings.py` writes real text — the declaration of human rights in 60
-languages, the texts of the script twins and 41 more — in the Windows, ISO 8859, DOS and Macintosh code pages each
+they are UTF-8 or say what they are. `evals/encodings.py` writes real text — the declaration of human rights in 59
+languages, the texts of the script twins and 40 more — in the Windows, ISO 8859, DOS and Macintosh code pages each
 language was written in, cut five ways (the start of a paragraph, a paragraph, four, the whole text, and one start among
 rows of ASCII), as text and as HTML, and compares what the reader gives with what was encoded.
 
