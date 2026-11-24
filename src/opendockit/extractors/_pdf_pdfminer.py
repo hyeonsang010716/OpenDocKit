@@ -683,7 +683,8 @@ def _gives_a_code_long_text(page: object, budget: _InflateBudget) -> bool:
 # What pdfminer draws on one page before the page is given up. It keeps about 2.5 KB a glyph and takes some 5 microseconds to
 # draw one, and the count pdfium gives of a page (`_MAX_PAGE_CHARS` in pdf.py: above 200,000 the page is not given to pdfminer)
 # leaves out what lies off the page: one string of a million glyphs (a 1.5 KB file) took 20 s and 2.5 GB. A glyph removed as a
-# copy on the same spot (`_MAX_OVERPRINTS`: bold drawn by printing four times) is not kept and counts only for the time.
+# copy on the same spot (`_MAX_OVERPRINTS`: of bold drawn by printing four times, the fourth) is not kept and counts only for
+# the time; the copies that stay count as kept.
 _MAX_KEPT_GLYPHS = 250_000
 _MAX_READ_GLYPHS = 1_000_000
 _MAX_READ_TEXT = 2_000_000

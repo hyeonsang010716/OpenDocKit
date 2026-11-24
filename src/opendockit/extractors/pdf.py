@@ -878,7 +878,8 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
 
 
 def _past_bounds(page: object, budget: _InflateBudget) -> bool:
-    """Whether drawing `page` is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`, `_MAX_OPENED_CONTENT_BYTES`)."""
+    """Whether pdfium must not open `page`: its drawing is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`,
+    `_MAX_OPENED_CONTENT_BYTES`), or one of its fonts gives a code a long text (`_gives_a_code_long_text`)."""
     objects, content, *_ = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
     return objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES or _gives_a_code_long_text(page, budget)
 

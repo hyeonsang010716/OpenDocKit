@@ -1745,7 +1745,9 @@ class TestGlyphsOfAPage:
         {"to_unicode": _LONG_TEXT, "in_a_form": True},
         {"to_unicode": _LONG_TEXT + b"!"},
         {"to_unicode": b"00 42\n" * 70},
-    ], ids=["own-resources", "inherited-resources", "font-of-a-form", "text-with-a-byte-that-is-no-digit", "text-with-spaces"])
+        {"to_unicode": b"0042" * 65},
+    ], ids=["own-resources", "inherited-resources", "font-of-a-form", "text-with-a-byte-that-is-no-digit", "text-with-spaces",
+            "sixty-five-characters"])
     def test_pdfium_does_not_open_a_page_whose_font_gives_a_code_a_long_text(self, monkeypatch, pdf):
         self._no_pdfium(monkeypatch)
 
@@ -1762,6 +1764,7 @@ class TestGlyphsOfAPage:
         result = convert(_glyphs_pdf(page, to_unicode=_LONG_TEXT), "a.pdf")
 
         assert "B" not in result.text and any("(1)" in warning and "were not read" in warning for warning in result.warnings)
+        assert len(result.warnings) == 2 and "No text was extracted" in "".join(result.warnings)   # said once, not as failed too
 
     def test_such_a_page_past_the_time_budget_is_not_read(self, monkeypatch):
         self._no_pdfium(monkeypatch)
@@ -1792,7 +1795,7 @@ class TestGlyphsOfAPage:
         with pdfplumber.open(BytesIO(_glyphs_pdf(_lines_of(b"Anna"), to_unicode=_LIGATURE))) as document:
             assert not pdf_module._past_bounds(document.pages[0], _pdf_pdfminer._InflateBudget(10**9))
 
-    @pytest.mark.parametrize("to_unicode", [None, _LIGATURE, b"0042" * 60], ids=["no-map", "ligature", "sixty-characters"])
+    @pytest.mark.parametrize("to_unicode", [None, _LIGATURE, b"0042" * 64], ids=["no-map", "ligature", "sixty-four-characters"])
     def test_page_of_ordinary_fonts_is_surveyed_by_pdfium_as_before(self, monkeypatch, to_unicode):
         from opendockit.extractors import pdf as pdf_module
 
