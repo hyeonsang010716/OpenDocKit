@@ -4,7 +4,9 @@ from collections.abc import Callable
 from importlib.metadata import version
 import random
 import re
+import struct
 
+from pdfminer import pdffont
 import pytest
 
 from opendockit import ConvertOptions, DocumentTooLargeError, convert
@@ -886,3 +888,124 @@ class TestUndecodedGlyphs:
         text = _converted(monkeypatch, content, media_box=b"0 0 600 600", rotate=rotate)
 
         assert "\ufffd" in text and "2" not in text and "5" not in text
+
+
+def _cff_index(objects: list[bytes]) -> bytes:
+    if not objects:
+        return b"\x00\x00"
+    offsets, at = [1], 1
+    for body in objects:
+        at += len(body)
+        offsets.append(at)
+    return struct.pack(">HB", len(objects), 2) + struct.pack(f">{len(offsets)}H", *offsets) + b"".join(objects)
+
+
+def _cff(names: dict[int, str], *, ranges: bool = False, charset: int = 0, more: dict[int, str] | None = None,
+         encoding: int | None = None, cid_keyed: bool = False) -> bytes:
+    """A CFF font program that draws at each code of `names` the glyph of that name: glyph 1 is the first of them. Its
+    encoding lists the codes (format 0) or `ranges` of them (format 1), `more` names further codes for glyphs by name, and
+    its charset is written in the format `charset`. `encoding` puts a predefined encoding in its place (0: StandardEncoding)."""
+    standard = pdffont.CFFFont.STANDARD_STRINGS
+    own = sorted({name for name in [*names.values(), *(more or {}).values()] if name not in standard})
+
+    def string_id(name: str) -> int:
+        return standard.index(name) if name in standard else len(standard) + own.index(name)
+
+    ids = [string_id(name) for name in names.values()]
+    charset_table = {0: b"\x00" + struct.pack(f">{len(ids)}H", *ids),
+                     1: b"\x01" + b"".join(struct.pack(">HB", one, 0) for one in ids),
+                     2: b"\x02" + b"".join(struct.pack(">HH", one, 0) for one in ids)}[charset]
+    codes = bytes(names)
+    table = (b"\x01" + bytes((len(codes),)) + b"".join(bytes((code, 0)) for code in codes) if ranges
+             else b"\x00" + bytes((len(codes),)) + codes)
+    if more:
+        table = bytes((table[0] | 0x80,)) + table[1:] + bytes((len(more),)) + b"".join(
+            struct.pack(">BH", code, string_id(name)) for code, name in more.items())
+    glyphs = _cff_index([b"\x0e"] * (len(names) + 1))
+    front = b"\x01\x00\x04\x02" + _cff_index([b"Any"])
+    behind = _cff_index([name.encode() for name in own]) + _cff_index([])
+
+    def top(charset_at: int, encoding_at: int, glyphs_at: int) -> bytes:
+        entries = b"".join(b"\x1d" + struct.pack(">i", value) + bytes((operator,))
+                           for value, operator in ((charset_at, 15), (encoding_at, 16), (glyphs_at, 17)))
+        return _cff_index([(b"\x8b\x8b\x8b\x0c\x1e" if cid_keyed else b"") + entries])
+
+    start = len(front) + len(top(0, 0, 0)) + len(behind)
+    return (front + top(start, start + len(charset_table) if encoding is None else encoding,
+                        start + len(charset_table) + len(table)) + behind + charset_table + table + glyphs)
+
+
+def _cff_font_text(program: bytes, text: bytes, font: bytes = b"", *, kind: bytes = b"Type1C") -> str:
+    """The text of a page drawn in a Type 1 font that embeds `program` as CFF. `font` adds entries to the font dictionary."""
+    data = _page_pdf(b"BT /F1 12 Tf 72 700 Td (" + text + b") Tj ET",
+                     {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                             + b"600 " * 256 + b"] /FontDescriptor 5 0 R " + font + b">>"},
+                     {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800] /ItalicAngle 0"
+                         b" /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                      6: b"<< /Length %d /Subtype /%s >>\nstream\n%s\nendstream" % (len(program), kind, program)})
+    return convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+
+
+_FRENCH = {0x27: "quotesingle", 0x50: "P", 0x80: "Euro", 0x96: "endash", 0xB0: "degree", 0xE0: "agrave", 0xE8: "egrave",
+           0xE9: "eacute", 0xF4: "ocircumflex"}
+
+
+class TestEncodingBuiltIntoACffFont:
+    """A Type 1 font without /Encoding whose program is embedded as CFF (FontFile3) was read with StandardEncoding, not
+    with the encoding the program brings: a bank statement read `ProtØgØ`, `DØpts`, `ClientŁle` and `d’un`, 27 wrong
+    letters a page, with no warning."""
+
+    _LINE = rb"Prot\351g\351, cr\350dit \340 d\351p\364ts d'un N\260 5 \226 10 \200"
+
+    @pytest.mark.parametrize("layout", [{}, {"ranges": True}, {"charset": 1}, {"charset": 2}],
+                             ids=["codes", "ranges-of-codes", "charset-of-short-ranges", "charset-of-long-ranges"])
+    def test_codes_are_read_by_the_encoding_of_the_program(self, layout):
+        assert _cff_font_text(_cff(_FRENCH, **layout), self._LINE) == "Protégé, crèdit à dépôts d'un N° 5 – 10 €"
+
+    def test_codes_named_beside_the_glyphs_are_read(self):
+        program = _cff({0xE9: "eacute"}, more={0xC9: "eacute", 0xB0: "degree"})
+
+        assert _cff_font_text(program, rb"Prot\351g\311 25\260") == "Protégé 25°"
+
+    def test_code_the_program_does_not_name_reads_as_before(self):
+        """Code E8 has no glyph in this program: it is the `Ł` of StandardEncoding, as it was."""
+        assert _cff_font_text(_cff({0xE9: "eacute"}), rb"caf\351 \350") == "café Ł"
+
+    def test_glyph_name_that_says_no_character_reads_as_before(self):
+        assert _cff_font_text(_cff({0x41: "G38", 0xE9: "eacute"}), rb"A caf\351") == "A café"
+
+    def test_program_that_renames_the_letters_is_not_believed(self):
+        """A form whose fonts name the glyph drawn for `A` `five` hides its text from a reader of names: the codes are it."""
+        program = _cff({0x41: "five", 0x75: "c", 0x74: "b", 0x6F: "bracketright", 0xE9: "eacute"})
+
+        assert _cff_font_text(program, b"Auto") == "Auto"
+
+    def test_to_unicode_goes_first(self):
+        cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /T def /CMapType 2 def\n"
+                b"1 begincodespacerange <00> <FF> endcodespacerange\n1 beginbfchar <E9> <00C9> endbfchar\n"
+                b"endcmap CMapName currentdict /CMap defineresource pop end end")
+        data = _page_pdf(rb"BT /F1 12 Tf 72 700 Td (caf\351 \340) Tj ET",
+                         {b"F1": b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Any /FirstChar 0 /LastChar 255 /Widths ["
+                                 + b"600 " * 256 + b"] /FontDescriptor 5 0 R /ToUnicode 7 0 R >>"},
+                         {5: b"<< /Type /FontDescriptor /FontName /ABCDEF+Any /Flags 4 /FontBBox [0 -200 1000 800]"
+                             b" /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile3 6 0 R >>",
+                          6: b"<< /Length %d /Subtype /Type1C >>\nstream\n%s\nendstream" % (len(_cff(_FRENCH)), _cff(_FRENCH)),
+                          7: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)})
+
+        assert convert(data, "a.pdf", ConvertOptions(page_markers=False)).text == "cafÉ à"
+
+    @pytest.mark.parametrize("font", [b"/Encoding /WinAnsiEncoding ", b"/Encoding /MacRomanEncoding "], ids=["win", "mac"])
+    def test_font_with_an_encoding_is_read_by_it(self, font):
+        expected = {b"/Encoding /WinAnsiEncoding ": "È", b"/Encoding /MacRomanEncoding ": "»"}[font]
+
+        assert _cff_font_text(_cff({0xC8: "eacute"}), rb"\310", font) == expected
+
+    @pytest.mark.parametrize("program", [
+        _cff(_FRENCH, encoding=0), _cff(_FRENCH, cid_keyed=True), _cff(_FRENCH)[:40], b"", b"\x01\x00\x04\x02\xff\xff\x04",
+        _cff(_FRENCH).replace(b"\x00\x09'P", b"\x07\x09'P"),
+    ], ids=["standard-encoding", "cid-keyed", "cut-short", "empty", "index-past-the-end", "encoding-of-an-unknown-format"])
+    def test_program_without_an_encoding_to_read_changes_nothing(self, program):
+        assert _cff_font_text(program, rb"caf\351 \350") == "cafØ Ł"
+
+    def test_program_of_another_kind_is_not_read_as_cff(self):
+        assert _cff_font_text(_cff(_FRENCH), rb"caf\351 \350", kind=b"OpenType") == "cafØ Ł"
