@@ -14,7 +14,7 @@ import sys
 from probes import COVERAGE, PROBES, contains
 
 
-TOOLS = ["opendockit", "markitdown", "kreuzberg", "unstructured", "docling"]
+TOOLS = ["opendockit", "markitdown", "kreuzberg", "unstructured", "docling", "kordoc"]
 MARK = {"pass": "✅", "partial": "🟡", "fail": "❌", "missing": "·"}
 
 
@@ -95,12 +95,37 @@ def corpus(results: Path, suite: str, tools: list[str]) -> dict:
     return summary
 
 
+def saved(results: Path, name: str) -> dict:
+    path = results / name
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def pdfbench(results: Path, tools: list[str]) -> dict:
+    """The mean scores of `score_pdfbench.py` beside what happened to the 200 documents and how long they took."""
+    scores = saved(results, "pdfbench-scores.json")
+    summary = {}
+    for tool in tools:
+        data = load(results, "pdfbench", tool)
+        if not data or tool not in scores:
+            continue
+        replies = list(data["results"].values())
+        outcomes: dict[str, int] = {}
+        for reply in replies:
+            outcomes[reply["outcome"]] = outcomes.get(reply["outcome"], 0) + 1
+        summary[tool] = {"version": data.get("version"), "means": scores[tool]["means"], "outcomes": outcomes,
+                         "total_seconds": round(sum(reply.get("seconds", 0.0) for reply in replies), 1),
+                         "peak_rss_mb": round(max((reply.get("peak_rss_mb", 0.0) for reply in replies), default=0.0))}
+    return summary
+
+
 def main() -> None:
     results = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent / "results")
     tools = [tool for tool in TOOLS if (results / "cases" / f"{tool}.json").exists()]
     summary = {"tools": {tool: load(results, "cases", tool).get("version") for tool in tools},
                "coverage": coverage(results, tools), "probes": probes(results, tools),
-               "ordinary": corpus(results, "ordinary", tools), "hostile": corpus(results, "hostile", tools)}
+               "ordinary": corpus(results, "ordinary", tools), "hostile": corpus(results, "hostile", tools),
+               "pdfbench": pdfbench(results, tools), "recall": saved(results, "recall.json"), "install": saved(results, "install.json"),
+               "caches": saved(results, "caches.json")}
     (results / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1))
 
     print("== coverage ==".ljust(44), "  ".join(f"{tool[:6]:6}" for tool in tools))
@@ -116,6 +141,9 @@ def main() -> None:
         for tool, data in summary[suite].items():
             totals = {key: sum(bucket[key] for bucket in data["formats"].values()) for key in ("files", "ok", "empty", "error", "timeout", "crash", "memory")}
             print(f"{suite:9} {tool:13} {totals}  {sum(b['total_seconds'] for b in data['formats'].values()):8.1f}s")
+    for tool, data in summary["pdfbench"].items():
+        print(f"pdfbench  {tool:13} {({metric: value['mean'] for metric, value in data['means'].items()})}  {data['outcomes']}  {data['total_seconds']:8.1f}s")
+    print("install  ", summary["install"])
 
 
 if __name__ == "__main__":

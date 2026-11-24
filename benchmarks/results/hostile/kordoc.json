@@ -1,0 +1,910 @@
+{
+ "tool": "kordoc",
+ "version": "4.25.3",
+ "import_seconds": 0.173228008,
+ "wall_seconds": 72.58899317199985,
+ "results": {
+  "0001.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.525282597,
+   "peak_rss_mb": 227.44921875,
+   "outcome": "empty"
+  },
+  "0002.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.493942796,
+   "peak_rss_mb": 227.9375,
+   "outcome": "empty"
+  },
+  "0000.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.6502370129999999,
+   "peak_rss_mb": 228.42578125,
+   "outcome": "ok"
+  },
+  "0003.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
+   "ok": false,
+   "error": "PDF 파일을 읽을 수 없습니다",
+   "seconds": 0.05048626300000001,
+   "peak_rss_mb": 117.2890625,
+   "outcome": "error"
+  },
+  "0005.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.11549906099999999,
+   "peak_rss_mb": 119.4140625,
+   "outcome": "ok"
+  },
+  "0006.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.01605440699999997,
+   "peak_rss_mb": 107.03125,
+   "outcome": "error"
+  },
+  "0004.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.53293408,
+   "peak_rss_mb": 232.71875,
+   "outcome": "ok"
+  },
+  "0008.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
+   "ok": false,
+   "error": "PDF 파일을 읽을 수 없습니다",
+   "seconds": 0.06266373700000002,
+   "peak_rss_mb": 117.94140625,
+   "outcome": "error"
+  },
+  "0009.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.19443792299999998,
+   "peak_rss_mb": 122.70703125,
+   "outcome": "ok"
+  },
+  "0007.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.496398403,
+   "peak_rss_mb": 231.94921875,
+   "outcome": "empty"
+  },
+  "0010.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
+   "ok": true,
+   "chars": 58,
+   "seconds": 0.10085409799999996,
+   "peak_rss_mb": 120.578125,
+   "outcome": "ok"
+  },
+  "0011.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
+   "ok": true,
+   "chars": 14,
+   "seconds": 0.121292281,
+   "peak_rss_mb": 124.37109375,
+   "outcome": "ok"
+  },
+  "0013.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
+   "ok": true,
+   "chars": 16,
+   "seconds": 0.12236830499999997,
+   "peak_rss_mb": 124.48828125,
+   "outcome": "ok"
+  },
+  "0012.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.44570973899999994,
+   "peak_rss_mb": 225.4375,
+   "outcome": "empty"
+  },
+  "0015.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
+   "ok": false,
+   "error": "PDF 파일을 읽을 수 없습니다",
+   "seconds": 0.09329940500000003,
+   "peak_rss_mb": 116.6015625,
+   "outcome": "error"
+  },
+  "0017.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.023666539999999996,
+   "peak_rss_mb": 107.4296875,
+   "outcome": "error"
+  },
+  "0016.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.6547727359999999,
+   "peak_rss_mb": 228.1640625,
+   "outcome": "empty"
+  },
+  "0014.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
+   "ok": true,
+   "chars": 0,
+   "seconds": 1.2625843890000001,
+   "peak_rss_mb": 413.1484375,
+   "outcome": "empty"
+  },
+  "0018.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
+   "ok": true,
+   "chars": 45,
+   "seconds": 0.12763316900000002,
+   "peak_rss_mb": 116.88671875,
+   "outcome": "ok"
+  },
+  "0019.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
+   "ok": true,
+   "chars": 152,
+   "seconds": 0.022301135000000045,
+   "peak_rss_mb": 108.40234375,
+   "outcome": "ok"
+  },
+  "0021.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.010749473000000023,
+   "peak_rss_mb": 107.2578125,
+   "outcome": "error"
+  },
+  "0020.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.01609382100000002,
+   "peak_rss_mb": 108.9453125,
+   "outcome": "error"
+  },
+  "0022.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
+   "ok": true,
+   "chars": 152,
+   "seconds": 0.016582763999999996,
+   "peak_rss_mb": 108.484375,
+   "outcome": "ok"
+  },
+  "0023.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.014846126999999995,
+   "peak_rss_mb": 108.94921875,
+   "outcome": "error"
+  },
+  "0025.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.004395875999999987,
+   "peak_rss_mb": 112.34375,
+   "outcome": "error"
+  },
+  "0024.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.019941451000000002,
+   "peak_rss_mb": 108.05859375,
+   "outcome": "error"
+  },
+  "0026.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.020052819999999968,
+   "peak_rss_mb": 114.3828125,
+   "outcome": "error"
+  },
+  "0027.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.017939977000000027,
+   "peak_rss_mb": 111.8046875,
+   "outcome": "error"
+  },
+  "0028.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.013794165000000021,
+   "peak_rss_mb": 108.4453125,
+   "outcome": "error"
+  },
+  "0029.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.021074235000000018,
+   "peak_rss_mb": 107.83984375,
+   "outcome": "error"
+  },
+  "0030.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.010439333000000005,
+   "peak_rss_mb": 113.04296875,
+   "outcome": "error"
+  },
+  "0031.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0039513460000000005,
+   "peak_rss_mb": 110.68359375,
+   "outcome": "error"
+  },
+  "0032.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.014589086000000008,
+   "peak_rss_mb": 111.546875,
+   "outcome": "error"
+  },
+  "0033.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01591079500000001,
+   "peak_rss_mb": 105.921875,
+   "outcome": "error"
+  },
+  "0034.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.02022220199999998,
+   "peak_rss_mb": 107.69921875,
+   "outcome": "error"
+  },
+  "0035.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.011944029999999998,
+   "peak_rss_mb": 107.70703125,
+   "outcome": "error"
+  },
+  "0036.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.015031495999999976,
+   "peak_rss_mb": 107.12890625,
+   "outcome": "error"
+  },
+  "0037.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.016023259999999994,
+   "peak_rss_mb": 108.703125,
+   "outcome": "error"
+  },
+  "0038.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.013499948000000017,
+   "peak_rss_mb": 110.76953125,
+   "outcome": "error"
+  },
+  "0039.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01371611900000002,
+   "peak_rss_mb": 109.140625,
+   "outcome": "error"
+  },
+  "0040.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01815291400000001,
+   "peak_rss_mb": 110.859375,
+   "outcome": "error"
+  },
+  "0041.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.010634483999999986,
+   "peak_rss_mb": 108.0859375,
+   "outcome": "error"
+  },
+  "0043.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01795550399999999,
+   "peak_rss_mb": 107.24609375,
+   "outcome": "error"
+  },
+  "0042.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
+   "ok": true,
+   "chars": 156,
+   "seconds": 0.049405616000000006,
+   "peak_rss_mb": 117.71875,
+   "outcome": "ok"
+  },
+  "0046.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.010364920000000041,
+   "peak_rss_mb": 108.58984375,
+   "outcome": "error"
+  },
+  "0044.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
+   "ok": false,
+   "error": "문서 처리 중 오류가 발생했습니다",
+   "seconds": 0.14408486199999998,
+   "peak_rss_mb": 145.1640625,
+   "outcome": "error"
+  },
+  "0045.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
+   "ok": false,
+   "error": "CFB 컨테이너 파싱 실패 (strict 및 lenient 모두)",
+   "seconds": 0.0058727719999999975,
+   "peak_rss_mb": 112.4765625,
+   "outcome": "error"
+  },
+  "0049.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.021649744999999995,
+   "peak_rss_mb": 112.94921875,
+   "outcome": "error"
+  },
+  "0047.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.022749556999999983,
+   "peak_rss_mb": 108.09375,
+   "outcome": "error"
+  },
+  "0048.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.011905382000000032,
+   "peak_rss_mb": 114.1875,
+   "outcome": "error"
+  },
+  "0052.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.013036917000000016,
+   "peak_rss_mb": 107.81640625,
+   "outcome": "error"
+  },
+  "0050.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.007784809999999993,
+   "peak_rss_mb": 109.69921875,
+   "outcome": "error"
+  },
+  "0051.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.017387522999999988,
+   "peak_rss_mb": 110.03515625,
+   "outcome": "error"
+  },
+  "0053.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.011166238000000021,
+   "peak_rss_mb": 108.25390625,
+   "outcome": "error"
+  },
+  "0055.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.016877432999999997,
+   "peak_rss_mb": 107.5625,
+   "outcome": "error"
+  },
+  "0054.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.011303446000000036,
+   "peak_rss_mb": 106.640625,
+   "outcome": "error"
+  },
+  "0056.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.019234755000000006,
+   "peak_rss_mb": 108.5390625,
+   "outcome": "error"
+  },
+  "0057.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.01378840599999998,
+   "peak_rss_mb": 106.72265625,
+   "outcome": "error"
+  },
+  "0058.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.013884366000000028,
+   "peak_rss_mb": 107.6953125,
+   "outcome": "error"
+  },
+  "0059.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.01510499999999999,
+   "peak_rss_mb": 108.26171875,
+   "outcome": "error"
+  },
+  "0060.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.013899982999999992,
+   "peak_rss_mb": 106.09765625,
+   "outcome": "error"
+  },
+  "0061.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.013269148000000001,
+   "peak_rss_mb": 108.1953125,
+   "outcome": "error"
+  },
+  "0062.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.012240294000000006,
+   "peak_rss_mb": 106.78515625,
+   "outcome": "error"
+  },
+  "0064.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.019936965999999983,
+   "peak_rss_mb": 107.64453125,
+   "outcome": "error"
+  },
+  "0063.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.010881787000000002,
+   "peak_rss_mb": 107.2734375,
+   "outcome": "error"
+  },
+  "0065.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.018733193999999998,
+   "peak_rss_mb": 108.0859375,
+   "outcome": "error"
+  },
+  "0067.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01751808299999999,
+   "peak_rss_mb": 105.65625,
+   "outcome": "error"
+  },
+  "0066.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.022834757999999993,
+   "peak_rss_mb": 107.23828125,
+   "outcome": "error"
+  },
+  "0068.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.017073971999999996,
+   "peak_rss_mb": 106.375,
+   "outcome": "error"
+  },
+  "0070.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.007978273000000001,
+   "peak_rss_mb": 107.23046875,
+   "outcome": "error"
+  },
+  "0069.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.02462593000000001,
+   "peak_rss_mb": 107.0390625,
+   "outcome": "error"
+  },
+  "0071.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01328494599999999,
+   "peak_rss_mb": 107.3984375,
+   "outcome": "error"
+  },
+  "0073.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.013563688999999983,
+   "peak_rss_mb": 115.71484375,
+   "outcome": "error"
+  },
+  "0072.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.011371374000000004,
+   "peak_rss_mb": 107.63671875,
+   "outcome": "error"
+  },
+  "0074.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.041123314999999994,
+   "peak_rss_mb": 109.4921875,
+   "outcome": "empty"
+  },
+  "0075.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.019144972999999992,
+   "peak_rss_mb": 106.5625,
+   "outcome": "error"
+  },
+  "0076.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.018353392000000014,
+   "peak_rss_mb": 109.0859375,
+   "outcome": "error"
+  },
+  "0077.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.01388268100000002,
+   "peak_rss_mb": 108.30859375,
+   "outcome": "error"
+  },
+  "0078.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
+   "ok": true,
+   "chars": 2860,
+   "seconds": 0.02087639600000003,
+   "peak_rss_mb": 107.73046875,
+   "outcome": "ok"
+  },
+  "0079.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0071704410000000395,
+   "peak_rss_mb": 106.60546875,
+   "outcome": "error"
+  },
+  "0080.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
+   "ok": false,
+   "error": "XLS: BIFF8(0x0600)만 지원 — 본 파일은 0x8013",
+   "seconds": 0.013432566000000009,
+   "peak_rss_mb": 107.64453125,
+   "outcome": "error"
+  },
+  "0082.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
+   "ok": false,
+   "error": "XLS: Workbook 스트림이 없음 (BIFF5 또는 비표준 파일)",
+   "seconds": 0.014251021000000008,
+   "peak_rss_mb": 107.984375,
+   "outcome": "error"
+  },
+  "0081.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
+   "ok": true,
+   "chars": 136,
+   "seconds": 0.01476595599999996,
+   "peak_rss_mb": 106.5,
+   "outcome": "ok"
+  },
+  "0083.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
+   "ok": true,
+   "chars": 136,
+   "seconds": 0.020715584000000037,
+   "peak_rss_mb": 108.0546875,
+   "outcome": "ok"
+  },
+  "0084.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
+   "ok": true,
+   "chars": 136,
+   "seconds": 0.01248978600000001,
+   "peak_rss_mb": 106.921875,
+   "outcome": "ok"
+  },
+  "0085.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
+   "ok": false,
+   "error": "XLS: 첫 레코드가 BOF가 아님",
+   "seconds": 0.011384475000000008,
+   "peak_rss_mb": 107.21484375,
+   "outcome": "error"
+  },
+  "0086.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.01387557700000002,
+   "peak_rss_mb": 108.88671875,
+   "outcome": "empty"
+  },
+  "0088.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
+   "ok": false,
+   "error": "CFB 컨테이너 파싱 실패 (strict 및 lenient 모두)",
+   "seconds": 0.015126665000000003,
+   "peak_rss_mb": 105.32421875,
+   "outcome": "error"
+  },
+  "0087.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
+   "ok": false,
+   "error": "XLS: BIFF8(0x0600)만 지원 — 본 파일은 0x8013",
+   "seconds": 0.020721833999999974,
+   "peak_rss_mb": 113.9140625,
+   "outcome": "error"
+  },
+  "0089.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
+   "ok": true,
+   "chars": 0,
+   "seconds": 0.012439752000000028,
+   "peak_rss_mb": 110.8359375,
+   "outcome": "empty"
+  },
+  "0091.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
+   "ok": false,
+   "error": "XLS: Workbook 스트림이 없음 (BIFF5 또는 비표준 파일)",
+   "seconds": 0.012716307999999997,
+   "peak_rss_mb": 108.29296875,
+   "outcome": "error"
+  },
+  "0090.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
+   "ok": false,
+   "error": "XLS: 첫 레코드가 BOF가 아님",
+   "seconds": 0.01511496600000001,
+   "peak_rss_mb": 112.66015625,
+   "outcome": "error"
+  },
+  "0092.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.016919110999999987,
+   "peak_rss_mb": 108.30859375,
+   "outcome": "error"
+  },
+  "0093.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.016256203,
+   "peak_rss_mb": 110.23046875,
+   "outcome": "error"
+  },
+  "0094.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.02035341700000001,
+   "peak_rss_mb": 113.01171875,
+   "outcome": "error"
+  },
+  "0097.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.019249524000000007,
+   "peak_rss_mb": 110.640625,
+   "outcome": "error"
+  },
+  "0095.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
+   "ok": true,
+   "chars": 18,
+   "seconds": 0.04189894100000004,
+   "peak_rss_mb": 108.8984375,
+   "outcome": "ok"
+  },
+  "0096.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
+   "ok": true,
+   "chars": 51144,
+   "seconds": 0.13472892599999997,
+   "peak_rss_mb": 126.67578125,
+   "outcome": "ok"
+  },
+  "0098.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.017018590000000017,
+   "peak_rss_mb": 105.984375,
+   "outcome": "error"
+  },
+  "0099.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.014903917000000036,
+   "peak_rss_mb": 107.22265625,
+   "outcome": "error"
+  },
+  "0100.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.013106637000000006,
+   "peak_rss_mb": 108.32421875,
+   "outcome": "error"
+  },
+  "0102.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.011833737999999983,
+   "peak_rss_mb": 107.375,
+   "outcome": "error"
+  },
+  "0101.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.015409622999999954,
+   "peak_rss_mb": 107.70703125,
+   "outcome": "error"
+  },
+  "0103.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.013678079000000025,
+   "peak_rss_mb": 109.29296875,
+   "outcome": "error"
+  },
+  "0104.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.01280413200000001,
+   "peak_rss_mb": 106.52734375,
+   "outcome": "error"
+  },
+  "0105.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.013406737000000021,
+   "peak_rss_mb": 107.58984375,
+   "outcome": "error"
+  },
+  "0106.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.007218982000000011,
+   "peak_rss_mb": 109.1171875,
+   "outcome": "error"
+  },
+  "0107.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
+   "ok": true,
+   "chars": 118,
+   "seconds": 0.02532063199999999,
+   "peak_rss_mb": 108.12109375,
+   "outcome": "ok"
+  },
+  "0108.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
+   "ok": false,
+   "error": "손상된 HWPX에서 섹션 데이터를 복구할 수 없습니다",
+   "seconds": 0.027567144000000012,
+   "peak_rss_mb": 107.640625,
+   "outcome": "error"
+  },
+  "0110.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
+   "ok": true,
+   "chars": 200020,
+   "seconds": 0.09461248700000005,
+   "peak_rss_mb": 128.83984375,
+   "outcome": "ok"
+  },
+  "0111.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
+   "ok": true,
+   "chars": 200020,
+   "seconds": 0.07109765300000004,
+   "peak_rss_mb": 127.7734375,
+   "outcome": "ok"
+  },
+  "0112.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
+   "ok": true,
+   "chars": 69,
+   "seconds": 0.013618498999999985,
+   "peak_rss_mb": 112.546875,
+   "outcome": "ok"
+  },
+  "0109.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-shared-strings.xlsx",
+   "ok": false,
+   "outcome": "timeout",
+   "seconds": 60.23870530300019
+  }
+ }
+}

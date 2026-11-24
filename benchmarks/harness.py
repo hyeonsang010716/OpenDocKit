@@ -17,19 +17,26 @@ import threading
 import time
 
 
-TOOLS = ["opendockit", "markitdown", "kreuzberg", "unstructured", "docling"]
+TOOLS = ["opendockit", "markitdown", "kreuzberg", "unstructured", "docling", "kordoc"]
 VENVS = Path(os.environ.get("BENCH_VENVS", "/venvs"))
 # A worker that grows past this is stopped and the file is recorded as "memory": it keeps one hostile file from taking the
 # whole machine down, and no ordinary document comes near it.
 MEMORY_LIMIT_MB = 6000
 
 
+def installed(tool: str) -> bool:
+    return (VENVS / tool / ("node_modules/kordoc/package.json" if tool == "kordoc" else "bin/python")).exists()
+
+
 class Worker:
-    def __init__(self, tool: str) -> None:
+    def __init__(self, tool: str, suite: str = "") -> None:
         self.tool = tool
-        self.process = subprocess.Popen([str(VENVS / tool / "bin" / "python"), "worker.py", tool], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
-                                        cwd=str(Path(__file__).parent))
+        # kordoc is a Node library: its worker speaks the same lines as worker.py (worker_kordoc.mjs)
+        command = (["node", "worker_kordoc.mjs", str(VENVS / "kordoc")] if tool == "kordoc"
+                   else [str(VENVS / tool / "bin" / "python"), "worker.py", tool])
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        text=True, bufsize=1, cwd=str(Path(__file__).parent),
+                                        env={**os.environ, "BENCH_SUITE": suite})
         self.hello = self._read(600) or {}
 
     def _read(self, timeout: float) -> dict | None:
@@ -38,7 +45,12 @@ class Worker:
             ready, _, _ = select.select([self.process.stdout], [], [], 0.25)
             if ready:
                 line = self.process.stdout.readline()
-                return json.loads(line) if line else {"died": True}
+                if not line:
+                    return {"died": True}
+                try:
+                    return json.loads(line)
+                except ValueError:  # a line a library printed past the worker's redirection is not a reply
+                    continue
             if self._rss_mb() > MEMORY_LIMIT_MB:
                 return {"memory": True}
             if time.perf_counter() > deadline:
@@ -83,7 +95,7 @@ class Worker:
         self.process.wait()
 
 
-def run_tool(tool: str, files: list[dict], out_dir: Path, workers: int, timeout: float, fresh: bool) -> dict:
+def run_tool(tool: str, files: list[dict], out_dir: Path, workers: int, timeout: float, fresh: bool, suite: str = "") -> dict:
     (out_dir / tool).mkdir(parents=True, exist_ok=True)
     results: dict[str, dict] = {}
     queue = list(reversed(files))
@@ -100,7 +112,7 @@ def run_tool(tool: str, files: list[dict], out_dir: Path, workers: int, timeout:
             if worker is None or not worker.alive() or fresh:
                 if worker is not None:
                     worker.kill()
-                worker = Worker(tool)
+                worker = Worker(tool, suite)
                 hello.update(worker.hello)
             reply = worker.convert(item["path"], str(out_dir / tool / f"{item['id']}.md"), timeout)
             reply.pop("trace", None)
@@ -132,12 +144,15 @@ def main() -> None:
     files = json.loads(Path(args.files).read_text())
     out_dir = Path(args.results) / args.suite
     for tool in args.tools.split(","):
-        summary = run_tool(tool, files, out_dir, args.workers, args.timeout, args.fresh)
+        if not installed(tool):
+            print(f"{args.suite:10} {tool:13} not installed, left out", flush=True)
+            continue
+        summary = run_tool(tool, files, out_dir, args.workers, args.timeout, args.fresh, args.suite)
         (out_dir / f"{tool}.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1))
         tally: dict[str, int] = {}
         for reply in summary["results"].values():
             tally[reply["outcome"]] = tally.get(reply["outcome"], 0) + 1
-        print(f"{args.suite:10} {tool:13} {summary['version']:10} {summary['wall_seconds']:7.1f}s {tally}", flush=True)
+        print(f"{args.suite:10} {tool:13} {summary['version'] or '?':10} {summary['wall_seconds']:7.1f}s {tally}", flush=True)
 
 
 if __name__ == "__main__":

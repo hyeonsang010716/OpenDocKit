@@ -1,911 +1,911 @@
 {
  "tool": "kreuzberg",
  "version": "4.10.4",
- "import_seconds": 0.03458533399998487,
- "wall_seconds": 3.4635224310000012,
+ "import_seconds": 0.031194633999803045,
+ "wall_seconds": 2.6446487169996544,
  "results": {
+  "0000.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
+   "seconds": 0.01761852900017402,
+   "peak_rss_mb": 48.2109375,
+   "outcome": "error"
+  },
   "0001.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4646567755972608.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.02248682200024632,
-   "peak_rss_mb": 49.2265625,
+   "seconds": 0.013195940000059636,
+   "peak_rss_mb": 47.97265625,
    "outcome": "error"
   },
   "0002.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4652594248613888.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.024710213000162184,
-   "peak_rss_mb": 49.046875,
-   "outcome": "error"
-  },
-  "0000.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4591020179783680.pdf",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.029011461000209238,
-   "peak_rss_mb": 49.0234375,
+   "seconds": 0.01613466900016647,
+   "peak_rss_mb": 48.16796875,
    "outcome": "error"
   },
   "0003.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4691742750474240.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.023951608000061242,
-   "peak_rss_mb": 49.33203125,
-   "outcome": "error"
-  },
-  "0005.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.017519634000109363,
-   "peak_rss_mb": 49.29296875,
+   "seconds": 0.013276019999921118,
+   "peak_rss_mb": 47.9296875,
    "outcome": "error"
   },
   "0004.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4715311080734720.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.02559065700006613,
-   "peak_rss_mb": 49.6484375,
+   "seconds": 0.020396780999817565,
+   "peak_rss_mb": 48.11328125,
    "outcome": "error"
   },
-  "0007.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+  "0005.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4736668896133120.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.018998481999915384,
-   "peak_rss_mb": 49.83984375,
+   "seconds": 0.01565959900017333,
+   "peak_rss_mb": 48.06640625,
    "outcome": "error"
   },
   "0006.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4833695495684096.pdf",
    "ok": true,
    "chars": 48,
-   "seconds": 0.0313499359999696,
-   "peak_rss_mb": 54.875,
+   "seconds": 0.02662045799979751,
+   "peak_rss_mb": 53.98046875,
    "outcome": "ok"
   },
   "0008.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5177159198507008.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.025025935000030586,
-   "peak_rss_mb": 49.609375,
+   "seconds": 0.01660141399997883,
+   "peak_rss_mb": 48.3203125,
+   "outcome": "error"
+  },
+  "0007.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/4927662560968704.pdf",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
+   "seconds": 0.019788992000030703,
+   "peak_rss_mb": 48.4609375,
    "outcome": "error"
   },
   "0009.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5317294594523136.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.025354034999963915,
-   "peak_rss_mb": 49.7109375,
+   "seconds": 0.014521465000143507,
+   "peak_rss_mb": 48.2734375,
    "outcome": "error"
   },
   "0010.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5452007745323008.pdf",
    "ok": true,
    "chars": 63,
-   "seconds": 0.03135867299988604,
-   "peak_rss_mb": 54.921875,
+   "seconds": 0.023401335000016843,
+   "peak_rss_mb": 53.20703125,
    "outcome": "ok"
   },
   "0011.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5592736912179200.pdf",
    "ok": true,
    "chars": 16,
-   "seconds": 0.02717121199975736,
-   "peak_rss_mb": 55.47265625,
+   "seconds": 0.023712792999958765,
+   "peak_rss_mb": 53.72265625,
    "outcome": "ok"
   },
   "0012.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5809779695484928.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.026178724999681435,
-   "peak_rss_mb": 49.87890625,
+   "seconds": 0.015916209999886632,
+   "peak_rss_mb": 48.37890625,
+   "outcome": "error"
+  },
+  "0015.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
+   "seconds": 0.013249012999949628,
+   "peak_rss_mb": 48.09375,
    "outcome": "error"
   },
   "0013.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5903429863538688.pdf",
    "ok": true,
    "chars": 17,
-   "seconds": 0.033349813999848266,
-   "peak_rss_mb": 55.78125,
+   "seconds": 0.024400420999882044,
+   "peak_rss_mb": 54.30078125,
    "outcome": "ok"
   },
   "0014.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/5914823472250880.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.02837030299997423,
-   "peak_rss_mb": 52.97265625,
+   "seconds": 0.022189937999883114,
+   "peak_rss_mb": 51.59765625,
    "outcome": "empty"
-  },
-  "0015.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6013812888633344.pdf",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.023498289000144723,
-   "peak_rss_mb": 49.47265625,
-   "outcome": "error"
   },
   "0016.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6085913544818688.pdf",
    "ok": false,
    "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.018592679999983375,
-   "peak_rss_mb": 49.4609375,
-   "outcome": "error"
-  },
-  "0017.pdf": {
-   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
-   "seconds": 0.024408973999925365,
-   "peak_rss_mb": 49.328125,
+   "seconds": 0.013558294999711507,
+   "peak_rss_mb": 48.0234375,
    "outcome": "error"
   },
   "0018.pdf": {
    "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6515565732102144.pdf",
    "ok": true,
    "chars": 0,
-   "seconds": 0.020569453000007343,
-   "peak_rss_mb": 53.46484375,
+   "seconds": 0.019329925999954867,
+   "peak_rss_mb": 51.65625,
    "outcome": "empty"
+  },
+  "0017.pdf": {
+   "path": "/home/runner/work/_temp/corpus/pdfplumber/tests/pdfs/from-oss-fuzz/load/6400141380878336.pdf",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Invalid PDF: PdfiumLibraryInternalError: FormatError: Invalid PDF: PdfiumLibraryInternalError: FormatError",
+   "seconds": 0.01862330899984954,
+   "peak_rss_mb": 47.81640625,
+   "outcome": "error"
   },
   "0019.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/Fuzzed.doc",
    "ok": true,
    "chars": 8579,
-   "seconds": 0.03012953799998286,
-   "peak_rss_mb": 48.734375,
+   "seconds": 0.015943600999889895,
+   "peak_rss_mb": 49.01171875,
    "outcome": "ok"
-  },
-  "0020.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed directory entry (name length too large: 45089)",
-   "seconds": 0.01648802700037777,
-   "peak_rss_mb": 44.94140625,
-   "outcome": "error"
   },
   "0021.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIFuzzer-6709287337197568.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.021143710000160354,
-   "peak_rss_mb": 44.74609375,
+   "seconds": 0.016396180000356253,
+   "peak_rss_mb": 44.33984375,
+   "outcome": "error"
+  },
+  "0020.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-POIHWPFFuzzer-5696094627495936.doc",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed directory entry (name length too large: 45089)",
+   "seconds": 0.016465162999793392,
+   "peak_rss_mb": 44.0,
    "outcome": "error"
   },
   "0022.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4892412469968896.doc",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed directory (left sibling index is 4160749575, but directory entry count is 16)",
-   "seconds": 0.0189034840000204,
-   "peak_rss_mb": 45.0078125,
-   "outcome": "error"
-  },
-  "0023.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed MiniFAT (MiniFAT has 2 entries, but mini sector 0 points to 327681)",
-   "seconds": 0.02034810799978004,
-   "peak_rss_mb": 45.203125,
+   "seconds": 0.014987271000336477,
+   "peak_rss_mb": 45.06640625,
    "outcome": "error"
   },
   "0024.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4951943183990784.doc",
    "ok": true,
    "chars": 7433,
-   "seconds": 0.021409035000033327,
-   "peak_rss_mb": 48.4375,
+   "seconds": 0.01562693699997908,
+   "peak_rss_mb": 48.5390625,
    "outcome": "ok"
+  },
+  "0023.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-4947285593948160.doc",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed MiniFAT (MiniFAT has 2 entries, but mini sector 0 points to 327681)",
+   "seconds": 0.01675272500006031,
+   "peak_rss_mb": 45.4921875,
+   "outcome": "error"
   },
   "0025.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5050208641482752.doc",
    "ok": true,
    "chars": 0,
-   "seconds": 0.021649337999861018,
-   "peak_rss_mb": 45.91015625,
+   "seconds": 0.012439633999747457,
+   "peak_rss_mb": 46.125,
    "outcome": "empty"
   },
   "0026.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5074346559012864.doc",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed directory entry (name length too large: 14336)",
-   "seconds": 0.01988507500027481,
-   "peak_rss_mb": 44.9375,
-   "outcome": "error"
-  },
-  "0027.doc": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed FAT (FAT has 112 entries, but file has only 111 sectors)",
-   "seconds": 0.023391537999941647,
-   "peak_rss_mb": 44.98046875,
+   "seconds": 0.01725390299998253,
+   "peak_rss_mb": 45.08984375,
    "outcome": "error"
   },
   "0028.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5418937293340672.doc",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed directory entry (invalid color: 246)",
-   "seconds": 0.01592755699994086,
-   "peak_rss_mb": 45.140625,
+   "seconds": 0.01362115999972957,
+   "peak_rss_mb": 45.07421875,
+   "outcome": "error"
+  },
+  "0027.doc": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5195207308541952.doc",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed FAT (FAT has 112 entries, but file has only 111 sectors)",
+   "seconds": 0.015654154999992898,
+   "peak_rss_mb": 44.87109375,
    "outcome": "error"
   },
   "0029.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5440721166139392.doc",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Malformed directory entry (non-empty stream child: 4294967209)",
-   "seconds": 0.021586277000096743,
-   "peak_rss_mb": 44.98828125,
+   "seconds": 0.012647620000279858,
+   "peak_rss_mb": 45.15625,
    "outcome": "error"
   },
   "0030.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-5832867957309440.doc",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open DOC as OLE container: Incorrect mini sector shift (expected 6, found 14)",
-   "seconds": 0.02123047500026587,
-   "peak_rss_mb": 44.9765625,
+   "seconds": 0.015655361999961315,
+   "peak_rss_mb": 45.0234375,
    "outcome": "error"
   },
   "0031.doc": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIHWPFFuzzer-6610789829836800.doc",
    "ok": true,
    "chars": 3303,
-   "seconds": 0.01940587700028118,
-   "peak_rss_mb": 48.49609375,
+   "seconds": 0.020045610999659402,
+   "peak_rss_mb": 48.578125,
    "outcome": "ok"
   },
   "0032.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.022048519999771088,
-   "peak_rss_mb": 44.9921875,
-   "outcome": "error"
-  },
-  "0034.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
-   "ok": false,
-   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.022038145000351506,
-   "peak_rss_mb": 44.9453125,
+   "seconds": 0.012310227999932977,
+   "peak_rss_mb": 45.1171875,
    "outcome": "error"
   },
   "0033.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4959857092198400.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.01835257199991247,
-   "peak_rss_mb": 45.08984375,
+   "seconds": 0.014391594000244368,
+   "peak_rss_mb": 45.09375,
    "outcome": "error"
   },
-  "0035.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
+  "0034.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4961551840247808.docx",
    "ok": false,
-   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.02219875700029661,
-   "peak_rss_mb": 45.03125,
-   "outcome": "error"
-  },
-  "0037.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
-   "ok": false,
-   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Unexpected end of zip::spec::Zip32CDEBlock",
-   "seconds": 0.016604517999894597,
-   "peak_rss_mb": 45.03125,
+   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Could not find EOCD",
+   "seconds": 0.01743699899998319,
+   "peak_rss_mb": 45.15625,
    "outcome": "error"
   },
   "0036.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5313273089884160.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Unexpected end of zip::spec::Zip32CDEBlock",
-   "seconds": 0.021540914000070188,
-   "peak_rss_mb": 44.9609375,
+   "seconds": 0.011850701999719604,
+   "peak_rss_mb": 45.1640625,
    "outcome": "error"
   },
-  "0038.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
+  "0035.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5166796835258368.docx",
    "ok": false,
-   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.021348252999814576,
-   "peak_rss_mb": 44.83203125,
+   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
+   "seconds": 0.016365831000257458,
+   "peak_rss_mb": 45.00390625,
+   "outcome": "error"
+  },
+  "0037.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+   "ok": false,
+   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Unexpected end of zip::spec::Zip32CDEBlock",
+   "seconds": 0.01683500599983745,
+   "peak_rss_mb": 45.0859375,
    "outcome": "error"
   },
   "0039.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6061520554164224.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.01713093700027457,
-   "peak_rss_mb": 44.88671875,
+   "seconds": 0.012359476000256109,
+   "peak_rss_mb": 45.0625,
    "outcome": "error"
   },
-  "0040.docx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+  "0038.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5569740188549120.docx",
    "ok": false,
-   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.02212551100001292,
-   "peak_rss_mb": 45.05859375,
+   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Could not find EOCD",
+   "seconds": 0.016678587999649608,
+   "peak_rss_mb": 45.09765625,
    "outcome": "error"
   },
   "0041.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6442791109263360.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Variable-length field extends beyond file boundary",
-   "seconds": 0.016755406000356743,
-   "peak_rss_mb": 45.26953125,
+   "seconds": 0.012822295999740163,
+   "peak_rss_mb": 45.16796875,
+   "outcome": "error"
+  },
+  "0040.docx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6120975439364096.docx",
+   "ok": false,
+   "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Invalid CDFH offset in EOCD",
+   "seconds": 0.01854697099997793,
+   "peak_rss_mb": 45.234375,
    "outcome": "error"
   },
   "0042.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-6733884933668864.docx",
    "ok": true,
    "chars": 156,
-   "seconds": 0.025674554000033822,
-   "peak_rss_mb": 49.6015625,
+   "seconds": 0.01923503299985896,
+   "peak_rss_mb": 49.60546875,
    "outcome": "ok"
   },
   "0043.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
    "ok": false,
    "error": "ParsingError: ParsingError: DOCX parsing failed: ZIP error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.02205074399989826,
-   "peak_rss_mb": 44.95703125,
-   "outcome": "error"
-  },
-  "0045.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Incorrect mini sector shift (expected 6, found 65286)",
-   "seconds": 0.02069752100032929,
-   "peak_rss_mb": 44.91796875,
+   "seconds": 0.011958757999764202,
+   "peak_rss_mb": 45.26953125,
    "outcome": "error"
   },
   "0046.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5205835528404992.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid Central Directory header",
-   "seconds": 0.015926649999983056,
-   "peak_rss_mb": 44.9296875,
+   "seconds": 0.011940755000068748,
+   "peak_rss_mb": 44.9140625,
    "outcome": "error"
   },
-  "0048.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
+  "0045.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-5802475696488448.ppt",
    "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 384 entries, but file has only 37 sectors)",
-   "seconds": 0.01638113000035446,
-   "peak_rss_mb": 45.1640625,
+   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Incorrect mini sector shift (expected 6, found 65286)",
+   "seconds": 0.01662801100019351,
+   "peak_rss_mb": 45.09375,
    "outcome": "error"
   },
   "0047.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5429732352851968.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 25 entries, but file has only 16 sectors)",
-   "seconds": 0.020099768999898515,
-   "peak_rss_mb": 44.9921875,
+   "seconds": 0.012503533999733918,
+   "peak_rss_mb": 45.13671875,
+   "outcome": "error"
+  },
+  "0048.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-5681320547975168.ppt",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 384 entries, but file has only 37 sectors)",
+   "seconds": 0.014890316000219173,
+   "peak_rss_mb": 45.1015625,
    "outcome": "error"
   },
   "0044.docx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/document/deep-table-cell.docx",
    "ok": false,
    "error": "PanicException: Formatting argument out of range",
-   "seconds": 0.21029825899995558,
-   "peak_rss_mb": 59.49609375,
+   "seconds": 0.1487297660000877,
+   "peak_rss_mb": 59.4609375,
    "outcome": "error"
   },
   "0049.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIFuzzer-6411649193738240.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open stream '/PowerPoint Document': No such stream: \"/PowerPoint Document\"",
-   "seconds": 0.019526192999819614,
-   "peak_rss_mb": 45.1796875,
+   "seconds": 0.016949021000073117,
+   "peak_rss_mb": 45.22265625,
    "outcome": "error"
   },
   "0050.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4624961081573376.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 384 entries, but file has only 37 sectors)",
-   "seconds": 0.020522347000223817,
-   "peak_rss_mb": 44.89453125,
-   "outcome": "error"
-  },
-  "0052.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 384 entries, but file has only 37 sectors)",
-   "seconds": 0.016379509000216785,
-   "peak_rss_mb": 45.12890625,
+   "seconds": 0.014165995999974257,
+   "peak_rss_mb": 45.16796875,
    "outcome": "error"
   },
   "0051.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4630915954114560.ppt",
    "ok": true,
    "chars": 0,
-   "seconds": 0.020843556999807333,
-   "peak_rss_mb": 45.5625,
+   "seconds": 0.01692213600017567,
+   "peak_rss_mb": 46.15234375,
    "outcome": "empty"
   },
   "0053.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4983252485210112.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 76 entries, but file has only 17 sectors)",
-   "seconds": 0.023817791000055877,
-   "peak_rss_mb": 44.98828125,
+   "seconds": 0.016352563000054943,
+   "peak_rss_mb": 44.9375,
    "outcome": "error"
   },
-  "0055.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
+  "0052.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-4838893004128256.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 384 entries, but file has only 37 sectors)",
-   "seconds": 0.01734388900013073,
-   "peak_rss_mb": 45.0,
+   "seconds": 0.012531827999737288,
+   "peak_rss_mb": 45.1015625,
    "outcome": "error"
   },
   "0054.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5018229722382336.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 124 entries, but file has only 17 sectors)",
-   "seconds": 0.02268408999998428,
-   "peak_rss_mb": 45.0,
+   "seconds": 0.015581734999614127,
+   "peak_rss_mb": 45.11328125,
+   "outcome": "error"
+  },
+  "0055.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5231088823566336.ppt",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 384 entries, but file has only 37 sectors)",
+   "seconds": 0.017237087000012252,
+   "peak_rss_mb": 45.109375,
    "outcome": "error"
   },
   "0056.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5306877435838464.ppt",
    "ok": true,
    "chars": 0,
-   "seconds": 0.022047629000098823,
-   "peak_rss_mb": 46.24609375,
+   "seconds": 0.01519094800005405,
+   "peak_rss_mb": 46.2890625,
    "outcome": "empty"
   },
   "0057.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-5962760801091584.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 82 entries, but file has only 18 sectors)",
-   "seconds": 0.01739043900033721,
-   "peak_rss_mb": 44.8359375,
-   "outcome": "error"
-  },
-  "0058.ppt": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: failed to fill whole buffer",
-   "seconds": 0.0237004949999573,
-   "peak_rss_mb": 44.9140625,
+   "seconds": 0.016637539000385004,
+   "peak_rss_mb": 45.0,
    "outcome": "error"
   },
   "0059.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6032591399288832.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed directory entry (invalid color: 255)",
-   "seconds": 0.022531370000251627,
-   "peak_rss_mb": 44.79296875,
+   "seconds": 0.012070228999618848,
+   "peak_rss_mb": 45.265625,
+   "outcome": "error"
+  },
+  "0058.ppt": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6028723156746240.ppt",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: failed to fill whole buffer",
+   "seconds": 0.016628980999939813,
+   "peak_rss_mb": 45.0859375,
    "outcome": "error"
   },
   "0060.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6192650357112832.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 124 entries, but file has only 17 sectors)",
-   "seconds": 0.017030116000114504,
-   "peak_rss_mb": 44.98046875,
+   "seconds": 0.01237516199989841,
+   "peak_rss_mb": 45.1328125,
    "outcome": "error"
   },
   "0061.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6360479850954752.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed FAT (FAT has 86 entries, but file has only 18 sectors)",
-   "seconds": 0.016992167999887897,
-   "peak_rss_mb": 44.953125,
+   "seconds": 0.016569827999774134,
+   "peak_rss_mb": 45.09765625,
    "outcome": "error"
   },
   "0062.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6416153805979648.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed directory entry (invalid color: 2)",
-   "seconds": 0.024331687000085367,
-   "peak_rss_mb": 45.04296875,
+   "seconds": 0.012824294999973063,
+   "peak_rss_mb": 45.07421875,
    "outcome": "error"
   },
   "0063.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6614960949821440.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Incorrect mini stream cutoff (expected 4096, found 318771200)",
-   "seconds": 0.020420473999820388,
-   "peak_rss_mb": 44.87890625,
+   "seconds": 0.016769619999649876,
+   "peak_rss_mb": 44.9375,
    "outcome": "error"
   },
   "0064.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIHSLFFuzzer-6710128412590080.ppt",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to open PPT as OLE container: Malformed directory (left sibling index is 137216, but directory entry count is 8)",
-   "seconds": 0.02305892100002893,
-   "peak_rss_mb": 44.7109375,
+   "seconds": 0.014646119000190083,
+   "peak_rss_mb": 45.13671875,
    "outcome": "error"
   },
   "0065.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4838644450394112.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Could not find EOCD",
-   "seconds": 0.017252100999940012,
-   "peak_rss_mb": 44.73046875,
+   "seconds": 0.016357637000055547,
+   "peak_rss_mb": 44.98828125,
    "outcome": "error"
   },
   "0066.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-4986044400861184.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Could not find EOCD",
-   "seconds": 0.017935271999704128,
-   "peak_rss_mb": 44.9296875,
+   "seconds": 0.017016065000007075,
+   "peak_rss_mb": 44.8671875,
    "outcome": "error"
   },
   "0067.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5463285576892416.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid Central Directory header",
-   "seconds": 0.022623733999807882,
-   "peak_rss_mb": 44.84765625,
+   "seconds": 0.013507296000170754,
+   "peak_rss_mb": 44.87890625,
    "outcome": "error"
   },
   "0068.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5471515212382208.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid Central Directory header",
-   "seconds": 0.022067324000090593,
-   "peak_rss_mb": 44.828125,
-   "outcome": "error"
-  },
-  "0069.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Could not find EOCD",
-   "seconds": 0.016699187000085658,
-   "peak_rss_mb": 44.72265625,
+   "seconds": 0.016595515000062733,
+   "peak_rss_mb": 44.921875,
    "outcome": "error"
   },
   "0070.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6071540680032256.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Could not find EOCD",
-   "seconds": 0.021990302999711275,
-   "peak_rss_mb": 44.7734375,
+   "seconds": 0.012213851000069553,
+   "peak_rss_mb": 44.8671875,
    "outcome": "error"
   },
-  "0072.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
+  "0069.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-5611274456596480.pptx",
    "ok": false,
-   "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.01761747699993066,
-   "peak_rss_mb": 44.8359375,
+   "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Could not find EOCD",
+   "seconds": 0.017944888999863906,
+   "peak_rss_mb": 44.83203125,
    "outcome": "error"
   },
   "0071.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6254434927378432.pptx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Could not find EOCD",
-   "seconds": 0.023817600999791466,
-   "peak_rss_mb": 44.9375,
+   "seconds": 0.01776194000012765,
+   "peak_rss_mb": 44.90625,
+   "outcome": "error"
+  },
+  "0072.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6372932378820608.pptx",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid CDFH offset in EOCD",
+   "seconds": 0.01494690699973944,
+   "peak_rss_mb": 44.7890625,
+   "outcome": "error"
+  },
+  "0073.pptx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid Central Directory header",
+   "seconds": 0.01705979500002286,
+   "peak_rss_mb": 44.94921875,
    "outcome": "error"
   },
   "0074.pptx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-57308ca363f5b71763c489d1b432aff009d4bc4f.pptx",
    "ok": true,
    "chars": 5,
-   "seconds": 0.01927567499978977,
-   "peak_rss_mb": 49.15625,
+   "seconds": 0.01428498999985095,
+   "peak_rss_mb": 49.3203125,
    "outcome": "ok"
-  },
-  "0073.pptx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/clusterfuzz-testcase-minimized-POIXSLFFuzzer-6435650376957952.pptx",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to read PPTX archive (invalid format): invalid Zip archive: Invalid Central Directory header",
-   "seconds": 0.021369035000134318,
-   "peak_rss_mb": 44.80859375,
-   "outcome": "error"
   },
   "0075.ppt": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/slideshow/crash-74c33084f66628ba85e4ab8e71374d39915db381.ppt",
    "ok": true,
    "chars": 58,
-   "seconds": 0.019899225999779446,
-   "peak_rss_mb": 48.66796875,
+   "seconds": 0.019308771999931196,
+   "peak_rss_mb": 48.65625,
    "outcome": "ok"
   },
   "0076.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Invalid local file header",
-   "seconds": 0.017961071000172524,
-   "peak_rss_mb": 45.5234375,
+   "seconds": 0.01421204400003262,
+   "peak_rss_mb": 45.453125,
    "outcome": "error"
   },
   "0077.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4651309315719168.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4294967288 points past end of file",
-   "seconds": 0.02181214300026113,
-   "peak_rss_mb": 44.93359375,
+   "seconds": 0.018301352999969822,
+   "peak_rss_mb": 44.8984375,
    "outcome": "error"
   },
   "0078.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4657005060816896.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: End of stream 'record length'",
-   "seconds": 0.02239686700022503,
-   "peak_rss_mb": 45.33984375,
+   "seconds": 0.01330187899975499,
+   "peak_rss_mb": 45.48828125,
    "outcome": "error"
   },
   "0079.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4734163573080064.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4288347904 points past end of file",
-   "seconds": 0.022557188000064343,
-   "peak_rss_mb": 44.8359375,
+   "seconds": 0.016193406999718718,
+   "peak_rss_mb": 44.95703125,
    "outcome": "error"
   },
   "0080.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4819588401201152.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 1818623999 points past end of file",
-   "seconds": 0.017509449000044697,
-   "peak_rss_mb": 44.94921875,
+   "seconds": 0.01658508399987113,
+   "peak_rss_mb": 45.09765625,
+   "outcome": "error"
+  },
+  "0082.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 79 points past end of file",
+   "seconds": 0.013134755000010045,
+   "peak_rss_mb": 45.09375,
    "outcome": "error"
   },
   "0081.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-4977868385681408.xls",
    "ok": true,
    "chars": 171,
-   "seconds": 0.019311509000090155,
-   "peak_rss_mb": 48.85546875,
-   "outcome": "ok"
-  },
-  "0082.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5175219985448960.xls",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 79 points past end of file",
-   "seconds": 0.021479566999914823,
-   "peak_rss_mb": 44.9375,
-   "outcome": "error"
-  },
-  "0083.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
-   "ok": true,
-   "chars": 171,
-   "seconds": 0.0192526200003158,
-   "peak_rss_mb": 48.70703125,
+   "seconds": 0.01801837599987266,
+   "peak_rss_mb": 48.93359375,
    "outcome": "ok"
   },
   "0084.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5436547081830400.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4294967274 points past end of file",
-   "seconds": 0.02214184100012062,
-   "peak_rss_mb": 44.9453125,
+   "seconds": 0.012373657000352978,
+   "peak_rss_mb": 45.05078125,
+   "outcome": "error"
+  },
+  "0083.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5285517825277952.xls",
+   "ok": true,
+   "chars": 171,
+   "seconds": 0.018274495000241586,
+   "peak_rss_mb": 49.0234375,
+   "outcome": "ok"
+  },
+  "0085.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 1828716543 points past end of file",
+   "seconds": 0.013390918999903079,
+   "peak_rss_mb": 44.98828125,
    "outcome": "error"
   },
   "0086.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5816431116615680.xls",
    "ok": false,
    "error": "PanicException: range end index 64 out of range for slice of length 1",
-   "seconds": 0.017150743000001967,
-   "peak_rss_mb": 46.5078125,
-   "outcome": "error"
-  },
-  "0085.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5786329142919168.xls",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 1828716543 points past end of file",
-   "seconds": 0.022069271999953344,
-   "peak_rss_mb": 45.03515625,
+   "seconds": 0.017241467000076227,
+   "peak_rss_mb": 46.375,
    "outcome": "error"
   },
   "0087.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-5889658057523200.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 234881023 points past end of file",
-   "seconds": 0.01660031200026424,
-   "peak_rss_mb": 45.04296875,
+   "seconds": 0.015838686999813945,
+   "peak_rss_mb": 44.98828125,
    "outcome": "error"
   },
   "0088.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6137883240824832.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Invalid minisector shift, expecting 0x06 found 4B41",
-   "seconds": 0.021881258000121306,
-   "peak_rss_mb": 44.83984375,
-   "outcome": "error"
-  },
-  "0089.xls": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4294966015 points past end of file",
-   "seconds": 0.022103574000084336,
-   "peak_rss_mb": 44.98828125,
+   "seconds": 0.013365499999963504,
+   "peak_rss_mb": 44.8671875,
    "outcome": "error"
   },
   "0090.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6483562584932352.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4294967199 points past end of file",
-   "seconds": 0.017759610999746656,
-   "peak_rss_mb": 44.859375,
+   "seconds": 0.012789582000095834,
+   "peak_rss_mb": 44.93359375,
+   "outcome": "error"
+  },
+  "0089.xls": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6322470200934400.xls",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4294966015 points past end of file",
+   "seconds": 0.0196510429996124,
+   "peak_rss_mb": 44.921875,
    "outcome": "error"
   },
   "0091.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIHSSFFuzzer-6537773940867072.xls",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse Excel file: Xls error: Cfb error: Sector 4294967231 points past end of file",
-   "seconds": 0.023763389000123425,
-   "peak_rss_mb": 44.87109375,
+   "seconds": 0.014872356000068976,
+   "peak_rss_mb": 44.9140625,
    "outcome": "error"
   },
   "0092.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Variable-length field extends beyond file boundary",
-   "seconds": 0.018209105000096315,
-   "peak_rss_mb": 45.265625,
-   "outcome": "error"
-  },
-  "0093.xlsx": {
-   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
-   "ok": false,
-   "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.025094929999795568,
-   "peak_rss_mb": 45.19140625,
+   "seconds": 0.017375759000060498,
+   "peak_rss_mb": 45.1875,
    "outcome": "error"
   },
   "0094.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Variable-length field extends beyond file boundary",
-   "seconds": 0.017342817000098876,
-   "peak_rss_mb": 45.34765625,
+   "seconds": 0.013123704000008729,
+   "peak_rss_mb": 45.41015625,
+   "outcome": "error"
+  },
+  "0093.xlsx": {
+   "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx",
+   "ok": false,
+   "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
+   "seconds": 0.016363491999982216,
+   "peak_rss_mb": 45.296875,
    "outcome": "error"
   },
   "0095.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx",
    "ok": true,
    "chars": 0,
-   "seconds": 0.021946245999970415,
-   "peak_rss_mb": 47.609375,
+   "seconds": 0.012606255000264355,
+   "peak_rss_mb": 47.8125,
    "outcome": "empty"
   },
   "0096.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx",
    "ok": true,
    "chars": 34031,
-   "seconds": 0.04289200199991683,
-   "peak_rss_mb": 51.15625,
+   "seconds": 0.03046595600017099,
+   "peak_rss_mb": 51.35546875,
    "outcome": "ok"
   },
   "0097.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.022968524000134494,
-   "peak_rss_mb": 45.18359375,
+   "seconds": 0.015862962000028347,
+   "peak_rss_mb": 45.1328125,
    "outcome": "error"
   },
   "0098.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.021664941999915754,
-   "peak_rss_mb": 44.89453125,
+   "seconds": 0.017199261999849114,
+   "peak_rss_mb": 45.0703125,
    "outcome": "error"
   },
   "0099.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.01683416500009116,
-   "peak_rss_mb": 45.2734375,
+   "seconds": 0.013020054000207892,
+   "peak_rss_mb": 45.20703125,
    "outcome": "error"
   },
   "0100.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.02206107499978316,
-   "peak_rss_mb": 44.98046875,
+   "seconds": 0.01245759600033125,
+   "peak_rss_mb": 45.1796875,
    "outcome": "error"
   },
   "0101.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.021921739999925194,
-   "peak_rss_mb": 45.109375,
+   "seconds": 0.016415568999946117,
+   "peak_rss_mb": 45.03125,
    "outcome": "error"
   },
   "0102.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.022189979999893694,
-   "peak_rss_mb": 44.94140625,
+   "seconds": 0.012824762000036571,
+   "peak_rss_mb": 45.25,
    "outcome": "error"
   },
   "0103.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Invalid Central Directory header",
-   "seconds": 0.016986180000003515,
-   "peak_rss_mb": 45.328125,
+   "seconds": 0.016280972000004112,
+   "peak_rss_mb": 45.16015625,
    "outcome": "error"
   },
   "0104.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.022406346000025223,
-   "peak_rss_mb": 44.9375,
+   "seconds": 0.012271071000213851,
+   "peak_rss_mb": 45.25390625,
    "outcome": "error"
   },
   "0105.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Invalid CDFH offset in EOCD",
-   "seconds": 0.018128498999885778,
-   "peak_rss_mb": 45.04296875,
+   "seconds": 0.016437357000086195,
+   "peak_rss_mb": 45.20703125,
    "outcome": "error"
   },
   "0106.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Workbook is password protected",
-   "seconds": 0.023778476999723352,
-   "peak_rss_mb": 45.0390625,
+   "seconds": 0.014609045999804948,
+   "peak_rss_mb": 45.30859375,
    "outcome": "error"
   },
   "0107.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/crash-e329fca9087fe21bca4a80c8bc472a661c98d860.xls",
    "ok": true,
    "chars": 1913,
-   "seconds": 0.02593517700006487,
-   "peak_rss_mb": 49.21875,
+   "seconds": 0.019954188000156137,
+   "peak_rss_mb": 49.2109375,
    "outcome": "ok"
   },
   "0108.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/deep-data.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Zip error: invalid Zip archive: Could not find EOCD",
-   "seconds": 0.02098665199991956,
-   "peak_rss_mb": 45.0234375,
+   "seconds": 0.013341934999971272,
+   "peak_rss_mb": 45.22265625,
    "outcome": "error"
   },
   "0109.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-shared-strings.xlsx",
    "ok": true,
    "chars": 0,
-   "seconds": 0.02640030000020488,
-   "peak_rss_mb": 49.1875,
+   "seconds": 0.02013664100013557,
+   "peak_rss_mb": 49.3828125,
    "outcome": "empty"
   },
   "0110.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb-empty.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Xml error: at 0..0: unrecognized entity `&a5;`",
-   "seconds": 0.017378666999775305,
-   "peak_rss_mb": 46.7734375,
+   "seconds": 0.017641902999912418,
+   "peak_rss_mb": 46.73046875,
    "outcome": "error"
   },
   "0111.xlsx": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poc-xmlbomb.xlsx",
    "ok": false,
    "error": "ParsingError: ParsingError: Failed to parse XLSX: Xml error: at 0..0: unrecognized entity `&a5;`",
-   "seconds": 0.016584523000346962,
-   "peak_rss_mb": 46.51953125,
+   "seconds": 0.01319913900033498,
+   "peak_rss_mb": 46.62109375,
    "outcome": "error"
   },
   "0112.xls": {
    "path": "/home/runner/work/_temp/corpus/poi/test-data/spreadsheet/poi-fuzz.xls",
    "ok": true,
    "chars": 53,
-   "seconds": 0.018513715000153752,
-   "peak_rss_mb": 48.93359375,
+   "seconds": 0.013178035999771964,
+   "peak_rss_mb": 49.16015625,
    "outcome": "ok"
   }
  }

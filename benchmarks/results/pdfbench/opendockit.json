@@ -1,0 +1,1608 @@
+{
+ "tool": "opendockit",
+ "version": "0.3.15",
+ "import_seconds": 0.03243387300017275,
+ "wall_seconds": 12.41129154600003,
+ "results": {
+  "01030000000002": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000002.pdf",
+   "ok": true,
+   "chars": 2726,
+   "seconds": 0.24605125700009012,
+   "peak_rss_mb": 74.125,
+   "outcome": "ok"
+  },
+  "01030000000004": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000004.pdf",
+   "ok": true,
+   "chars": 2478,
+   "seconds": 0.09769326700006786,
+   "peak_rss_mb": 74.68359375,
+   "outcome": "ok"
+  },
+  "01030000000005": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000005.pdf",
+   "ok": true,
+   "chars": 213,
+   "seconds": 0.017339374000130192,
+   "peak_rss_mb": 74.68359375,
+   "outcome": "ok"
+  },
+  "01030000000006": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000006.pdf",
+   "ok": true,
+   "chars": 191,
+   "seconds": 0.01438084199980949,
+   "peak_rss_mb": 74.68359375,
+   "outcome": "ok"
+  },
+  "01030000000003": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000003.pdf",
+   "ok": true,
+   "chars": 2656,
+   "seconds": 0.3754632529999071,
+   "peak_rss_mb": 73.2421875,
+   "outcome": "ok"
+  },
+  "01030000000001": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000001.pdf",
+   "ok": true,
+   "chars": 2767,
+   "seconds": 0.37710657699972217,
+   "peak_rss_mb": 73.45703125,
+   "outcome": "ok"
+  },
+  "01030000000007": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000007.pdf",
+   "ok": true,
+   "chars": 2064,
+   "seconds": 0.07848305399966193,
+   "peak_rss_mb": 74.68359375,
+   "outcome": "ok"
+  },
+  "01030000000009": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000009.pdf",
+   "ok": true,
+   "chars": 1776,
+   "seconds": 0.1349929789998896,
+   "peak_rss_mb": 74.20703125,
+   "outcome": "ok"
+  },
+  "01030000000010": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000010.pdf",
+   "ok": true,
+   "chars": 1848,
+   "seconds": 0.0871298779998142,
+   "peak_rss_mb": 75.18359375,
+   "outcome": "ok"
+  },
+  "01030000000012": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000012.pdf",
+   "ok": true,
+   "chars": 2313,
+   "seconds": 0.10355748000029052,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000008": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000008.pdf",
+   "ok": true,
+   "chars": 3847,
+   "seconds": 0.27586703799988754,
+   "peak_rss_mb": 77.17578125,
+   "outcome": "ok"
+  },
+  "01030000000011": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000011.pdf",
+   "ok": true,
+   "chars": 3177,
+   "seconds": 0.21841073900031915,
+   "peak_rss_mb": 75.58203125,
+   "outcome": "ok"
+  },
+  "01030000000013": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000013.pdf",
+   "ok": true,
+   "chars": 2260,
+   "seconds": 0.11978636699996059,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000016": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000016.pdf",
+   "ok": true,
+   "chars": 1023,
+   "seconds": 0.042715650999980426,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000014": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000014.pdf",
+   "ok": true,
+   "chars": 2129,
+   "seconds": 0.15382985999985976,
+   "peak_rss_mb": 77.80078125,
+   "outcome": "ok"
+  },
+  "01030000000015": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000015.pdf",
+   "ok": true,
+   "chars": 1226,
+   "seconds": 0.09657680600003005,
+   "peak_rss_mb": 75.58203125,
+   "outcome": "ok"
+  },
+  "01030000000017": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000017.pdf",
+   "ok": true,
+   "chars": 1693,
+   "seconds": 0.05809753299990916,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000020": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000020.pdf",
+   "ok": true,
+   "chars": 1345,
+   "seconds": 0.050522104000265244,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000018": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000018.pdf",
+   "ok": true,
+   "chars": 739,
+   "seconds": 0.13395377000006192,
+   "peak_rss_mb": 77.80078125,
+   "outcome": "ok"
+  },
+  "01030000000019": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000019.pdf",
+   "ok": true,
+   "chars": 1857,
+   "seconds": 0.11596278099978008,
+   "peak_rss_mb": 75.58203125,
+   "outcome": "ok"
+  },
+  "01030000000021": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000021.pdf",
+   "ok": true,
+   "chars": 1717,
+   "seconds": 0.06696069300005547,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000024": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000024.pdf",
+   "ok": true,
+   "chars": 2453,
+   "seconds": 0.0902373499998248,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000022": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000022.pdf",
+   "ok": true,
+   "chars": 2443,
+   "seconds": 0.16316011199978675,
+   "peak_rss_mb": 77.80078125,
+   "outcome": "ok"
+  },
+  "01030000000023": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000023.pdf",
+   "ok": true,
+   "chars": 2553,
+   "seconds": 0.16842426499988505,
+   "peak_rss_mb": 75.58203125,
+   "outcome": "ok"
+  },
+  "01030000000025": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000025.pdf",
+   "ok": true,
+   "chars": 2180,
+   "seconds": 0.08167251999975633,
+   "peak_rss_mb": 76.30859375,
+   "outcome": "ok"
+  },
+  "01030000000026": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000026.pdf",
+   "ok": true,
+   "chars": 2158,
+   "seconds": 0.12652054799991674,
+   "peak_rss_mb": 77.80078125,
+   "outcome": "ok"
+  },
+  "01030000000027": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000027.pdf",
+   "ok": true,
+   "chars": 278,
+   "seconds": 0.13339508599983674,
+   "peak_rss_mb": 75.58203125,
+   "outcome": "ok"
+  },
+  "01030000000028": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000028.pdf",
+   "ok": true,
+   "chars": 3037,
+   "seconds": 0.24422960599986254,
+   "peak_rss_mb": 83.05859375,
+   "outcome": "ok"
+  },
+  "01030000000029": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000029.pdf",
+   "ok": true,
+   "chars": 3351,
+   "seconds": 0.4055863720000161,
+   "peak_rss_mb": 82.05078125,
+   "outcome": "ok"
+  },
+  "01030000000030": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000030.pdf",
+   "ok": true,
+   "chars": 3223,
+   "seconds": 0.4381365240001287,
+   "peak_rss_mb": 80.45703125,
+   "outcome": "ok"
+  },
+  "01030000000031": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000031.pdf",
+   "ok": true,
+   "chars": 2679,
+   "seconds": 0.3248641990003307,
+   "peak_rss_mb": 87.30859375,
+   "outcome": "ok"
+  },
+  "01030000000032": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000032.pdf",
+   "ok": true,
+   "chars": 1917,
+   "seconds": 0.13266198700011955,
+   "peak_rss_mb": 82.05078125,
+   "outcome": "ok"
+  },
+  "01030000000034": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000034.pdf",
+   "ok": true,
+   "chars": 1832,
+   "seconds": 0.09248348699975395,
+   "peak_rss_mb": 87.30859375,
+   "outcome": "ok"
+  },
+  "01030000000033": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000033.pdf",
+   "ok": true,
+   "chars": 2004,
+   "seconds": 0.16268328800015297,
+   "peak_rss_mb": 80.62890625,
+   "outcome": "ok"
+  },
+  "01030000000035": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000035.pdf",
+   "ok": true,
+   "chars": 1750,
+   "seconds": 0.13544299599971055,
+   "peak_rss_mb": 82.05078125,
+   "outcome": "ok"
+  },
+  "01030000000036": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000036.pdf",
+   "ok": true,
+   "chars": 3033,
+   "seconds": 0.15718318600011116,
+   "peak_rss_mb": 87.30859375,
+   "outcome": "ok"
+  },
+  "01030000000037": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000037.pdf",
+   "ok": true,
+   "chars": 2331,
+   "seconds": 0.19160973099997136,
+   "peak_rss_mb": 81.12890625,
+   "outcome": "ok"
+  },
+  "01030000000039": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000039.pdf",
+   "ok": true,
+   "chars": 1649,
+   "seconds": 0.08204807100037215,
+   "peak_rss_mb": 87.30859375,
+   "outcome": "ok"
+  },
+  "01030000000038": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000038.pdf",
+   "ok": true,
+   "chars": 2502,
+   "seconds": 0.18822306299989577,
+   "peak_rss_mb": 82.21875,
+   "outcome": "ok"
+  },
+  "01030000000041": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000041.pdf",
+   "ok": true,
+   "chars": 2470,
+   "seconds": 0.14393703299992922,
+   "peak_rss_mb": 87.30859375,
+   "outcome": "ok"
+  },
+  "01030000000040": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000040.pdf",
+   "ok": true,
+   "chars": 2536,
+   "seconds": 0.249868019999667,
+   "peak_rss_mb": 82.62890625,
+   "outcome": "ok"
+  },
+  "01030000000043": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000043.pdf",
+   "ok": true,
+   "chars": 1933,
+   "seconds": 0.12430221800013896,
+   "peak_rss_mb": 87.59375,
+   "outcome": "ok"
+  },
+  "01030000000044": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000044.pdf",
+   "ok": true,
+   "chars": 319,
+   "seconds": 0.039286186000026646,
+   "peak_rss_mb": 82.62890625,
+   "outcome": "ok"
+  },
+  "01030000000042": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000042.pdf",
+   "ok": true,
+   "chars": 2811,
+   "seconds": 0.26895365299969853,
+   "peak_rss_mb": 83.21875,
+   "outcome": "ok"
+  },
+  "01030000000045": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000045.pdf",
+   "ok": true,
+   "chars": 774,
+   "seconds": 0.051423200000044744,
+   "peak_rss_mb": 87.96875,
+   "outcome": "ok"
+  },
+  "01030000000048": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000048.pdf",
+   "ok": true,
+   "chars": 2371,
+   "seconds": 0.11040414400031295,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000047": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000047.pdf",
+   "ok": true,
+   "chars": 879,
+   "seconds": 0.11383403599984376,
+   "peak_rss_mb": 83.21875,
+   "outcome": "ok"
+  },
+  "01030000000046": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000046.pdf",
+   "ok": true,
+   "chars": 1293,
+   "seconds": 0.15438457199979894,
+   "peak_rss_mb": 82.62890625,
+   "outcome": "ok"
+  },
+  "01030000000049": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000049.pdf",
+   "ok": true,
+   "chars": 2350,
+   "seconds": 0.09399372300003961,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000050": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000050.pdf",
+   "ok": true,
+   "chars": 1643,
+   "seconds": 0.1180148100002043,
+   "peak_rss_mb": 83.21875,
+   "outcome": "ok"
+  },
+  "01030000000051": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000051.pdf",
+   "ok": true,
+   "chars": 1457,
+   "seconds": 0.13257055799977024,
+   "peak_rss_mb": 82.75390625,
+   "outcome": "ok"
+  },
+  "01030000000052": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000052.pdf",
+   "ok": true,
+   "chars": 1738,
+   "seconds": 0.08880645099998219,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000053": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000053.pdf",
+   "ok": true,
+   "chars": 1587,
+   "seconds": 0.13231212200025766,
+   "peak_rss_mb": 83.21875,
+   "outcome": "ok"
+  },
+  "01030000000055": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000055.pdf",
+   "ok": true,
+   "chars": 2051,
+   "seconds": 0.10058174000005238,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000054": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000054.pdf",
+   "ok": true,
+   "chars": 2143,
+   "seconds": 0.15014035800004422,
+   "peak_rss_mb": 82.75390625,
+   "outcome": "ok"
+  },
+  "01030000000056": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000056.pdf",
+   "ok": true,
+   "chars": 1138,
+   "seconds": 0.10792354200020782,
+   "peak_rss_mb": 83.21875,
+   "outcome": "ok"
+  },
+  "01030000000057": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000057.pdf",
+   "ok": true,
+   "chars": 1546,
+   "seconds": 0.08384675999968749,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000058": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000058.pdf",
+   "ok": true,
+   "chars": 986,
+   "seconds": 0.09257803400032572,
+   "peak_rss_mb": 82.75390625,
+   "outcome": "ok"
+  },
+  "01030000000060": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000060.pdf",
+   "ok": true,
+   "chars": 1048,
+   "seconds": 0.05805816100019001,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000059": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000059.pdf",
+   "ok": true,
+   "chars": 781,
+   "seconds": 0.08112243699997634,
+   "peak_rss_mb": 83.46875,
+   "outcome": "ok"
+  },
+  "01030000000063": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000063.pdf",
+   "ok": true,
+   "chars": 752,
+   "seconds": 0.06646847599995453,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000061": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000061.pdf",
+   "ok": true,
+   "chars": 1009,
+   "seconds": 0.12404447600010826,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000062": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000062.pdf",
+   "ok": true,
+   "chars": 1651,
+   "seconds": 0.10893399400038106,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000065": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000065.pdf",
+   "ok": true,
+   "chars": 1339,
+   "seconds": 0.11644207500012271,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000066": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000066.pdf",
+   "ok": true,
+   "chars": 2029,
+   "seconds": 0.09940038900003856,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000064": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000064.pdf",
+   "ok": true,
+   "chars": 1933,
+   "seconds": 0.18505477400003656,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000068": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000068.pdf",
+   "ok": true,
+   "chars": 2636,
+   "seconds": 0.1133146229999511,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000067": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000067.pdf",
+   "ok": true,
+   "chars": 1810,
+   "seconds": 0.1325202719999652,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000070": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000070.pdf",
+   "ok": true,
+   "chars": 796,
+   "seconds": 0.06858561999979429,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000069": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000069.pdf",
+   "ok": true,
+   "chars": 2585,
+   "seconds": 0.18468159400026707,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000072": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000072.pdf",
+   "ok": true,
+   "chars": 770,
+   "seconds": 0.07254701300007582,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000071": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000071.pdf",
+   "ok": true,
+   "chars": 2058,
+   "seconds": 0.1739142520000314,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000073": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000073.pdf",
+   "ok": true,
+   "chars": 955,
+   "seconds": 0.10643920399979834,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000074": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000074.pdf",
+   "ok": true,
+   "chars": 2067,
+   "seconds": 0.2034503259997109,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000076": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000076.pdf",
+   "ok": true,
+   "chars": 937,
+   "seconds": 0.10933155799966698,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000075": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000075.pdf",
+   "ok": true,
+   "chars": 2523,
+   "seconds": 0.16964615100005176,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000077": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000077.pdf",
+   "ok": true,
+   "chars": 2162,
+   "seconds": 0.1144656770002257,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000079": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000079.pdf",
+   "ok": true,
+   "chars": 1319,
+   "seconds": 0.1419599690002542,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000078": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000078.pdf",
+   "ok": true,
+   "chars": 1996,
+   "seconds": 0.19351074499991228,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000080": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000080.pdf",
+   "ok": true,
+   "chars": 1421,
+   "seconds": 0.0860998089997338,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000081": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000081.pdf",
+   "ok": true,
+   "chars": 1024,
+   "seconds": 0.10691037499964295,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000083": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000083.pdf",
+   "ok": true,
+   "chars": 1311,
+   "seconds": 0.11736305400017955,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000082": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000082.pdf",
+   "ok": true,
+   "chars": 980,
+   "seconds": 0.13484783699959735,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000085": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000085.pdf",
+   "ok": true,
+   "chars": 239,
+   "seconds": 0.021451398999943194,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000084": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000084.pdf",
+   "ok": true,
+   "chars": 702,
+   "seconds": 0.09037774499984152,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000087": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000087.pdf",
+   "ok": true,
+   "chars": 2167,
+   "seconds": 0.10017020700024659,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000088": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000088.pdf",
+   "ok": true,
+   "chars": 1671,
+   "seconds": 0.16852836799989745,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000089": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000089.pdf",
+   "ok": true,
+   "chars": 1575,
+   "seconds": 0.09476542899983542,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000086": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000086.pdf",
+   "ok": true,
+   "chars": 2846,
+   "seconds": 0.22625069500008976,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000090": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000090.pdf",
+   "ok": true,
+   "chars": 1578,
+   "seconds": 0.15798918800010142,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000091": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000091.pdf",
+   "ok": true,
+   "chars": 3595,
+   "seconds": 0.14253680199999508,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000094": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000094.pdf",
+   "ok": true,
+   "chars": 1491,
+   "seconds": 0.08355316600000151,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000092": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000092.pdf",
+   "ok": true,
+   "chars": 4117,
+   "seconds": 0.26180714799966154,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000095": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000095.pdf",
+   "ok": true,
+   "chars": 1999,
+   "seconds": 0.0903393909998158,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000093": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000093.pdf",
+   "ok": true,
+   "chars": 3453,
+   "seconds": 0.23779726399970968,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000096": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000096.pdf",
+   "ok": true,
+   "chars": 1282,
+   "seconds": 0.11241126400000212,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000097": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000097.pdf",
+   "ok": true,
+   "chars": 1947,
+   "seconds": 0.11741875300003812,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000100": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000100.pdf",
+   "ok": true,
+   "chars": 663,
+   "seconds": 0.037796092000007775,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000099": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000099.pdf",
+   "ok": true,
+   "chars": 1003,
+   "seconds": 0.0823226419997809,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000098": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000098.pdf",
+   "ok": true,
+   "chars": 1563,
+   "seconds": 0.10964419399988401,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000101": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000101.pdf",
+   "ok": true,
+   "chars": 4102,
+   "seconds": 0.17732162500033155,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000102": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000102.pdf",
+   "ok": true,
+   "chars": 2737,
+   "seconds": 0.18801720100009334,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000104": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000104.pdf",
+   "ok": true,
+   "chars": 958,
+   "seconds": 0.051008028000069316,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000105": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000105.pdf",
+   "ok": true,
+   "chars": 940,
+   "seconds": 0.08624856300002648,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000106": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000106.pdf",
+   "ok": true,
+   "chars": 1383,
+   "seconds": 0.07481888600023012,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000107": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000107.pdf",
+   "ok": true,
+   "chars": 220,
+   "seconds": 0.025511183999697096,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000108": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000108.pdf",
+   "ok": true,
+   "chars": 551,
+   "seconds": 0.035551432999909593,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000110": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000110.pdf",
+   "ok": true,
+   "chars": 1216,
+   "seconds": 0.07035176099998353,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000109": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000109.pdf",
+   "ok": true,
+   "chars": 935,
+   "seconds": 0.15121071100020345,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000111": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000111.pdf",
+   "ok": true,
+   "chars": 970,
+   "seconds": 0.08027074399979028,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000103": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000103.pdf",
+   "ok": true,
+   "chars": 1181,
+   "seconds": 0.4873590469996998,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000112": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000112.pdf",
+   "ok": true,
+   "chars": 1545,
+   "seconds": 0.11771414499980892,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000114": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000114.pdf",
+   "ok": true,
+   "chars": 450,
+   "seconds": 0.09208372300008705,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000113": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000113.pdf",
+   "ok": true,
+   "chars": 1089,
+   "seconds": 0.13030134400014504,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000115": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000115.pdf",
+   "ok": true,
+   "chars": 1471,
+   "seconds": 0.12619978499969875,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000116": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000116.pdf",
+   "ok": true,
+   "chars": 834,
+   "seconds": 0.12076689800005624,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000117": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000117.pdf",
+   "ok": true,
+   "chars": 2065,
+   "seconds": 0.09535261599967271,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000120": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000120.pdf",
+   "ok": true,
+   "chars": 1576,
+   "seconds": 0.11674769100000049,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000119": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000119.pdf",
+   "ok": true,
+   "chars": 1315,
+   "seconds": 0.13990449899984014,
+   "peak_rss_mb": 82.87890625,
+   "outcome": "ok"
+  },
+  "01030000000118": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000118.pdf",
+   "ok": true,
+   "chars": 1205,
+   "seconds": 0.1710770660001799,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000123": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000123.pdf",
+   "ok": true,
+   "chars": 907,
+   "seconds": 0.09255079099966679,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000121": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000121.pdf",
+   "ok": true,
+   "chars": 2617,
+   "seconds": 0.1364615640000011,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000122": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000122.pdf",
+   "ok": true,
+   "chars": 1406,
+   "seconds": 0.13825175099964326,
+   "peak_rss_mb": 83.05859375,
+   "outcome": "ok"
+  },
+  "01030000000125": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000125.pdf",
+   "ok": true,
+   "chars": 746,
+   "seconds": 0.040549557999838726,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000124": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000124.pdf",
+   "ok": true,
+   "chars": 1057,
+   "seconds": 0.09840438399987761,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000126": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000126.pdf",
+   "ok": true,
+   "chars": 828,
+   "seconds": 0.07706297999993694,
+   "peak_rss_mb": 83.05859375,
+   "outcome": "ok"
+  },
+  "01030000000127": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000127.pdf",
+   "ok": true,
+   "chars": 2311,
+   "seconds": 0.12667653399967094,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000128": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000128.pdf",
+   "ok": true,
+   "chars": 1065,
+   "seconds": 0.11882057100001475,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000130": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000130.pdf",
+   "ok": true,
+   "chars": 1102,
+   "seconds": 0.08312095500014038,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000131": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000131.pdf",
+   "ok": true,
+   "chars": 818,
+   "seconds": 0.08087696299980962,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000132": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000132.pdf",
+   "ok": true,
+   "chars": 2125,
+   "seconds": 0.13408097000001362,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000129": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000129.pdf",
+   "ok": true,
+   "chars": 1959,
+   "seconds": 0.30063989200016294,
+   "peak_rss_mb": 83.05859375,
+   "outcome": "ok"
+  },
+  "01030000000134": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000134.pdf",
+   "ok": true,
+   "chars": 803,
+   "seconds": 0.04486565100023654,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000136": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000136.pdf",
+   "ok": true,
+   "chars": 1046,
+   "seconds": 0.05730852800024877,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000133": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000133.pdf",
+   "ok": true,
+   "chars": 3193,
+   "seconds": 0.27052842300008706,
+   "peak_rss_mb": 83.59375,
+   "outcome": "ok"
+  },
+  "01030000000137": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000137.pdf",
+   "ok": true,
+   "chars": 2328,
+   "seconds": 0.1110580919998938,
+   "peak_rss_mb": 88.09375,
+   "outcome": "ok"
+  },
+  "01030000000135": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000135.pdf",
+   "ok": true,
+   "chars": 3675,
+   "seconds": 0.24769850799975757,
+   "peak_rss_mb": 83.05859375,
+   "outcome": "ok"
+  },
+  "01030000000139": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000139.pdf",
+   "ok": true,
+   "chars": 2481,
+   "seconds": 0.12319391900018672,
+   "peak_rss_mb": 91.73046875,
+   "outcome": "ok"
+  },
+  "01030000000138": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000138.pdf",
+   "ok": true,
+   "chars": 2799,
+   "seconds": 0.23719121800013454,
+   "peak_rss_mb": 84.09375,
+   "outcome": "ok"
+  },
+  "01030000000140": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000140.pdf",
+   "ok": true,
+   "chars": 2922,
+   "seconds": 0.2492242440002883,
+   "peak_rss_mb": 83.43359375,
+   "outcome": "ok"
+  },
+  "01030000000142": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000142.pdf",
+   "ok": true,
+   "chars": 3417,
+   "seconds": 0.24375404600004913,
+   "peak_rss_mb": 84.09375,
+   "outcome": "ok"
+  },
+  "01030000000143": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000143.pdf",
+   "ok": true,
+   "chars": 2578,
+   "seconds": 0.17628558300020813,
+   "peak_rss_mb": 83.43359375,
+   "outcome": "ok"
+  },
+  "01030000000145": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000145.pdf",
+   "ok": true,
+   "chars": 1649,
+   "seconds": 0.17287888999999268,
+   "peak_rss_mb": 83.43359375,
+   "outcome": "ok"
+  },
+  "01030000000144": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000144.pdf",
+   "ok": true,
+   "chars": 2255,
+   "seconds": 0.22995706499978041,
+   "peak_rss_mb": 84.09375,
+   "outcome": "ok"
+  },
+  "01030000000146": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000146.pdf",
+   "ok": true,
+   "chars": 2664,
+   "seconds": 0.24556976799976837,
+   "peak_rss_mb": 83.43359375,
+   "outcome": "ok"
+  },
+  "01030000000147": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000147.pdf",
+   "ok": true,
+   "chars": 2234,
+   "seconds": 0.25555483099969933,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000148": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000148.pdf",
+   "ok": true,
+   "chars": 1143,
+   "seconds": 0.10405802300010691,
+   "peak_rss_mb": 83.43359375,
+   "outcome": "ok"
+  },
+  "01030000000149": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000149.pdf",
+   "ok": true,
+   "chars": 723,
+   "seconds": 0.11187437700027658,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000151": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000151.pdf",
+   "ok": true,
+   "chars": 1420,
+   "seconds": 0.10531026800026666,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000150": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000150.pdf",
+   "ok": true,
+   "chars": 1636,
+   "seconds": 0.17638578000014604,
+   "peak_rss_mb": 83.8203125,
+   "outcome": "ok"
+  },
+  "01030000000152": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000152.pdf",
+   "ok": true,
+   "chars": 1690,
+   "seconds": 0.116607982000005,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000154": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000154.pdf",
+   "ok": true,
+   "chars": 742,
+   "seconds": 0.05676575000006778,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000153": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000153.pdf",
+   "ok": true,
+   "chars": 2036,
+   "seconds": 0.15705111800025406,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000155": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000155.pdf",
+   "ok": true,
+   "chars": 302,
+   "seconds": 0.03994869200005269,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000156": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000156.pdf",
+   "ok": true,
+   "chars": 1327,
+   "seconds": 0.11958482199997889,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000157": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000157.pdf",
+   "ok": true,
+   "chars": 1345,
+   "seconds": 0.12999693599977036,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000158": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000158.pdf",
+   "ok": true,
+   "chars": 1034,
+   "seconds": 0.07676818400022967,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000159": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000159.pdf",
+   "ok": true,
+   "chars": 1624,
+   "seconds": 0.11769918000027246,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000160": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000160.pdf",
+   "ok": true,
+   "chars": 1603,
+   "seconds": 0.111545462000322,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000161": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000161.pdf",
+   "ok": true,
+   "chars": 1553,
+   "seconds": 0.11400859700006549,
+   "peak_rss_mb": 84.2265625,
+   "outcome": "ok"
+  },
+  "01030000000162": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000162.pdf",
+   "ok": true,
+   "chars": 1404,
+   "seconds": 0.10402102299985927,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000163": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000163.pdf",
+   "ok": true,
+   "chars": 1312,
+   "seconds": 0.3002135349997843,
+   "peak_rss_mb": 85.7265625,
+   "outcome": "ok"
+  },
+  "01030000000164": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000164.pdf",
+   "ok": true,
+   "chars": 4546,
+   "seconds": 0.33711372800007666,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000166": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000166.pdf",
+   "ok": true,
+   "chars": 1624,
+   "seconds": 0.34770074500011106,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000165": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000165.pdf",
+   "ok": true,
+   "chars": 1756,
+   "seconds": 0.6404038529999525,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000167": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000167.pdf",
+   "ok": true,
+   "chars": 3092,
+   "seconds": 0.25435423599992646,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000169": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000169.pdf",
+   "ok": true,
+   "chars": 2157,
+   "seconds": 0.38879985199992007,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000168": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000168.pdf",
+   "ok": true,
+   "chars": 2189,
+   "seconds": 0.5971823230001974,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000170": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000170.pdf",
+   "ok": true,
+   "chars": 2103,
+   "seconds": 0.2501899149997371,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000171": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000171.pdf",
+   "ok": true,
+   "chars": 1269,
+   "seconds": 0.12379212899986669,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000173": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000173.pdf",
+   "ok": true,
+   "chars": 942,
+   "seconds": 0.08406819399988308,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000172": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000172.pdf",
+   "ok": true,
+   "chars": 1877,
+   "seconds": 0.16486539200013794,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000174": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000174.pdf",
+   "ok": true,
+   "chars": 998,
+   "seconds": 0.09136183800001163,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000175": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000175.pdf",
+   "ok": true,
+   "chars": 1488,
+   "seconds": 0.14127005199998166,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000176": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000176.pdf",
+   "ok": true,
+   "chars": 1525,
+   "seconds": 0.15172544899996865,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000177": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000177.pdf",
+   "ok": true,
+   "chars": 2045,
+   "seconds": 0.15483114900007422,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000179": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000179.pdf",
+   "ok": true,
+   "chars": 1275,
+   "seconds": 0.09533354199993482,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000178": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000178.pdf",
+   "ok": true,
+   "chars": 2643,
+   "seconds": 0.1837428329999966,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000181": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000181.pdf",
+   "ok": true,
+   "chars": 505,
+   "seconds": 0.053619849999904545,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000180": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000180.pdf",
+   "ok": true,
+   "chars": 1095,
+   "seconds": 0.08175059199993484,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000182": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000182.pdf",
+   "ok": true,
+   "chars": 1617,
+   "seconds": 0.12224834199969337,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000183": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000183.pdf",
+   "ok": true,
+   "chars": 1026,
+   "seconds": 0.1330851289999373,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000184": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000184.pdf",
+   "ok": true,
+   "chars": 1089,
+   "seconds": 0.10234242500018809,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000185": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000185.pdf",
+   "ok": true,
+   "chars": 4301,
+   "seconds": 0.2921961429997282,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000186": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000186.pdf",
+   "ok": true,
+   "chars": 3542,
+   "seconds": 0.23193745400021726,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000187": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000187.pdf",
+   "ok": true,
+   "chars": 4527,
+   "seconds": 0.26087665900013235,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000188": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000188.pdf",
+   "ok": true,
+   "chars": 5090,
+   "seconds": 0.35364721599989934,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000189": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000189.pdf",
+   "ok": true,
+   "chars": 4823,
+   "seconds": 0.2906177720001324,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000190": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000190.pdf",
+   "ok": true,
+   "chars": 4633,
+   "seconds": 0.2841670420002629,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000191": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000191.pdf",
+   "ok": true,
+   "chars": 4583,
+   "seconds": 0.25618464200033486,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000192": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000192.pdf",
+   "ok": true,
+   "chars": 4972,
+   "seconds": 0.2803074570001627,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000193": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000193.pdf",
+   "ok": true,
+   "chars": 4937,
+   "seconds": 0.29591239399996994,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000194": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000194.pdf",
+   "ok": true,
+   "chars": 3572,
+   "seconds": 0.21902515299962033,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000195": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000195.pdf",
+   "ok": true,
+   "chars": 4435,
+   "seconds": 0.24736053500009803,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000196": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000196.pdf",
+   "ok": true,
+   "chars": 4617,
+   "seconds": 0.25700208900025245,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000197": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000197.pdf",
+   "ok": true,
+   "chars": 1556,
+   "seconds": 0.09186155399993368,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000198": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000198.pdf",
+   "ok": true,
+   "chars": 155,
+   "seconds": 0.03247129700002915,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000199": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000199.pdf",
+   "ok": true,
+   "chars": 1330,
+   "seconds": 0.19768463700029315,
+   "peak_rss_mb": 83.9453125,
+   "outcome": "ok"
+  },
+  "01030000000200": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000200.pdf",
+   "ok": true,
+   "chars": 3263,
+   "seconds": 0.2575528019997364,
+   "peak_rss_mb": 86.3515625,
+   "outcome": "ok"
+  },
+  "01030000000141": {
+   "path": "/home/runner/work/_temp/pdfbench/opendataloader-bench/pdfs/01030000000141.pdf",
+   "ok": true,
+   "chars": 13,
+   "seconds": 6.077865389000181,
+   "peak_rss_mb": 221.51953125,
+   "outcome": "ok"
+  }
+ }
+}
