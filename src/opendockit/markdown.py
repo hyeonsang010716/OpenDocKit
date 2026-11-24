@@ -697,6 +697,22 @@ def _cell_lines(value: str) -> list[str]:
     return [line for line in lines if line]
 
 
+# A line start Markdown reads as the mark of a block: `#` … `######` and a space (a heading) or `>` (a quote)
+_BLOCK_MARK_START = re.compile(r"^(?:#{1,6}(?=\s|$)|>)", re.MULTILINE)
+_BLOCK_MARKS = ("#", ">")
+
+
+def escape_block_marks(text: str) -> str:
+    """Text a document holds, whose lines start with a heading or quote mark, with those marks escaped (`\\#`, `\\>`). The
+    text of a document is text, never structure: the row of a form in a PDF, '# DNA replications' (a count column), became a
+    heading (Pinned by: test_pdf_headings.py::TestBodyTextMarks), and each line of a manual that shows what is typed at a
+    prompt, `# arch -k`, 273 headings (Pinned by: test_hwp_typed_marks.py). A text that starts with neither mark and is one
+    line is given back as it is, without a search."""
+    if not text.startswith(_BLOCK_MARKS) and "\n" not in text:
+        return text
+    return _BLOCK_MARK_START.sub(lambda match: "\\" + match.group(0), text)
+
+
 def _clean_cell(value: str) -> str:
     return "<br>".join(_cell_lines(value)).replace("|", "\\|")
 
