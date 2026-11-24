@@ -168,6 +168,12 @@ class TestMultipartSplitAtTheDelimiterInUse:
         "--BBB\r\nContent-Type: text/plain\r\n  and a sentence under the type.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
         "--BBB\r\nContent-Type: text/x-thing\r\nContent-Transfer-Encoding: base64\r\n\r\n" + _B64 + "\r\n--BBB--\r\n",
         "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: 8bit;\r\n x=1\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: message/rfc822\r\n\r\nSubject: inner\r\nContent-Type: multipart/mixed\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        "A line that was shown.\r\nAnother line that was shown.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/rfc822-headers\r\nContent-Disposition: inline; filename=h.txt\r\n\r\nSubject: bounced\r\n\r\n"
+        "A line that was shown.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nMonday12\r\nTuesday3\r\nFriday45\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nX-Note: a sentence that was shown\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
     ], ids=["named-part-the-body-points-at", "named-part-with-a-location", "signature", "partial-message", "message-of-no-known-kind",
             "sentence-under-a-header-of-a-part", "sentence-folded-behind-a-semicolon", "sentence-folded-under-another-header",
             "footer-behind-base64", "line-of-words-in-base64", "multipart-inside-under-base64", "multipart-inside-set-aside",
@@ -176,7 +182,9 @@ class TestMultipartSplitAtTheDelimiterInUse:
             "text-before-the-parts-of-the-mail-inside", "unread-part-of-the-mail-inside", "mail-inside-that-is-no-text",
             "mail-inside-under-an-encoding", "words-behind-base64", "a-word-behind-base64", "lines-of-base64-of-other-lengths",
             "words-between-dashes-behind-base64", "folded-sentence-with-an-equals-sign", "sentence-folded-under-a-type-without-a-semicolon",
-            "text-of-another-kind-in-base64", "parameter-under-a-header-that-has-none"])
+            "text-of-another-kind-in-base64", "parameter-under-a-header-that-has-none",
+            "multipart-of-the-mail-inside-under-base64", "returned-headers-with-a-file-name", "words-of-one-length-as-data",
+            "sentence-under-a-name-of-the-sender's-own"])
     def test_body_a_split_would_read_less_of_stays_text(self, body):
         """Each of these came out shorter, or as nothing, once it was split: a part neither read nor reported, a sentence taken
         for a header, lines decoded as base64, the rest of the mail set aside as one attachment."""

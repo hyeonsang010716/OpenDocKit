@@ -520,8 +520,8 @@ def _shows_every_line(multipart: Message) -> bool:
     - No header of a part but those a part has (`_PART_HEADERS`: `Content-wise: we agreed` is a sentence), and none that goes
       on over a line with anything but the parameters of a type or a disposition, or a description (`_FOLDED_PARAMETERS`).
     - No part that is neither read (text/plain, text/html, a forwarded mail, a report) nor reported as an attachment
-      (`_is_attachment`, and no signature, which is not reported) nor data in base64, which was never text (a picture the
-      page points at, a signature): an unnamed `text/calendar`, returned headers, a `message/partial`, or a part whose type
+      (`_is_attachment`, and no signature, which is not reported) nor a picture, a sound, a film or a signature in base64,
+      which was never text: an unnamed `text/calendar`, returned headers, a `message/partial`, or a part whose type
       a folded sentence made unreadable, came out as nothing.
     - No part in base64, of the mail or of a mail forwarded in it, whose body is more than base64 (`_is_all_base64`), and no
       multipart inside that the parser left whole under a transfer encoding or as an attachment.
@@ -530,8 +530,9 @@ def _shows_every_line(multipart: Message) -> bool:
       and in a multipart/alternative nothing beside one plain form of the text and one page (text/html, or a multipart).
     Known accepted gap: what a mail with a right boundary does not show is not shown: the delimiter lines, the headers of the
     parts (a `Content-Description` and what it goes on with, a comment behind `MIME-Version`), the plain text beside a page in
-    an alternative, the lines of a part reported as an attachment, and of a mail forwarded inside the headers a reader of
-    mail leaves out. And one word of four or eight letters behind base64 that ends at a full line is decoded with it."""
+    an alternative, the lines of a part reported as an attachment, of a mail forwarded inside the headers a reader of
+    mail leaves out (every line with a colon before its first blank line), and a sentence written as the value of a parameter
+    in quotes. And one word of four or eight letters behind base64 that ends at a full line is decoded with it."""
     stack = [multipart]
     while stack:
         current = stack.pop()
@@ -576,10 +577,14 @@ def _shows_every_line(multipart: Message) -> bool:
                     return False
                 if inside.is_multipart():
                     stack.append(inside)
-                elif inside.get_content_maintype() != "multipart" and (
-                        inside.get_content_type() not in ("text/plain", "text/html") or not _is_all_base64(inside)):
+                elif inside.get_content_maintype() == "multipart":
+                    if str(inside.get("Content-Transfer-Encoding", "")).strip().lower() not in _IDENTITY_ENCODINGS:
+                        return False  # left whole, it is text only as its bytes (as a multipart of the mail itself, above)
+                elif inside.get_content_type() not in ("text/plain", "text/html") or not _is_all_base64(inside):
                     return False
                 continue
+            if kind == "text/rfc822-headers":
+                return False  # read as the headers before the first blank line, whatever name it has: the rest is passed over
             # (a text part without a disposition or a name is no attachment: `_is_attachment` is not asked)
             body_text = kind in ("text/plain", "text/html")
             reported = ((not body_text or "Content-Disposition" in child or "name" in str(child.get("Content-Type", "")).lower())
@@ -594,8 +599,10 @@ def _shows_every_line(multipart: Message) -> bool:
 
 
 def _is_data_in_base64(part: Message) -> bool:
-    """Is the part data in base64 and nothing else: a picture the page points at, a signature? Nothing of it was text."""
-    return (part.get_content_maintype() not in ("text", "message")
+    """Is the part data in base64 and nothing else: a picture, a sound or a film the page points at, a signature? Nothing of it
+    was text. Data of another kind without a name (`application/json`) is not taken so: lines of words of one length are
+    base64 by their shape."""
+    return ((part.get_content_maintype() in ("image", "audio", "video") or part.get_content_type() in _SIGNATURE_TYPES)
             and str(part.get("Content-Transfer-Encoding", "")).strip().lower() == "base64" and _is_all_base64(part))
 
 
