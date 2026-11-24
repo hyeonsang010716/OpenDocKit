@@ -1827,6 +1827,14 @@ class TestAscii85InPieces:
 
         return base64.a85encode(data, wrapcol=width)
 
+    @staticmethod
+    def _whole(data: bytes) -> bytes:
+        """pdfminer's own function: its patterns for the marks, then the decoder of the standard library on all of it."""
+        from pdfminer import ascii85
+
+        assert ascii85.ascii85decode is not _pdf_pdfminer.ascii85decode
+        return ascii85.ascii85decode(data)
+
     @pytest.fixture
     def short_pieces(self, monkeypatch):
         monkeypatch.setattr(_pdf_pdfminer, "_ASCII85_PIECE", 5 * 8)
@@ -1838,7 +1846,7 @@ class TestAscii85InPieces:
         data = bytes((index * 37 + 11) % 255 + 1 for index in range(length))   # no four zero bytes, so no abbreviation
         encoded = self._encoded(data, width) + ending
 
-        assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
+        assert _pdf_pdfminer.ascii85decode(encoded) == self._whole(encoded) == data
 
     @pytest.mark.parametrize("data", [
         b"abc" + bytes(9) + b"defgh" * 30,
@@ -1852,9 +1860,12 @@ class TestAscii85InPieces:
     def test_data_with_the_abbreviation_of_four_zero_bytes_is_cut_where_a_five_ends(self, short_pieces, monkeypatch, data, width):
         """`z` is one character where five stand otherwise: a piece ends where the others come to a multiple of five."""
         encoded = self._encoded(data, width)
-        monkeypatch.setattr(_pdf_pdfminer, "_ascii85_whole", lambda given: pytest.fail("decoded whole"))
+        sizes = []
+        decode = _pdf_pdfminer.pdfminer_ascii85.a85decode
+        monkeypatch.setattr(_pdf_pdfminer.pdfminer_ascii85, "a85decode", lambda piece: sizes.append(len(piece)) or decode(piece))
 
         assert b"z" in encoded and _pdf_pdfminer.ascii85decode(encoded) == data
+        assert len(sizes) > 1 and max(sizes) <= 40
 
     @pytest.mark.parametrize("place", [1, 2, 3, 4, 41, 43, 199])
     def test_abbreviation_inside_a_five_raises_as_the_whole_does(self, short_pieces, place):
@@ -1862,7 +1873,7 @@ class TestAscii85InPieces:
         encoded[place:place] = b"z"
 
         with pytest.raises(ValueError):
-            _pdf_pdfminer._ascii85_whole(bytes(encoded))
+            self._whole(bytes(encoded))
         with pytest.raises(ValueError):
             _pdf_pdfminer.ascii85decode(bytes(encoded))
 
@@ -1872,7 +1883,7 @@ class TestAscii85InPieces:
         encoded = b"!" * 36 + b"z" + b"!" * 64
 
         with pytest.raises(ValueError):
-            _pdf_pdfminer._ascii85_whole(encoded)
+            self._whole(encoded)
         with pytest.raises(ValueError):
             _pdf_pdfminer.ascii85decode(encoded)
 
@@ -1881,7 +1892,7 @@ class TestAscii85InPieces:
         encoded = b"abcd" + b"z" * 60 + b"abcde" * 10
 
         with pytest.raises(ValueError):
-            _pdf_pdfminer._ascii85_whole(encoded)
+            self._whole(encoded)
         with pytest.raises(ValueError):
             _pdf_pdfminer.ascii85decode(encoded)
 
@@ -1891,14 +1902,44 @@ class TestAscii85InPieces:
         data = bytes(range(1, 251))
         encoded = space.join(self._encoded(data, 6).split(b"\n"))   # lines of six: a cut of forty falls inside a five
 
-        assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
+        assert _pdf_pdfminer.ascii85decode(encoded) == self._whole(encoded) == data
 
     @pytest.mark.parametrize("start", [b"<~", b"~", b" <~ ", b"< ~\n"], ids=["bracket", "tilde", "spaced", "split"])
     def test_start_of_long_data_is_passed_over_as_in_the_whole(self, short_pieces, start):
         data = bytes(range(1, 251))
         encoded = start + self._encoded(data) + b"~>"
 
-        assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
+        assert _pdf_pdfminer.ascii85decode(encoded) == self._whole(encoded) == data
+
+    @pytest.mark.parametrize("start", [b"", b"<~", b"~", b" \n<\t ~\r", b"<", b"<<~", b"< <~", b"\x0c~\x0c", b"~~", b"<~<~", b"\x00~"])
+    @pytest.mark.parametrize("end", [b"", b"~>", b"~", b" ~ >\n", b">", b"~>>", b"~~>", b"~>~", b"\x0c~\x0c>\x0c", b"~\n", b"~ > >", b"~\x00>"])
+    @pytest.mark.parametrize("middle", [b"", b"87cUR", b" 87cUR\n", b">", b"~", b" "])
+    def test_marks_are_taken_off_as_the_patterns_of_the_library_do(self, start, end, middle):
+        """The marks of the start and the end are read once from each end, not searched for with the library's patterns:
+        behind white space of any length, a search that fails is tried again from every character of the run, and 80,000
+        spaces behind the filter took 13 s to decode."""
+        from pdfminer import ascii85
+
+        data = start + middle + end
+
+        assert _pdf_pdfminer._ascii85_body(data) == ascii85.end_re.sub(b"", ascii85.start_re.sub(b"", data))
+
+    @pytest.mark.parametrize("data", [b" " * 400, b" " * 400 + b"y", b"87cUR" * 20 + b" " * 400, b" " * 30],
+                             ids=["long", "long-with-y", "long-behind-data", "short"])
+    def test_patterns_of_the_library_are_not_searched_with(self, short_pieces, monkeypatch, data):
+        class Unused:
+            def sub(self, *given):
+                pytest.fail("searched with a pattern of the library")
+
+        expected = self._whole(data) if b"y" not in data else None
+        monkeypatch.setattr(_pdf_pdfminer.pdfminer_ascii85, "start_re", Unused())
+        monkeypatch.setattr(_pdf_pdfminer.pdfminer_ascii85, "end_re", Unused())
+
+        if expected is None:
+            with pytest.raises(ValueError):
+                _pdf_pdfminer.ascii85decode(data)
+        else:
+            assert _pdf_pdfminer.ascii85decode(data) == expected
 
     def test_piece_is_a_number_of_fives(self):
         assert _pdf_pdfminer._ASCII85_PIECE % 5 == 0
@@ -1918,7 +1959,7 @@ class TestAscii85InPieces:
         encoded[place:place + 1] = damage
 
         with pytest.raises(ValueError):
-            _pdf_pdfminer._ascii85_whole(bytes(encoded))
+            self._whole(bytes(encoded))
         with pytest.raises(ValueError):
             _pdf_pdfminer.ascii85decode(bytes(encoded))
 
@@ -1929,7 +1970,7 @@ class TestAscii85InPieces:
         encoded = encoded[:40] + between + encoded[40:]
 
         with pytest.raises(ValueError):
-            _pdf_pdfminer._ascii85_whole(encoded)
+            self._whole(encoded)
         with pytest.raises(ValueError):
             _pdf_pdfminer.ascii85decode(encoded)
 

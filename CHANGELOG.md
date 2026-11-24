@@ -53,7 +53,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Security
 
 - **PDF: a stream behind an ASCII85 filter no longer takes forty times its size to decode.** A 10 MB file took
-  405 MB and takes 134 MB; the bytes decoded are the same.
+  405 MB and takes 134 MB; the bytes decoded are the same. A stream of white space behind the filter no longer takes
+  time that grows with the square of its length (80,000 spaces: 12 s, now 2 ms).
 - **PDF: one string of a million glyphs no longer takes gigabytes.** A string is one token however long, so a
   1.5 KB file whose one string held a million glyphs took 20 s and 2.5 GB, and thirty million more than 3 GB. What
   pdfminer reads of a page is bounded where it reads it — the length of a string, the glyphs drawn and kept, the

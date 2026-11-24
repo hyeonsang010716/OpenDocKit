@@ -119,7 +119,25 @@ _DOCUMENT_CMAP_CODES = 12_000_000
 _ASCII85_PIECE = 5 * 65_536
 _ASCII85_WHITE_SPACE = b" \t\n\r\x0b"  # what the standard library's decoder passes over
 _ASCII85_ZEROS = ord("z")  # the abbreviation of four zero bytes: one character where five stand otherwise
-_ascii85_whole = pdfminer_ascii85.ascii85decode
+_ASCII85_AROUND_A_MARK = b" \t\n\r\x0b\x0c"  # the white space of the library's patterns for the marks of the start and the end
+
+
+def _ascii85_body(data: bytes) -> bytes:
+    """The data without the marks of its start (`<~` or `~`) and its end (`~>` or `~`), as pdfminer's `start_re` and `end_re`
+    leave it. Those patterns begin with white space of any length, so a search that fails is tried again from every
+    character of a run: 80,000 spaces behind the filter took 13 s. This reads each end once (Pinned by:
+    test_pdf_resource_limits.py::TestAscii85InPieces::test_marks_are_taken_off_as_the_patterns_of_the_library_do)."""
+    start = data.lstrip(_ASCII85_AROUND_A_MARK)
+    if start[:1] == b"<":
+        start = start[1:].lstrip(_ASCII85_AROUND_A_MARK)
+    if start[:1] == b"~":
+        data = start[1:].lstrip(_ASCII85_AROUND_A_MARK)
+    end = data.rstrip(_ASCII85_AROUND_A_MARK)
+    if end[-1:] == b">":
+        end = end[:-1].rstrip(_ASCII85_AROUND_A_MARK)
+    if end[-1:] == b"~":
+        data = end[:-1].rstrip(_ASCII85_AROUND_A_MARK)
+    return data
 
 
 def ascii85decode(data: bytes) -> bytes:
@@ -130,10 +148,10 @@ def ascii85decode(data: bytes) -> bytes:
     stand for four bytes, and `z` alone for four zero bytes, so data cut where a five ends decodes to the same bytes piece
     by piece: a piece ends where the characters before it that are not `z` come to a multiple of five. Data the library
     raises on raises in the piece that holds the fault, and data with a `y` (which the library raises on) or no longer
-    than a piece is given to the library whole as before (Pinned by: test_pdf_resource_limits.py::TestAscii85InPieces)."""
-    body = pdfminer_ascii85.end_re.sub(b"", pdfminer_ascii85.start_re.sub(b"", data))
+    than a piece is decoded whole as before (Pinned by: test_pdf_resource_limits.py::TestAscii85InPieces)."""
+    body = _ascii85_body(data)
     if len(body) <= _ASCII85_PIECE or b"y" in body:
-        return _ascii85_whole(data)
+        return pdfminer_ascii85.a85decode(body)
     body = body.translate(None, _ASCII85_WHITE_SPACE)
     pieces, at, length = [], 0, len(body)
     while at < length:
@@ -144,7 +162,7 @@ def ascii85decode(data: bytes) -> bytes:
                 end -= 1
                 over -= body[end] != _ASCII85_ZEROS
             if end == at:
-                return _ascii85_whole(data)   # fewer than five characters before a `z`: the library raises
+                return pdfminer_ascii85.a85decode(body)   # fewer than five characters before a `z`: the library raises
         pieces.append(pdfminer_ascii85.a85decode(body[at:end]))
         at = end
     return b"".join(pieces)
