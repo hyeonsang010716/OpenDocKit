@@ -74,6 +74,7 @@ pip install "opendockit[openai]"      # + 用视觉模型描述图片
 pip install "opendockit[heic]"        # + HEIC/HEIF 图片（会安装 GPL/LGPL 许可证的编解码库）
 pip install "opendockit[langchain]"   # + LangChain 加载器
 pip install "opendockit[llamaindex]"  # + LlamaIndex 读取器
+pip install "opendockit[lightrag]"    # + LightRAG 解析引擎
 pip install "opendockit[mcp]"         # + 供智能体使用的 MCP 服务器
 pip install "opendockit[open-webui]"  # + Open WebUI 文档加载器
 ```
@@ -298,7 +299,7 @@ Docling 和 kordoc。测试方法、全部原始结果以及重新运行的步�
 | [选项](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/options.md) | `ConvertOptions`、异常和错误码 |
 | [图片](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/images.md) | 提取、筛选、视觉模型、自定义描述器 |
 | [在服务器上运行](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/server.md) | `IsolatedConverter`、资源限制、字符预算 |
-| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex、MCP 服务器、Hermes Agent、Claude Code、Dify 和 Open WebUI |
+| [集成](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md) | LangChain、LlamaIndex、LightRAG、MCP 服务器、Hermes Agent、Claude Code、Dify 和 Open WebUI |
 | [集成指南](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integration-guide.md) | 上传界面应该告诉用户什么 |
 | [设计](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/design.md) | 为什么这样设计，以及如何验证 |
 | [局限](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md) | 已知的不足，如实说明 |

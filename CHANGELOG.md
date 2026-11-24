@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **LightRAG reads documents with OpenDocKit** (`pip install "opendockit[lightrag]"`). LightRAG finds the engine
+  `opendockit` by itself when both are installed, and a routing rule such as
+  `LIGHTRAG_PARSER="hwp:opendockit,hwpx:opendockit,doc:opendockit"` sends documents to it: Hangul documents and the
+  old Office formats, which LightRAG's local engines do not read, and any other document whose tables and headings
+  should arrive as Markdown. Nothing changes for a document that is not sent to it
+  ([docs/integrations.md](docs/integrations.md#lightrag)).
 - **`opendockit FILE -o OUT`** writes the output to OUT instead of standard output: the same bytes, UTF-8 with LF line
   ends, whatever the shell. Windows PowerShell 5.1 re-encodes what a program prints, and under cp949, the Korean
   default, `opendockit report.hwp > report.md` garbled the Korean text. A conversion that fails leaves OUT as it
