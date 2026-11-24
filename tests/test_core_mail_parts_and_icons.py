@@ -2,7 +2,6 @@
 words with extended Hangul, encoded attachment names, an mbox holding several mails. HTML: SVG data: URI icons."""
 
 import base64
-import time
 
 import pytest
 
@@ -605,19 +604,18 @@ class TestMailsAreRenderedApart:
     @pytest.mark.parametrize("shape", ["limit-nearly-used", "small-limit"])
     def test_large_part_over_what_is_left_of_the_limit_takes_little_time(self, monkeypatch, shape):
         """A 21.6MB mail whose first part nearly used up the limit took 12.9 s and 1.3GB (1.5 s before the parts were read
-        apart). Here 16MB: 4.8 s parsed whole, under 1 s when only the front of the large part is read."""
-        from tests.timing import allowed
-
+        apart). Here 5.5MB, against the same mail converted whole on the same machine: a seventh of its time when only the
+        front of the large part is read, all of it before the fix. Held to 2 seconds instead, it needed a rerun on a CI runner,
+        slower for this mail than the loop that `allowed` measures it by. The whole conversion is timed once: a stall there
+        only makes the bound easier to meet."""
         monkeypatch.setattr(TestMailsAreRenderedApart, "_LARGE_PART", self._LARGE_PART.replace(
-            self._SPARSE_ROW * 8_000, self._SPARSE_ROW * 150_000))
+            self._SPARSE_ROW * 8_000, self._SPARSE_ROW * 50_000))
         data, name, limit = self._mail_whose_large_part_comes_late(shape)
 
-        started = time.perf_counter()
-        result = convert(data, name, ConvertOptions(max_chars=limit))
-        seconds = time.perf_counter() - started
+        whole = fastest(lambda: convert(data, name, ConvertOptions(max_chars=None)), runs=1)
 
-        assert result.exceeded
-        assert seconds < allowed(2.0)
+        assert fastest(lambda: convert(data, name, ConvertOptions(max_chars=limit))) < whole / 2
+        assert convert(data, name, ConvertOptions(max_chars=limit)).exceeded
 
     @pytest.mark.timing
     def test_mail_with_many_body_parts_takes_linear_time(self):
