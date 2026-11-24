@@ -407,3 +407,101 @@ class TestIsolatedConverter:
         result = asyncio.run(scenario())
 
         assert "둘째 문단" in result.text
+
+
+# A forkserver asked for a worker by a client that has connected and not yet sent its request: what a busy server process
+# looks like to it. Prints whether the forkserver died meanwhile.
+_FORKSERVER_PROBE = """
+import sys
+if sys.argv[1] == "patched":
+    from gevent import monkey
+    monkey.patch_all()
+import os, socket, time
+import multiprocessing.forkserver as forkserver
+
+forkserver.ensure_running()
+server = forkserver._forkserver
+client = socket.socket(socket.AF_UNIX)
+client.connect(server._forkserver_address)
+deadline = time.monotonic() + float(sys.argv[2])
+died = False
+while not died and time.monotonic() < deadline:
+    time.sleep(0.05)
+    died = os.waitpid(server._forkserver_pid, os.WNOHANG)[0] != 0
+print("died" if died else "alive", flush=True)
+os._exit(0)
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="the forkserver is the POSIX start method")
+class TestStartMethod:
+    """gevent and eventlet make every socket non-blocking, the forkserver's listening socket too, and on macOS and the BSDs a
+    socket accepted from it is non-blocking as well. The forkserver then read a request that had not arrived yet, got
+    BlockingIOError and died: two Dify requests at once on macOS lost one conversion in 2 runs of 100 under load. There, and
+    only there, workers are spawned."""
+
+    @staticmethod
+    def _run(script: str, *args: str) -> str:
+        import subprocess
+
+        finished = subprocess.run([sys.executable, "-B", "-c", script, *args], capture_output=True, text=True, timeout=60,
+                                  check=True, stdin=subprocess.DEVNULL)
+        return finished.stdout.split()[-1]
+
+    @pytest.mark.parametrize("sockets", ["patched", "plain"])
+    def test_why_the_forkserver_is_not_used_with_patched_sockets(self, sockets):
+        """The reason itself, on this system: with gevent's sockets the forkserver dies on macOS and lives on Linux, and with
+        plain sockets it lives everywhere. Should a Python read the request in a way that survives, this fails and says that
+        spawning is no longer needed there."""
+        pytest.importorskip("gevent")
+        dies = sockets == "patched" and sys.platform != "linux"
+
+        # Long enough for a loaded runner to reach the forkserver's accept; a forkserver that lives is waited on to the end.
+        state = self._run(_FORKSERVER_PROBE, sockets, "15" if dies else "2")
+
+        assert state == ("died" if dies else "alive")
+
+    @pytest.mark.parametrize("sockets", ["patched", "plain"])
+    def test_workers_are_spawned_where_patched_sockets_would_kill_the_forkserver(self, sockets):
+        """With real gevent: spawn on macOS once its sockets are patched, the forkserver otherwise and always on Linux."""
+        pytest.importorskip("gevent")
+        script = ("import sys\n"
+                  "if sys.argv[1] == 'patched':\n"
+                  "    from gevent import monkey\n"
+                  "    monkey.patch_all()\n"
+                  "from opendockit import isolated\n"
+                  "print(isolated._worker_context().get_start_method(), flush=True)\n")
+
+        method = self._run(script, sockets)
+
+        assert method == ("spawn" if sockets == "patched" and sys.platform != "linux" else "forkserver")
+
+    @pytest.mark.parametrize(("platform", "blocking", "expected"), [
+        ("darwin", False, "spawn"),
+        ("freebsd14", False, "spawn"),
+        ("darwin", True, "forkserver"),
+        ("linux", False, "forkserver"),
+    ])
+    def test_the_choice_follows_the_socket_and_the_system(self, monkeypatch, platform, blocking, expected):
+        """Asked of the socket, not of gevent: a library that keeps its sockets blocking leaves the forkserver in place, and on
+        Linux no socket is made to ask."""
+        import socket
+
+        from opendockit import isolated
+
+        made = []
+
+        class Patched(socket.socket):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                made.append(self)
+                os.set_blocking(self.fileno(), blocking)
+
+        monkeypatch.setattr(socket, "socket", Patched)
+        monkeypatch.setattr(sys, "platform", platform)
+
+        method = isolated._worker_context().get_start_method()
+
+        assert method == expected
+        assert len(made) == (0 if platform == "linux" else 1)
+        assert all(probe.fileno() == -1 for probe in made)   # closed again

@@ -16,6 +16,8 @@ from concurrent.futures.process import BrokenProcessPool
 import multiprocessing
 from multiprocessing.context import BaseContext
 import os
+import socket
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -59,11 +61,13 @@ class IsolatedConverter:
     - `timeout`: time limit of one conversion (seconds). When it is exceeded the worker is actually terminated. Image description
       (`describer`) is network waiting, so it is not counted in this time.
 
-    Workers are started with forkserver (spawn on platforms without it). The server process has asyncio and DB-driver threads
-    running, so a fork could leave the child stuck holding a lock. This package is preloaded into the forkserver, so starting a
-    new worker per file takes only a few ms (around 0.2 s without preloading). A new worker per file also means no memory is
-    left behind after a large document. Known accepted gap: the forkserver preload list is one per process, so this overwrites
-    a list set by other code in the same process (it does not apply to a forkserver that is already running).
+    Workers are started with forkserver (spawn on platforms without it, and where gevent or eventlet would make the
+    forkserver die: macOS and the BSDs with their sockets patched, see `_forkserver_can_die`). The server process has asyncio
+    and DB-driver threads running, so a fork could leave the child stuck holding a lock. This package is preloaded into the
+    forkserver, so starting a new worker per file takes only a few ms (around 0.2 s without preloading). A new worker per
+    file also means no memory is left behind after a large document. Known accepted gap: the forkserver preload list is one
+    per process, so this overwrites a list set by other code in the same process (it does not apply to a forkserver that is
+    already running).
 
     On Windows there is no forkserver and no preloading, so every file pays a full interpreter start and `import opendockit`
     (measured on Windows 11: 0.2 s for a small text file on Python 3.12 and 0.3 s on 3.14, then the import of the reader
@@ -227,13 +231,37 @@ class IsolatedConverter:
 
 
 def _worker_context() -> BaseContext:
-    if "forkserver" not in multiprocessing.get_all_start_methods():
+    # Where the forkserver would die, every worker is spawned instead: a fresh interpreter per file, about 0.1 s against a few
+    # ms, and no conversion lost (Pinned by: test_isolated.py::TestStartMethod).
+    if "forkserver" not in multiprocessing.get_all_start_methods() or _forkserver_can_die():
         return multiprocessing.get_context("spawn")
     context = multiprocessing.get_context("forkserver")
     # The extractors are imported on first use (`opendockit.extractors`); preloaded here, a new worker still starts with all of
     # them loaded (Pinned by: test_converter.py::TestExtractorsImportedOnFirstUse::test_forkserver_preloads_every_extractor)
     context.set_forkserver_preload(["opendockit", "opendockit.extractors.all"])
     return context
+
+
+def _forkserver_can_die() -> bool:
+    """Whether a forkserver started from this process would die the first time a worker is asked for before the request has
+    arrived: its listening socket would be non-blocking, on a system that passes that on to the sockets accepted from it.
+
+    gevent and eventlet replace `socket.socket` with a class that makes every socket non-blocking, and multiprocessing makes
+    the forkserver's listening socket with whatever class `socket.socket` is. The forkserver takes the socket it is handed
+    for a blocking one. On macOS and the BSDs a socket accepted from a non-blocking one is non-blocking too (Linux does not
+    pass the flag on, accept(2)), so the forkserver read a request that had not arrived yet, got BlockingIOError and died:
+    the conversion in progress failed with BrokenPipeError and the next with ConnectionRefusedError. Measured on macOS with
+    two Dify requests at once, 2 runs in 100 under load; Python 3.12 to 3.15 read the request the same way.
+    Asked of a socket made the way multiprocessing makes it rather than of gevent, so any library that does the same is
+    covered and one that keeps its sockets blocking is not. On Linux nothing is asked: its forkserver is not at risk.
+    """
+    if sys.platform in ("linux", "android"):
+        return False
+    try:
+        with socket.socket(socket.AF_UNIX) as probe:
+            return not os.get_blocking(probe.fileno())
+    except (AttributeError, OSError):   # no Unix sockets: the forkserver could not start either, and fails as it did
+        return False
 
 
 def _stop(pool: ProcessPoolExecutor) -> "asyncio.Future[None]":
