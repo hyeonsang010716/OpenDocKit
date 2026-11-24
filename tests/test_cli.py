@@ -541,3 +541,68 @@ class TestOutputFile:
         assert capsys.readouterr().err == (
             f"Could not write the output file (another program has it open; close it there and try again): {target}\n")
         assert target.read_text(encoding="utf-8") == "이전 내용\n"
+
+    @staticmethod
+    def _counting_describer(calls):
+        class CountingDescriber:
+            def __init__(self, model_name):
+                pass
+
+            def check(self):
+                pass
+
+            async def describe(self, image):
+                calls.append(image)
+                return "막대 차트"
+
+            async def aclose(self):
+                pass
+
+        return CountingDescriber
+
+    @pytest.mark.parametrize("where", ["missing folder", "folder"])
+    def test_with_describe_a_file_that_cannot_be_written_is_said_before_converting(self, tmp_path, monkeypatch, capsys,
+                                                                                   where):
+        """--describe calls a vision model that is paid for by the call, and the file is written after it: a FILE that
+        cannot be written for certain is said first, in the same words as without --describe, and no image is described."""
+        calls = []
+        (tmp_path / "a.png").write_bytes(builder.png_bytes())
+        target = tmp_path / "없는 폴더" / "out.md" if where == "missing folder" else tmp_path
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("opendockit.cli.OpenAIImageDescriber", self._counting_describer(calls))
+        monkeypatch.setattr("sys.argv", ["opendockit", "a.png", "--describe", "-o", str(target)])
+
+        code = main()
+
+        reason = "its folder does not exist" if where == "missing folder" else "it may be a directory, or permission may be missing"
+        assert code == 1
+        assert capsys.readouterr().err == f"Could not write the output file ({reason}): {target}\n"
+        assert calls == []
+        assert not (tmp_path / "없는 폴더").exists()
+
+    def test_with_describe_a_file_that_can_be_written_gets_the_descriptions(self, tmp_path, monkeypatch, capsys):
+        """The check before converting stops nothing it should not: a new file and a file of that name are both written."""
+        calls = []
+        (tmp_path / "a.png").write_bytes(builder.png_bytes())
+        (tmp_path / "old.md").write_text("이전 내용\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("opendockit.cli.OpenAIImageDescriber", self._counting_describer(calls))
+        for name in ["new.md", "old.md"]:
+            monkeypatch.setattr("sys.argv", ["opendockit", "a.png", "--describe", "-o", name])
+
+            code = main()
+
+            assert code == 0
+            assert (tmp_path / name).read_text(encoding="utf-8") == "> [Image] 막대 차트\n"
+            assert capsys.readouterr().out == ""
+        assert len(calls) == 2
+
+    def test_without_describe_the_document_is_still_read_first(self, tmp_path, monkeypatch, capsys):
+        """Only --describe checks the file first: without it a missing document is said before a missing folder, as before."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["opendockit", "없는 파일.docx", "-o", str(tmp_path / "없는 폴더" / "out.md")])
+
+        code = main()
+
+        assert code == 1
+        assert capsys.readouterr().err == "File not found: 없는 파일.docx\n"

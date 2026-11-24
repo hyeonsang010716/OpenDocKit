@@ -76,6 +76,14 @@ def main() -> int:
             parser.error("argument -o/--output: names the document being converted, which it would replace")
         finally:
             _flush_errors()
+    if target is not None and args.describe:
+        # --describe calls a vision model that is paid for by the call, and the file is written only after it: a FILE that
+        # cannot be written for certain is said before converting, as the write would say it, and nothing is touched
+        # (Pinned by: test_cli.py::TestOutputFile::test_with_describe_a_file_that_cannot_be_written_is_said_before_converting).
+        reason = _certainly_unwritable(target)
+        if reason is not None:
+            _error(f"Could not write the output file ({reason}): {target}")
+            return 1
     describer = OpenAIImageDescriber(model_name=args.model) if args.describe else None
     try:
         # convert_file refuses a regular file over the limit from its size before reading it, and reads anything else (a
@@ -125,6 +133,26 @@ def _same_file(document: Path, target: Path) -> bool:
         return False
 
 
+# Why the output file could not be written, as `_write_file` and `_certainly_unwritable` both say it.
+_FOLDER_MISSING = "its folder does not exist"
+_NOT_WRITABLE = "it may be a directory, or permission may be missing"
+
+
+def _certainly_unwritable(target: Path) -> str | None:
+    """Why the write of `target` will fail, when that is certain without opening it: the file is a folder, or its folder
+    does not exist; in the words the write would use. None otherwise, a permission or a file held open among them: the
+    write finds those, and only it can say them for sure. Nothing is created or changed."""
+    try:
+        if os.path.isdir(_openable(target)):
+            return _NOT_WRITABLE
+        os.stat(_openable(target.parent))
+    except FileNotFoundError:
+        return _FOLDER_MISSING
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _write_file(target: Path, print_output: Callable[[TextIO], None]) -> int:
     """Write the output to `target`: what standard output would have got, byte for byte, as UTF-8 with LF line ends.
 
@@ -141,13 +169,13 @@ def _write_file(target: Path, print_output: Callable[[TextIO], None]) -> int:
         with open(_openable(target), "w", encoding="utf-8", errors="replace", newline="\n") as stream:
             stream.write(buffer.getvalue())
     except FileNotFoundError:
-        _error(f"Could not write the output file (its folder does not exist): {target}")
+        _error(f"Could not write the output file ({_FOLDER_MISSING}): {target}")
         return 1
     except OSError:
         if _windows is not None and _windows.held_by_another_program(str(target), for_writing=True):
             _error(f"Could not write the output file (another program has it open; close it there and try again): {target}")
         else:
-            _error(f"Could not write the output file (it may be a directory, or permission may be missing): {target}")
+            _error(f"Could not write the output file ({_NOT_WRITABLE}): {target}")
         return 1
     return 0
 
