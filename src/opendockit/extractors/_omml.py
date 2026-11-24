@@ -201,12 +201,53 @@ def omml_to_latex(element: etree._Element) -> str:
         return "" if prop("phantPr", "show", "on") in _OFF_VALUES else part("e")
     if tag == _m("eqArr"):
         # A multi-line equation. Joining the rows with no separator gave `a+b=1a-b=3`. The same row separator as a matrix is used.
-        return " \\\\ ".join(omml_to_latex(child) for child in element.iterchildren(_m("e")))
+        # An array that spreads over the line (m:maxDist) holds numbered equations (`_numbered`); looked up once for the array
+        numbered = prop("eqArrPr", "maxDist", "1") not in _OFF_VALUES and element.find(f"{_m('eqArrPr')}/{_m('maxDist')}") is not None
+        return " \\\\ ".join(_numbered(child) if numbered else omml_to_latex(child) for child in element.iterchildren(_m("e")))
     if tag == _m("m"):
         rows = [" & ".join(omml_to_latex(cell) for cell in row.iterchildren(_m("e")))
                 for row in element.iterchildren(_m("mr"))]
         return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
     return _join_math(element)
+
+
+# Stand for the `#` that sets the number of an equation apart while its row is written (`_numbered`): characters of the
+# private use area, which no equation text is escaped into. The first that the row does not hold itself is used.
+_NUMBER_MARKS = "\uE000\uE001\uE002"
+_UNESCAPED_BRACE = re.compile(r"(?<!\\)[{}]")
+
+
+def _numbered(row: etree._Element) -> str:
+    """The row of an equation array, its number set apart. In a row of an array that spreads over the line (m:maxDist), `#`
+    is not a character: what follows it is the number of the equation, which Word sets at the right margin (`x=x#(1)` and
+    Enter is how an equation is numbered). It was written as the escaped character, `x=x\\#(1)`
+    (Pinned by: test_office_equations.py::TestOmmlEquationNumber).
+
+    Only a `#` in a run of the row itself is one, the last of them, with something on both sides of it, outside every
+    group of the row and not the script of what stands before it: a `#` inside a fraction, a radical or a script stays the
+    character, also when the row has one of
+    its own. The mark is put into the text of that run while the row is written and taken out again. The row is written
+    once: where the mark turns out to be no number it is made the character again in what was written - written a second
+    time, an array inside an array inside an array doubled the work at each level, 12 s for an equation of 2 KB."""
+    own = [text for run in row.iterchildren(_m("r")) for text in run.iterchildren(_m("t")) if "#" in (text.text or "")]
+    if not own:
+        return omml_to_latex(row)
+    held = etree.tostring(row, encoding="unicode")  # its text and its attributes: a delimiter or an accent is one
+    mark = next((one for one in _NUMBER_MARKS if one not in held), None)
+    if mark is None:
+        return omml_to_latex(row)
+    last, written = own[-1], own[-1].text
+    before, _, after = written.rpartition("#")
+    last.text = f"{before}{mark}{after}"
+    try:
+        marked = omml_to_latex(row)
+    finally:
+        last.text = written
+    equation, found, number = marked.partition(mark)
+    opened = sum(1 if brace.group() == "{" else -1 for brace in _UNESCAPED_BRACE.finditer(equation))
+    if not found or not equation.strip() or not number.strip() or opened or mark in number or equation.rstrip()[-1] in "^_":
+        return marked.replace(mark, "\\#")
+    return f"{equation.rstrip()} \\qquad {number.strip()}"
 
 
 def _literal(text: str) -> str:

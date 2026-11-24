@@ -771,28 +771,32 @@ class TestWesternText:
 class TestTextOfOneAlphabet:
     """Undeclared text in a Latin code page was read in the code page of another alphabet whenever the language statistics
     found it a cleaner text there: an Italian bulletin as Windows-1258 (`martedì` with a tone mark on its `d`), Spanish as
-    CP775 (`reuni¾n`), Finnish as Mac Iceland (`Hyv‰‰`), and Czech, Hungarian and Turkish as Windows-1252 (`Schùze`). The
-    letters outside ASCII are looked up in the alphabets of the languages each code page is written in."""
+    CP775 (`reuni¾n`), Finnish as Mac Iceland (`Hyv‰‰`), Polish in ISO 8859-2 as Windows-1252 (`obecno¶æ`). Where the letters
+    outside ASCII leave one reading, that is the code page; everywhere else the statistics decide as they did."""
 
     @pytest.mark.parametrize(
-        ("text", "encoding"),
+        ("text", "encoding", "read_as"),
         [
             ("Bollettino di martedì e mercoledì: nuvolosità in aumento, poi giovedì e venerdì più sole. Attendibilità alta.",
-             "cp1252"),
-            ("La reunión será mañana. Atención: el señor Ibáñez llegará después.", "cp1252"),
-            ("item;qty\nA;1\nB;2\nC;3\nD;4\nE;5\nA reunião será amanhã às dez, não na sexta.\n", "cp1252"),
-            ("Hyvää päivää. Tämä on lyhyt viesti: kokous pidetään tänään kello kymmenen.", "cp1252"),
-            ("Schůze se koná v pondělí. Potvrďte prosím účast do pátku, děkujeme.", "cp1250"),
-            ("Az ülés hétfőn lesz. Kérjük, péntekig erősítse meg a részvételét, köszönjük.", "cp1250"),
-            ("Susirinkimas vyks pirmadienį. Prašome patvirtinti dalyvavimą iki penktadienio, ačiū.", "cp1257"),
-            ("Toplantı pazartesi günü yapılacak. Lütfen cumaya kadar katılımınızı bildirin, teşekkürler.", "cp1254"),
-            ("Spotkanie odbędzie się w poniedziałek. Proszę potwierdzić obecność do piątku, dziękujemy za pomoc.", "iso8859_2"),
+             "cp1252", "cp1252"),
+            ("La reunión será mañana. Atención: el señor Ibáñez llegará después.", "cp1252", "cp1252"),
+            ("item;qty\nA;1\nB;2\nC;3\nD;4\nE;5\nA reunião será amanhã às dez, não na sexta.\n", "cp1252", "cp1252"),
+            ("Größe und Maße der Tür: bitte prüfen, ob alles stimmt.", "cp1252", "cp1252"),
+            ("L'avaluació és pública; el col·legi és a prop de l'estació.", "cp1252", "cp1252"),
+            ("Spotkanie odbędzie się w poniedziałek. Proszę potwierdzić obecność do piątku, dziękujemy za pomoc.", "iso8859_2",
+             "iso8859_2"),
+            ("Schůze se koná v pondělí. Potvrďte prosím účast do pátku, děkujeme. Příliš žluťoučký kůň.", "iso8859_2",
+             "iso8859_2"),
+            ("Trzeba wysłać ten formularz do urzędu jeszcze dziś, proszę.", "cp1250", "cp1250"),
         ],
-        ids=["italian", "spanish", "portuguese-under-ascii-rows", "finnish", "czech", "hungarian", "lithuanian", "turkish",
-             "polish-iso-8859-2"],
+        ids=["italian", "spanish", "portuguese-under-ascii-rows", "german", "catalan", "polish-iso-8859-2", "czech-iso-8859-2",
+             "polish"],
     )
-    def test_letters_of_one_alphabet_name_the_code_page(self, text, encoding):
-        assert decode_text(text.encode(encoding)) == (text, encoding)
+    def test_letters_that_leave_one_reading_name_the_code_page(self, text, encoding, read_as):
+        from opendockit.extractors._encoding import _alphabet_page
+
+        assert _alphabet_page(text.encode(encoding)) == read_as
+        assert decode_text(text.encode(encoding)) == (text, read_as)
 
     def test_html_without_a_charset_is_read_by_its_letters(self):
         body = "Bollettino di martedì e mercoledì: nuvolosità in aumento, poi giovedì più sole."
@@ -813,56 +817,109 @@ class TestTextOfOneAlphabet:
         ("text", "encoding"),
         [
             ("He said “hello” – it’s fine, 25°C", "cp1252"),
+            ("Price £20 for 5 m³, “quoted” – done", "cp1252"),
+            ("Un cœur, une œuvre", "cp1252"),
             ("La réunion est reportée", "cp850"),
             ("la liberté et l'égalité", "mac_roman"),
+            ("it’s fine, don’t stop", "mac_roman"),
             ("STÍLEANNA GRUAIGE NA BHFEAR", "mac_roman"),
+            ("Männer sind emotional", "hp_roman8"),
             ("Besuch in Málaga: Müller und Ibáñez trafen François.", "cp1252"),
             ("Привет", "cp1251"),
             ("Lucia de B: petitie voor een eerlijk proces, één keer", "utf-32-le"),
+            ("Il bollettino è pronto", "cp1252"),
+            ("Il prezzo è di 10 ¤ per un caffè", "cp1252"),
+            ("Proszę bardzo", "cp1250"),
+            ("POŁUDNIE i południe, to samo", "cp1250"),
+            ("Schůze se koná v pondělí. Potvrďte prosím účast do pátku, děkujeme.", "cp1250"),
+            ("Az ülés hétfőn lesz. Kérjük, péntekig erősítse meg a részvételét, köszönjük.", "cp1250"),
+            ("Toplantı pazartesi günü yapılacak. Lütfen cumaya kadar katılımınızı bildirin, teşekkürler.", "cp1254"),
+            ("Bollettino di martedì, però più tardi", "cp1252"),
+            ("Hyvää päivää. Tämä on lyhyt viesti: kokous pidetään tänään kello kymmenen.", "cp1252"),
+            ("Tšekki ja Žiguli, šakki", "cp1252"),
+            ("La reunión será mañana por la tarde, 10 ¤.", "cp1252"),
+            ("Autorizaciones: ubicación. ¿Quieres conectarte? Álbumes y música, añades este ítem.", "mac_roman"),
+            ("CERCA ÍTEMS, ARTISTES I ÀLBUMS RÀPIDAMENT.", "mac_roman"),
+            ("HAS D'HAVER INICIAT SESSIÓ A L'APPLE MUSIC PER REPRODUIR VÍDEOS", "cp850"),
+            ("Forbereder tømming av papirkurv. Du kan frigjøre plass ved å slette filer.", "mac_roman"),
         ],
-        ids=["signs-alone", "dos-accent-inside-a-word", "macintosh-capital-behind-a-small-letter",
-             "macintosh-small-letter-between-capitals", "letters-of-several-languages", "no-ascii-letters",
-             "utf-32-without-a-bom"],
+        ids=["signs-alone", "signs-that-are-letters-elsewhere", "letters-below-latin-1", "dos-accent-inside-a-word",
+             "macintosh-capital-behind-a-small-letter", "macintosh-capital-behind-a-small-letter-in-latin-1",
+             "macintosh-small-letter-between-capitals", "capital-between-a-capital-and-a-small-letter",
+             "letters-of-several-languages", "no-ascii-letters", "utf-32-without-a-bom", "one-letter-of-two-alphabets",
+             "byte-of-iso-8859-15", "one-polish-letter", "one-polish-letter-in-two-cases",
+             "czech-that-reads-as-western-letters", "hungarian-that-reads-as-western-letters",
+             "turkish-that-reads-as-western-letters", "italian-that-reads-as-czech", "one-letter-of-latin-1",
+             "letters-below-latin-1-in-two-kinds", "byte-of-iso-8859-15-in-clear-spanish",
+             "macintosh-accents-that-are-signs-and-one-letter", "macintosh-small-letter-before-capitals",
+             "dos-small-letter-ending-a-word-of-capitals", "macintosh-norwegian-that-is-two-polish-letters"],
     )
-    def test_text_that_fits_no_alphabet_is_left_to_the_statistics(self, text, encoding):
-        """A reading nobody would write names no code page: the guess of the statistics stands as before."""
-        from opendockit.extractors._encoding import _alphabet_pages
+    def test_text_that_reads_more_than_one_way_is_left_to_the_statistics(self, text, encoding):
+        """Nothing is said, and the answer is the one the statistics gave before: of signs, of letters that are another
+        alphabet's in another code page, of a reading nobody would write, and of Central European text that Windows-1252
+        reads as letters."""
+        from opendockit.extractors._encoding import _alphabet_page
 
-        assert _alphabet_pages(text.encode(encoding)) == ()
+        assert _alphabet_page(text.encode(encoding)) is None
 
     @pytest.mark.parametrize(
-        ("text", "encoding", "pages"),
+        ("text", "encoding"),
         [
-            ("Il bollettino è pronto", "cp1252", {"cp1252", "cp1250", "iso8859_2", "cp1257"}),
-            ("Volume 5 m³ for £5, señor", "cp1252", {"cp1252", "cp1250", "iso8859_2"}),
-            ("Price £20 for 5 m³, “quoted” – done", "cp1252", {"cp1252", "cp1250"}),
-            ("Proszę bardzo", "cp1250", {"cp1252", "cp1250", "iso8859_2"}),
-            ("Smørrebrød, où?", "cp1252", {"cp1252", "cp1250", "iso8859_2"}),
+            ("Die Stärke beträgt 5 µm bei 25 °C.", "cp1252"),
+            ("Lo spessore è di 5 µm, la densità è elevata.", "cp1252"),
+            ("Dose: 50 µg, price ¥500.", "cp1252"),
+            ("Thickness: 5 µm. «Final» version.", "cp1252"),
+            ("Slavoj Žižek a présenté sa thèse à la conférence.", "cp1252"),
+            ("Miloš est arrivé à la première réunion.", "cp1252"),
+            ("Il signor Hämäläinen è già arrivato, però non parla.", "cp1252"),
+            ("Il pittore naïf è arrivato giovedì.", "cp1252"),
+            ("Il bollettino è pronto da martedì. Françoise ok.", "cp1252"),
+            ("Vi spiser et stykke brød. Žižek ok.", "cp1252"),
+            ("La reunión con Søren y Håkon será mañana.", "cp1252"),
+            ("Smørrebrød, où?", "cp1252"),
+            ("Copyright © 2020 Company™. All rights reserved. £5 ok.", "cp1252"),
+            ("Potvrďte prosím účast do pátku, děkujeme. © ok.", "cp1250"),
+            ("Dziękujemy za pomoc i życzymy miłego dnia. ±2 ok.", "cp1250"),
         ],
-        ids=["one-letter-of-two-alphabets", "sign-or-letter", "signs-that-are-letters-elsewhere", "one-polish-letter",
-             "letters-of-two-western-languages"],
+        ids=["german-with-micro", "italian-with-micro", "micro-and-yen", "micro-and-guillemets", "french-with-a-slavic-name",
+             "french-with-a-serbian-name", "italian-with-a-finnish-name", "italian-with-a-french-word",
+             "italian-with-a-french-name", "danish-with-a-slavic-name", "spanish-with-nordic-names", "danish-and-french",
+             "english-with-signs", "czech-with-a-copyright-sign", "polish-with-a-plus-minus-sign"],
     )
-    def test_alphabets_that_read_a_text_differently_are_all_named(self, text, encoding, pages):
-        """`è` is Italian in Windows-1252 and `č` in Windows-1250 and Windows-1257; `³` and `£` are signs in one and `ł`, `Ł`
-        in the other; `ø` and `ù` are `ř` and `ů`, both Czech. The statistics then choose among these code pages only."""
-        from opendockit.extractors._encoding import _alphabet_pages
+    def test_text_the_statistics_read_right_is_still_read_right(self, text, encoding):
+        """The first version of the rule let another alphabet win on its letters alone and let the statistics choose among
+        the code pages that fit. `µ ¥ © «` are letters in ISO 8859-2, a Slavic name takes a French text out of the French
+        alphabet, and each of these came out in the letters of another language: `5 ľm`, `thčse ŕ la conférence`, `Ł5`."""
+        assert decode_text(text.encode(encoding)) == (text, encoding)
 
-        assert set(_alphabet_pages(text.encode(encoding))) == pages
+    def test_text_with_accents_that_run_on_is_not_looked_up(self, monkeypatch):
+        """Three bytes outside ASCII in a row is Cyrillic, Greek or a text of two-byte characters: the alphabets are for
+        accents that stand one or two at a time."""
+        from opendockit.extractors import _encoding
 
-    @pytest.mark.parametrize("text", ["Smørrebrød, où?", "Søren Kierkegaard: où va le monde? Une lecture.",
-                                      "Volume 5 m³ for £5, señor", "Price £20 for 5 m³, “quoted” – done",
-                                      "Citroën, Škoda, Håg and Nestlé signed in Zürich."])
-    def test_western_names_of_several_languages_stay_windows_1252(self, text):
-        assert decode_text(text.encode("cp1252")) == (text, "cp1252")
+        monkeypatch.setattr(_encoding, "_alphabet_page", lambda sample: pytest.fail("looked up"))
+
+        decode_text("La reunión será mañana. ÀÉÎ".encode("cp1252"))
+
+    def test_byte_that_is_not_windows_1252_far_into_an_ambiguous_text_changes_nothing(self):
+        data = ("Il bollettino è pronto. " * 9000).encode("cp1252") + b" abc\x8d end"
+
+        decoded, encoding = decode_text(data)
+
+        assert decoded.startswith("Il bollettino è pronto. ") and encoding == "cp1252(replaced)"
 
     @pytest.mark.parametrize("text", ["Bollettino di martedì, però più tardi", "Fundurinn verður á morgun, það er rétt"],
                              ids=["italian", "icelandic"])
     def test_vietnamese_needs_its_tone_marks_on_vowels(self, text):
         """In Windows-1258 `ì` and `ò` are tone marks: on the `d` of `martedì` and the `r` of `però`. Icelandic `ð ý` are
-        `đ ư` there, with no tone mark in a whole text."""
-        from opendockit.extractors._encoding import _alphabet_pages
+        `đ ư` there, with no tone mark in a whole text. Read as Vietnamese they would stand against Windows-1252."""
+        from opendockit.extractors._encoding import _alphabet_bytes, _alphabet_page
 
-        assert "cp1258" not in _alphabet_pages(text.encode("cp1252"))
+        data = text.encode("cp1252")
+        vietnamese = next(row for row in _alphabet_bytes() if row[0] == "cp1258")
+
+        assert vietnamese[3].search(data) is not None or frozenset(data).isdisjoint(b"\xcc\xd2\xde\xec\xf2")
+        assert _alphabet_page("Fundurinn verður á morgun, það er rétt".encode("cp1252")) == "cp1252"
 
     def test_vietnamese_text_is_still_read_as_windows_1258(self):
         text = "Cuộc họp sẽ diễn ra vào thứ hai. Xin vui lòng xác nhận trước thứ sáu, xin cảm ơn."

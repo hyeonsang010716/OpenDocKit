@@ -73,17 +73,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Mail: a message that declares one boundary and writes another is read.** Its parts were not found, and the
   body came out as the delimiter line, the headers of the part and pages of base64. The parts are now split at the
   delimiter the body opens with.
+- **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
 - **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
   `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
 - **PDF: accented letters of a Type 1 font that brings its own encoding.** A font embedded as CFF with no
   `/Encoding` was read with the standard one, not with the encoding of the font program: a French bank statement
   read `ProtØgØ` for `Protégé` and `ClientŁle` for `Clientèle`, 27 wrong letters a page.
-- **Text, HTML, CSV and mail without a stated charset: accented letters of Western and Central European text.** A
-  short text in a Latin code page was read in whichever one made it look like the cleanest English: an Italian mail
-  as Windows-1258 (`martedì` lost its `ì` to a mark on the `d`), Spanish as a DOS code page (`reuni¾n`), Czech,
-  Hungarian and Turkish as Windows-1252 (`Schùze`). The letters are now looked up in the alphabets of the languages
-  each code page is written in. Of 12,348 samples in 60 languages 10,191 are read right, from 8,210, and none that
-  was right is wrong now.
+- **Text, HTML, CSV and mail without a stated charset: accented letters of Western text.** A short text in a
+  Latin code page was read in whichever one made it look like the cleanest English: an Italian mail as
+  Windows-1258 (`martedì` lost its `ì` to a mark on the `d`), Spanish as a DOS code page (`reuni¾n`), Polish in ISO
+  8859-2 as Windows-1252 (`obecno¶æ`). Where two or more accented letters fit the alphabet of one language and the
+  text reads no other way, that code page is taken; everything else is guessed as before. Of 12,348 samples in 60
+  languages in Windows and ISO code pages 8,709 are read right, from 8,210, and none that was right is wrong now.
 - **PDF: the characters of an embedded TrueType font without a `ToUnicode` map.** The font's own character table was
   read wrongly past its first segment: of the 2,691 glyphs Arial names, 1,261 came out as another character, and
   `25°C ± 2, price £ 10` read `25±C¡²¡2,¡price¡¤¡10`.
