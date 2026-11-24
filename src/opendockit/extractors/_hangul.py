@@ -23,7 +23,7 @@ from opendockit.extractors._inline import (
 )
 from opendockit.extractors._lists import _OBJECT_PLACEHOLDERS, BulletNesting, is_placeholder_only, paragraph_head
 from opendockit.extractors._notation import COMMENT_TARGET_MAX
-from opendockit.markdown import TableGrid, render_table
+from opendockit.markdown import TableGrid, escape_block_marks, render_table
 
 
 # Hangul's "개요 1" to "개요 7" (Outline 1-7) paragraph styles are the chapter/section structure of the document. They become Markdown headings.
@@ -655,6 +655,23 @@ def _most_frequent(sizes: dict[int, int]) -> int:
     return max(sizes.items(), key=lambda item: (item[1], -item[0]))[0] if sizes else 0
 
 
+# Style name → the level of its outline style (0: none). A document names a handful of styles and gives one to every
+# paragraph, so the name was stripped and matched once for each paragraph. Names of documents are kept up to a bound.
+_OUTLINE_STYLE_LEVELS: dict[str, int] = {}
+_OUTLINE_STYLE_LEVELS_MAX = 1024
+_OUTLINE_STYLE_NAME_MAX = 64
+
+
+def _outline_style_level(style_name: str) -> int:
+    level = _OUTLINE_STYLE_LEVELS.get(style_name)
+    if level is None:
+        match = OUTLINE_STYLE.match(style_name.strip())
+        level = int(match.group(1)) if match is not None else 0
+        if len(_OUTLINE_STYLE_LEVELS) < _OUTLINE_STYLE_LEVELS_MAX and len(style_name) <= _OUTLINE_STYLE_NAME_MAX:
+            _OUTLINE_STYLE_LEVELS[style_name] = level
+    return level
+
+
 def decorated_text(text: str, mark: str, level: int, style_name: str, margin: int, nesting: BulletNesting, *, in_cell: bool,
                    check: str = "", plain: str | None = None, outline: bool = False, size: int = 0,
                    size_headings: SizeHeadings | None = None, heading_text: Callable[[], str] | None = None,
@@ -686,10 +703,15 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     test_hwp_size_headings.py::TestOutlineHeads::test_numbered_clause_sentences_stay_numbered_paragraphs).
     """
     plain = text if plain is None else plain
-    match = None if in_cell or in_note or no_heading else OUTLINE_STYLE.match(style_name.strip())
-    heading_level = int(match.group(1)) if match is not None else level + 1 if outline and top and _outline_title(plain) else 0
-    fits = len(f"{mark} {plain}" if mark else plain) <= HEADING_MAX_CHARS and "\n" not in plain
-    heading = bool(heading_level) and fits
+    if in_cell or in_note or no_heading:
+        styled = 0
+    else:
+        styled = _OUTLINE_STYLE_LEVELS.get(style_name)
+        if styled is None:
+            styled = _outline_style_level(style_name)
+    heading_level = styled or (level + 1 if outline and top and _outline_title(plain) else 0)
+    # Whether it fits a heading is asked only of a paragraph that could be one: most are not
+    heading = bool(heading_level) and len(f"{mark} {plain}" if mark else plain) <= HEADING_MAX_CHARS and "\n" not in plain
 
     # The level of a bullet paragraph is set from its left margin compared with the preceding items (`BulletNesting`). Other
     # paragraphs close the more deeply indented items
@@ -701,10 +723,17 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     head = paragraph_head(mark, level, in_cell=in_cell, heading=heading) + check
     if heading:
         return f"{'#' * min(heading_level, 6)} {head}{text if heading_text is None else heading_text()}"
+    # What the document holds at the start of a line of a paragraph is text: a `#` or a `>` typed there is escaped, as in a
+    # PDF (`markdown.escape_block_marks`). A manual that shows what is typed at a prompt (`# arch -k`) came out with 273
+    # headings, and the `>>` in front of the summary lines of a press release as a quote in a quote. Not in a cell: a row
+    # of a table is one line that starts with `|`, or HTML, where a backslash is a backslash. Known accepted gap: a cell
+    # written as paragraphs (a layout box, a frame) and the text after a table inside its paragraph are as they were
+    # (Pinned by: test_hwp_typed_marks.py).
+    written = text if in_cell or (text[:1] not in "#>" and "\n" not in text) else escape_block_marks(text)
     if size and size_headings is not None and (not in_cell or boxed) and mark != "-" and _size_heading_text(plain, boxed=boxed):
         heading_head = paragraph_head(mark, level, in_cell=False, heading=True) + check
-        return size_headings.candidate(head + text, heading_head + (text if heading_text is None else heading_text()), size)
-    return head + text
+        return size_headings.candidate(head + written, heading_head + (text if heading_text is None else heading_text()), size)
+    return head + written
 
 
 class ParagraphPieces:

@@ -100,6 +100,36 @@ class TestMultipartSplitAtTheDelimiterInUse:
         assert [line.strip() for line in body.split("\r\n") if line.strip()] == [
             line for line in result.text.split("\n\n", 1)[1].split("\n") if line.strip()]
 
+    @pytest.mark.parametrize("body", [
+        "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문\r\n--BBB--\r\n이 꼬리말은 목록 서버가 붙였습니다.\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n\r\nOne\r\n--BBB--\r\n\r\n--CCC\r\nContent-Type: text/plain\r\n\r\nTwo\r\n--CCC--\r\n",
+        "--Summary\r\nContent-wise: we agreed on three points.\r\nFirst, the budget.\r\n",
+        "---\r\nContent-Type: text/plain\r\n\r\nTitle\r\n---\r\nSection two\r\n---\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nRegards\r\n--Kim--\r\n",
+    ], ids=["text-behind-the-closing-line", "pieces-under-another-token", "sentence-that-looks-like-a-header", "rules-of-dashes",
+            "signature-shaped-like-a-closing-line"])
+    def test_no_line_that_was_shown_is_lost(self, body):
+        """A reader of MIME drops what stands behind the closing line and reads a header where a sentence was; as text all of
+        it was shown, so such a body stays text, and a last line that only looks like a closing line stays in its part."""
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
+
+        shown = result.text.split("\n\n", 1)[1]
+        for line in body.split("\r\n"):
+            words = line.split(":", 1)[-1].strip() if line.lower().startswith("content-t") else line.strip()
+            assert words in shown or line.startswith(("--BBB", "Content-T"))
+        assert "Kim" in shown or "Kim" not in body
+
+    def test_blank_lines_before_the_delimiter_are_skipped(self):
+        body = "\r\n" * 2000 + "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문 글\r\n--BBB--\r\n"
+
+        assert convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml").text.endswith("본문 글")
+
+    def test_parts_nested_deeper_than_a_split_may_hold_stay_text(self):
+        nested = "".join(f'--B{level}\r\nContent-Type: multipart/mixed; boundary="B{level + 1}"\r\n\r\n' for level in range(6))
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', nested + "본문\r\n"), "a.eml")
+
+        assert "--B0" in result.text and "본문" in result.text
+
     def test_mail_forwarded_inside_is_split_too(self):
         inner = (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\n\r\n'
                  "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n전달된 본문\r\n--BBB--\r\n")
