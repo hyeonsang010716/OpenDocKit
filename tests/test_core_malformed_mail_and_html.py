@@ -59,6 +59,120 @@ def _forwarding(inner: str) -> bytes:
             + inner + "\r\n--OUT--\r\n").encode()
 
 
+class TestMultipartSplitAtTheDelimiterInUse:
+    """A mail that declares one boundary and writes another had no part for the parser, so its body was text: a mail of one
+    HTML part in base64 came out as the delimiter line, two header lines and 23,000 characters of base64, with no warning."""
+
+    _HTML = base64.b64encode("<html><body><p>회의는 내일 오전 열 시입니다.</p></body></html>".encode()).decode()
+
+    def _mail(self, content_type: str, body: str) -> bytes:
+        return (_HEAD + f"Content-Type: {content_type}\r\n\r\n{body}").encode()
+
+    @pytest.mark.parametrize("content_type", ['multipart/alternative; boundary="AAA"', "multipart/alternative", "multipart/mixed"],
+                             ids=["another-boundary", "no-boundary", "mixed"])
+    def test_parts_are_read_at_the_delimiter_the_body_uses(self, content_type):
+        body = f"--BBB\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{self._HTML}\r\n--BBB--\r\n"
+
+        result = convert(self._mail(content_type, body), "a.eml")
+
+        assert result.text.endswith("회의는 내일 오전 열 시입니다.")
+        assert "Content-Transfer-Encoding" not in result.text and self._HTML[:20] not in result.text
+
+    def test_closing_line_of_another_boundary_closes_the_last_part(self):
+        """Left in the last part, the line is decoded with it as base64 and ends the text in bytes of nothing."""
+        body = ("\r\n----=_One\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n첫째 부분\r\n"
+                f"----=_One\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{self._HTML}\r\n"
+                "\r\n----=_Another--\r\n")
+
+        result = convert(self._mail('multipart/mixed; boundary="--=_Declared"', body), "a.eml")
+
+        assert result.text.endswith("첫째 부분\n\n회의는 내일 오전 열 시입니다.")
+
+    @pytest.mark.parametrize("body", [
+        "본문 글 하나\r\n--BBB\r\nContent-Type: text/plain\r\n\r\n둘\r\n--BBB--\r\n",
+        "--BBB\r\n본문 글 하나\r\nContent-Type: text/plain\r\n",
+        "-- \r\n김철수 드림\r\nContent-Type: none\r\n",
+        "--\r\nContent-Type: text/plain\r\n\r\n본문\r\n",
+    ], ids=["text-before-the-delimiter", "no-header-under-the-delimiter", "signature-mark", "delimiter-without-a-boundary"])
+    def test_body_that_does_not_open_with_a_part_stays_text(self, body):
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
+
+        assert [line.strip() for line in body.split("\r\n") if line.strip()] == [
+            line for line in result.text.split("\n\n", 1)[1].split("\n") if line.strip()]
+
+    @pytest.mark.parametrize("body", [
+        "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문\r\n--BBB--\r\n이 꼬리말은 목록 서버가 붙였습니다.\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n\r\nOne\r\n--BBB--\r\n\r\n--CCC\r\nContent-Type: text/plain\r\n\r\nTwo\r\n--CCC--\r\n",
+        "--Summary\r\nContent-wise: we agreed on three points.\r\nFirst, the budget.\r\n",
+        "---\r\nContent-Type: text/plain\r\n\r\nTitle\r\n---\r\nSection two\r\n---\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nRegards\r\n--Kim--\r\n",
+        "--BBB\r\nContent-Type: multipart/alternative; boundary=X\r\n\r\nInner preamble line.\r\n--X\r\nContent-Type: text/plain\r\n\r\n"
+        "hello\r\n--X--\r\nInner footer line.\r\n--BBB--\r\n",
+        "--BBB\nContent-Type: text/plain\n\nHello\nContent-Transfer-Encoding: base64\r\n\r\nmore text\r\n--Kim--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n\r\nHello text\r\n--BBBx\r\nContent-Transfer-Encoding: base64\r\n\r\nquoted line\r\n--Kim--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\nSummary: three points were agreed.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/plain\r\n  an indented sentence that was shown.\r\n\r\nFirst, the budget.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: text/calendar\r\n\r\nLine one of the part.\r\nLine two of the part.\r\n--BBB--\r\n",
+        "--BBB\r\nContent-Type: application/json\r\n\r\nLine one of the part.\r\n--BBB--\r\n",
+    ], ids=["text-behind-the-closing-line", "pieces-under-another-token", "sentence-that-looks-like-a-header", "rules-of-dashes",
+            "signature-shaped-like-a-closing-line", "text-around-the-parts-of-a-multipart-inside",
+            "line-that-says-base64-inside-a-text-part", "token-that-begins-another-line", "sentence-among-the-headers-of-a-part",
+            "sentence-folded-into-a-header", "part-of-a-type-that-is-not-read", "part-that-is-no-text-and-has-no-name"])
+    def test_no_line_that_was_shown_is_lost(self, body):
+        """A reader of MIME drops what stands behind the closing line and reads a header where a sentence was; as text all of
+        it was shown, so such a body stays text, and a last line that only looks like a closing line stays in its part."""
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml")
+
+        shown = result.text.split("\n\n", 1)[1]
+        for line in body.replace("\r\n", "\n").split("\n"):
+            if not line.startswith(("--BBB", "--X", "Content-T")) or line.startswith("--BBBx"):
+                assert line.strip() in shown
+
+    def test_last_part_with_a_charset_that_cannot_be_named_is_read_as_it_is(self):
+        """Looking at the last part for a stray closing line reads its text, and a charset with a NUL in it raised there:
+        the mail, read before, was refused as corrupted."""
+        body = ("--BBB\r\nContent-Type: text/plain; charset=\x00euc-kr\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                "\udcc3\udcb9\r\n--Other--\r\n")
+        data = (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\n\r\n' + body).encode("ascii", "surrogateescape")
+
+        assert convert(data, "a.eml").text.startswith("Subject: test")
+
+    def test_blank_lines_before_the_delimiter_are_skipped(self):
+        body = "\r\n" * 2000 + "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문 글\r\n--BBB--\r\n"
+
+        assert convert(self._mail('multipart/mixed; boundary="AAA"', body), "a.eml").text.endswith("본문 글")
+
+    def test_parts_nested_deeper_than_a_split_may_hold_stay_text(self):
+        nested = "".join(f'--B{level}\r\nContent-Type: multipart/mixed; boundary="B{level + 1}"\r\n\r\n' for level in range(6))
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', nested + "본문\r\n"), "a.eml")
+
+        assert "--B0" in result.text and "본문" in result.text
+
+    def test_mail_forwarded_inside_is_split_too(self):
+        inner = (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\n\r\n'
+                 "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n전달된 본문\r\n--BBB--\r\n")
+        data = (_HEAD + 'Content-Type: multipart/mixed; boundary="OUT"\r\n\r\n--OUT\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n'
+                f"겉 본문\r\n--OUT\r\nContent-Type: message/rfc822\r\n\r\n{inner}\r\n--OUT--\r\n").encode()
+
+        result = convert(data, "a.eml")
+
+        assert "전달된 본문" in result.text and "--BBB" not in result.text
+
+    def test_parts_nested_too_deep_inside_stay_text(self):
+        """The nesting is counted before the body is parsed again: past the limit nothing is split and nothing is refused."""
+        nested = "".join(f'--B{level}\r\nContent-Type: multipart/mixed; boundary="B{level + 1}"\r\n\r\n' for level in range(40))
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', nested + "본문\r\n"), "a.eml")
+
+        assert "--B0" in result.text and "본문" in result.text
+
+    def test_only_a_few_multiparts_of_a_mail_are_split_again(self):
+        """Each wrong boundary inside the last costs one more parse of what is left; from the third on the body is text."""
+        body = "".join(f'--U{level}\r\nContent-Type: multipart/mixed; boundary="D{level}"\r\n\r\n' for level in range(8))
+        result = convert(self._mail('multipart/mixed; boundary="AAA"', body + "본문\r\n"), "a.eml")
+
+        assert "본문" in result.text and "--U1" not in result.text and "--U2" in result.text
+
+
 class TestReadablePartsOfForwardedMails:
     """The delivery report of a bounce and the body of a multipart without a usable boundary are made readable before the
     body is looked for, and that was done for the outer mail only: a bounce forwarded to the IT desk as an attachment lost its

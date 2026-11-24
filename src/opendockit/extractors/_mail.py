@@ -411,8 +411,12 @@ def _readable_parts(message: Message) -> None:
     usable boundary its body, while the same mails on their own read whole
     (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails). The nesting is bounded before the mail
     is parsed (`_mime_nesting_exceeds`).
+
+    A multipart that was not split and whose body opens with a delimiter line and the headers of a part is split at that
+    delimiter first (`_split_at_the_delimiter_in_use`), at most `_MAX_PARTS_SPLIT_AGAIN` times in a mail.
     """
     stack = [message]
+    split = 0
     while stack:
         part = stack.pop()
         kind = part.get_content_type()
@@ -426,9 +430,125 @@ def _readable_parts(message: Message) -> None:
             # (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails::test_parts_of_a_report_are_read).
             _as_text(part, mail_head_text(BytesHeaderParser().parsebytes(part_content(part) or b"")))
         elif part.get_content_maintype() == "multipart" and not part.is_multipart():
-            _set_plain_type(part)
+            done = _split_at_the_delimiter_in_use(part) if split < _MAX_PARTS_SPLIT_AGAIN else None
+            split += done is not None  # a body parsed again counts, whether parts were found or not
+            if not done:
+                _set_plain_type(part)
         if part.is_multipart():
             stack.extend(reversed([child for child in part.get_payload() if isinstance(child, Message)]))
+
+
+# A delimiter line of its own and a header of a part under it: `--token`, then `Content-Type:` or another header a part has.
+# A boundary is 1 to 70 characters (RFC 2046 5.1.1); one with a quote or a backslash is not written into a header here, and
+# `Content-wise:` is a sentence.
+_DELIMITER_IN_USE = re.compile(rb"--([!#-\[\]-~][ !#-\[\]-~]{0,68}[!#-\[\]-~]|[!#-\[\]-~])[ \t]*\r?\n"
+                               rb"Content-(?:Type|Transfer-Encoding|Disposition|ID|Description|Location|Language)[ \t]*:",
+                               re.IGNORECASE)
+# The last line of a body when it has the shape of a closing line: `--anything--`
+_CLOSING_LINE = re.compile(r"(?<![^\r\n])--[^\r\n]*--[ \t]*(?:\r?\n[ \t]*)*\Z")
+# A transfer encoding under which the body of a multipart is its bytes as they are
+_IDENTITY_ENCODINGS = frozenset({"", "7bit", "8bit", "binary"})
+# A mail is split again this way at most this many times, the mail and one inside it, and the parts found may nest this deep:
+# each time parses the body of that part once more, at the cost of its lines times the nesting (an 8 MB mail of two million
+# lines: 0.9 s a time at one level)
+_MAX_PARTS_SPLIT_AGAIN = 2
+_MAX_NESTING_SPLIT_AGAIN = 4
+
+
+def _split_at_the_delimiter_in_use(part: Message) -> bool | None:
+    """Split a multipart that the parser left whole at the delimiter its body really uses, when the body opens with one:
+    a line `--token` directly followed by a header of a part. True when `part` now holds its parts, False when the body
+    was parsed again and no part came of it, None when it was not.
+
+    Software that writes mail by pasting pieces (bulk mailers) declares one boundary and writes another, and closes with a
+    third. The parser finds no part, the fallback made the body text, and a mail of one HTML part in base64 came out as its
+    delimiter line, two header lines and 23,000 characters of base64, with no warning
+    (Pinned by: test_core_malformed_mail_and_html.py::TestMultipartSplitAtTheDelimiterInUse).
+
+    The body stays text, as it was, wherever splitting it would pass over a line that was shown (`_shows_every_line`):
+    - it does not open with such a delimiter (text before the first one is a preamble, and a body that quotes mail source
+      further down is text), or the token is dashes only (`---` is a rule);
+    - text follows the closing line of the token, or stands before the first part or behind the closing line of a multipart
+      inside (an epilogue: a footer a list server added, pieces under another token);
+    - a part has a header that is no header of a part (`Summary: three points` under `Content-Type:` is a sentence);
+    - the parts inside nest deeper than `_MAX_NESTING_SPLIT_AGAIN`, or the parser finds no part this way either;
+    - the part has a transfer encoding other than 7bit, 8bit or binary.
+    What a split does pass over is what a mail with a right boundary passes over: the delimiter lines, the headers of the
+    parts, and the plain text beside an HTML alternative. A last line shaped like the closing line of another boundary is
+    taken out only of a last part in base64 (`_without_a_closing_line_in_base64`).
+    """
+    if str(part.get("Content-Transfer-Encoding", "")).strip().lower() not in _IDENTITY_ENCODINGS:
+        return None
+    body = part.get_payload(decode=True)  # the bytes of the body: `get_payload()` reads them in the charset of the part
+    if not isinstance(body, bytes):
+        return None
+    start = len(body) - len(body.lstrip(b"\r\n"))  # blank lines before the delimiter, skipped without a pattern that repeats
+    opening = _DELIMITER_IN_USE.match(body, start)
+    if opening is None or not opening.group(1).strip(b"-"):
+        return None
+    token = opening.group(1)
+    source = b"Content-Type: " + part.get_content_type().encode("ascii", "replace") + b'; boundary="' + token + b'"\r\n\r\n' + body
+    if _mime_nesting_exceeds(source, _MAX_NESTING_SPLIT_AGAIN) is not None:
+        return None
+    parsed = email.message_from_bytes(source)
+    parts = parsed.get_payload()
+    if not parsed.is_multipart() or not parts or not _shows_every_line(parsed):
+        return False
+    _without_a_closing_line_in_base64(parsed)
+    part.set_payload(parts)
+    return True
+
+
+def _shows_every_line(multipart: Message) -> bool:
+    """Is nothing of this multipart text that a reader of MIME passes over: no line before the first delimiter or behind the
+    closing line of it or of a multipart inside it, no header of a part but those a part has (`Content-…`, `MIME-Version`),
+    and no part that is neither read (text/plain, text/html, a mail) nor reported as an attachment by its name - a
+    `text/calendar` part without a name, or one whose type a folded sentence under `Content-Type:` made unreadable, came
+    out as nothing? Mails inside (message/*) are not looked into: their headers and bodies are read as a mail's."""
+    stack = [multipart]
+    while stack:
+        current = stack.pop()
+        if (current.preamble or "").strip() or (current.epilogue or "").strip():
+            return False
+        for child in current.get_payload():
+            if not isinstance(child, Message):
+                return False
+            if any(not name.lower().startswith("content-") and name.lower() != "mime-version" for name in child.keys()):
+                return False
+            kind = child.get_content_type()
+            if child.get_content_maintype() == "multipart":
+                if child.is_multipart():
+                    stack.append(child)
+            elif kind not in ("text/plain", "text/html") and child.get_content_maintype() != "message" and not _named(child):
+                return False  # a part that is neither read nor reported: as text its lines were shown
+    return True
+
+
+def _named(part: Message) -> bool:
+    try:
+        return bool(part.get_filename())
+    except Exception:  # noqa: BLE001 — a name that cannot be read is no name
+        return False
+
+
+def _without_a_closing_line_in_base64(multipart: Message) -> None:
+    """Take the last line out of the last part when that part is base64 and the line has the shape of the closing line of
+    another boundary (`--…--`): the mail closed with a boundary it never opened, and decoded with the part the line is bytes
+    of nothing. Under any other part the line stays a line of that part."""
+    last = multipart
+    while last.is_multipart() and last.get_content_maintype() == "multipart" and last.get_payload():
+        last = last.get_payload()[-1]
+    if str(last.get("Content-Transfer-Encoding", "")).strip().lower() != "base64":
+        return
+    try:
+        body = last.get_payload()
+    except (ValueError, LookupError):  # a charset the standard library cannot name (a NUL in it): the part is read as it is
+        return
+    if not isinstance(body, str):
+        return
+    closing = _CLOSING_LINE.search(body)
+    if closing is not None:
+        last.set_payload(body[:closing.start()])
 
 
 # The machine-readable part of a delivery report and of a read receipt: header blocks the parser reads as parts, written as
@@ -1199,7 +1319,14 @@ def part_content(part: Message) -> bytes | None:
     payload = part.get_payload(decode=True)
     if not any(isinstance(defect, InvalidBase64LengthDefect) for defect in part.defects[seen:]):
         return payload
-    encoded = part.get_payload()
+    try:
+        encoded = part.get_payload()
+    except (ValueError, LookupError):
+        # A charset the standard library cannot name (a NUL in it) raised here when the part also held a byte outside ASCII:
+        # the mail was refused as corrupted (Pinned by:
+        # test_core_malformed_mail_and_html.py::TestMultipartSplitAtTheDelimiterInUse::
+        # test_last_part_with_a_charset_that_cannot_be_named_is_read_as_it_is)
+        return payload
     return base64_prefix(encoded) if isinstance(encoded, str) else payload
 
 
