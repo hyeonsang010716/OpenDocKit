@@ -130,7 +130,9 @@ from opendockit.extractors._pdf_pdfminer import (
     _drawn_objects,  # noqa: F401 — the tests count a page's drawn objects through this module
     _InflateBudget,
     _name,
-    _page_drawing,
+    _page_costs,
+    _page_drawing,  # noqa: F401 — the tests read a page's estimate through this module
+    _page_text_bound,
 )
 from opendockit.extractors._pdf_pieces import _place_xobject_lines, _rejoined_lines
 from opendockit.extractors._pdf_placed_runs import _repair_placed_runs
@@ -171,6 +173,14 @@ _MAX_PAGE_OBJECTS = 50_000
 # rows of 'label value' pairs, 18,200pt, a test of the label search) 150,000, which pdfminer reads in about 9 seconds and 400MB
 # (Pinned by: test_pdf_resource_limits.py::TestPageOfVeryManyCharacters).
 _MAX_PAGE_CHARS = 200_000
+# pdfium is not let open a page whose text page may hold more characters than this (`_page_text_bound`: the bytes of the strings
+# the page shows times the longest text a /ToUnicode map of its fonts gives a code). pdfium keeps about 0.3 KB a character, and
+# the count above is taken from a text page already built: a million glyphs in strings of fifty (3.8 KB file) were 400 MB, one
+# code standing for 2,000 characters drawn 2,000 times (18 KB) 1.2 GB, 4,000 by 4,000 more than 3 GB within a second. Such a
+# page is read by pdfminer alone, which stops at `_MAX_READ_GLYPHS` glyphs; when it does, nobody reads the page. Over 2,919
+# pages of public PDFs the largest bound is 67,000 (33,000 bytes of strings); a page of 150,000 characters in two-byte codes
+# under a map of ligatures comes to 600,000 (Pinned by: test_pdf_resource_limits.py::TestGlyphsOfAPage).
+_MAX_PDFIUM_TEXT = 2_000_000
 # A page that makes pdfminer read more tokens of content than this (`_page_drawing`: each content stream as often as listed, each
 # form's content as often as drawn, `_content_cost`) is read with pdfium's simple extraction instead, with the warning of pages that
 # have too many drawing elements. Operators that paint nothing make no drawn object, and pdfminer takes 2 to 5 microseconds a token:
@@ -365,8 +375,11 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                     try:
                         _charge_page(page, budget)
                         _annotated_attachments(page.page_obj, attachments)
-                        objects, content, tokens, segments = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
-                        if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES:
+                        objects, content, tokens, segments, strings = _page_costs(page, _MAX_DRAWN_OBJECTS, budget.painted,
+                                                                                  budget.forms)
+                        # pdfium does not open a page that may hold too much text for its text page: pdfminer reads it alone
+                        wordy = _page_text_bound(page, strings, budget) > _MAX_PDFIUM_TEXT
+                        if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES and not wordy:
                             fallback = fallback or _open_pdfium(data)
                             numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
                             index = numbering.index(page.page_obj.pageid, page.page_number - 1)
@@ -380,6 +393,16 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             continue
                         late = options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget
                         heavy = tokens > _MAX_READ_CONTENT_TOKENS or segments > _MAX_READ_PATH_SEGMENTS
+                        if wordy and (late or heavy or strings > _MAX_PDFIUM_TEXT):
+                            # A page for pdfium's simple extraction that pdfium is not let open, or one whose strings are too
+                            # long for pdfminer as well (it reads a string whole before it draws a glyph of it: one of 30 MB
+                            # took 2.2 GB): nobody reads it
+                            refused.append(page.page_number)
+                            pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                               lines=[], tables=[], has_images=False,
+                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True,
+                                               pdfium_index=-1))
+                            continue
                         pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy or index is None
                                                                     else _survey_page(fallback, index))
                         if heavy and not late:
@@ -477,9 +500,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 break
                             link = link.__context__ or link.__cause__ or (link.args[0] if link.args else None)
                         _check_budget(budget)
-                        fallback = fallback or _open_pdfium(data)
-                        numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
-                        index = numbering.index(page.page_obj.pageid, page.page_number - 1)
+                        if wordy:
+                            # pdfminer gave the page up, for its glyphs (`_MAX_READ_GLYPHS`) or for anything else, and pdfium
+                            # is not let open it: nobody reads it
+                            index = None
+                            refused.append(page.page_number)
+                        else:
+                            fallback = fallback or _open_pdfium(data)
+                            numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
+                            index = numbering.index(page.page_obj.pageid, page.page_number - 1)
                         try:
                             pages.append(_numbered(_pdfium_page_at(fallback, index), page.page_number))
                         except pdfium.PdfiumError:  # neither library reads the page: an empty page (see above)
@@ -487,7 +516,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                lines=[], tables=[], has_images=False,
                                                view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         pages[-1].form_values = simple_form_values(page)  # (see `late` above)
-                        failed.append(page.page_number)
+                        if not wordy:
+                            failed.append(page.page_number)
                     finally:
                         page.close()
                     pages[-1].pdfium_index = -1 if index is None else index  # the page the renderer draws
@@ -858,9 +888,11 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
 
 
 def _past_bounds(page: object, budget: _InflateBudget) -> bool:
-    """Whether drawing `page` is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`, `_MAX_OPENED_CONTENT_BYTES`)."""
-    objects, content, *_ = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
-    return objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES
+    """Whether drawing `page` is past the bounds by which pdfium does not open a page (`_MAX_DRAWN_OBJECTS`,
+    `_MAX_OPENED_CONTENT_BYTES`, `_MAX_PDFIUM_TEXT`)."""
+    objects, content, _, _, strings = _page_costs(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
+    return (objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES
+            or _page_text_bound(page, strings, budget) > _MAX_PDFIUM_TEXT)
 
 
 def _page_tree_root(data: bytes) -> object:

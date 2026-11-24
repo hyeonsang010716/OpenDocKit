@@ -1617,3 +1617,196 @@ class TestManyLinesReachingOutOfTheirCells:
 
         assert time.perf_counter() - started < allowed(5), "13 seconds before"
         assert result.text.count("X") == 300
+
+
+def _glyphs_pdf(*pages: bytes, to_unicode: bytes | None = None, inherited: bool = False) -> bytes:
+    """A PDF with one page per content stream, in a font whose code `A` stands for the text `to_unicode` (hexadecimal), when
+    given. `inherited`: the pages have no resources of their own and take them from the page tree."""
+    font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica" + (b" /ToUnicode 90 0 R" if to_unicode else b"") + b" >>"
+    resources = b"/Resources << /Font << /F1 %s >> >>" % font
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               2: b"<< /Type /Pages /Kids [%s] /Count %d %s >>" % (b" ".join(b"%d 0 R" % (3 + 2 * index) for index in range(len(pages))),
+                                                                  len(pages), resources if inherited else b"")}
+    for index, content in enumerate(pages):
+        objects[3 + 2 * index] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents %d 0 R %s >>"
+                                  % (4 + 2 * index, b"" if inherited else resources))
+        objects[4 + 2 * index] = _flate_stream(content)
+    if to_unicode:
+        cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /T def /CMapType 2 def\n"
+                b"1 begincodespacerange <00> <FF> endcodespacerange\n1 beginbfchar <41> <" + to_unicode + b"> endbfchar\n"
+                b"endcmap CMapName currentdict /CMap defineresource pop end end")
+        objects[90] = _flate_stream(cmap)
+    return _raw_pdf(objects)
+
+
+def _rows(count: int, letters: bytes = b"A" * 40) -> bytes:
+    """`count` rows of text, each drawn by one operator."""
+    return b"BT /F1 6 Tf 20 800 Td 7 TL " + b"".join(b"(%s) Tj T*\n" % letters for _ in range(count)) + b"ET"
+
+
+class TestGlyphsOfAPage:
+    """What a page is given to read was counted in drawn objects, bytes and tokens, and a string is one token whatever its
+    length: a 1.5 KB file whose one string holds a million glyphs took pdfminer 20 s and 2.5 GB, four million more than 3 GB.
+    And a /ToUnicode map may give a code any text, a character of pdfium's text page for each unit of it for each glyph: one
+    code standing for 2,000 characters, drawn 2,000 times (18 KB), took 1.2 GB there."""
+
+    @pytest.mark.parametrize(("content", "count"), [
+        (b"(abc) Tj", 5), (b"<414243> Tj", 4), (b"[(ab) -5 (cd)] TJ", 8), (rb"(a\)b) Tj", 6), (b"(a(b)c) Tj", 7),
+        (b"(a(b(c)d)e) Tj (f) Tj", 14), (b"(never closed", 13), (b"% (in a comment)\n(a) Tj", 4), (b"0 0 m 10 10 l S q Q", 0),
+        (b"<< /A (b) >> BDC", 3), (b"<> Tj <4> Tj", 2), (rb"(\\) Tj (x) Tj", 7),
+    ], ids=["string", "hexadecimal", "array", "escaped-parenthesis", "nested", "nested-twice", "never-closed", "comment",
+            "no-string", "string-in-a-dictionary", "short-hexadecimal", "escaped-backslash"])
+    def test_bytes_of_strings_are_counted(self, content, count):
+        assert _pdf_pdfminer._string_bytes(content) == count
+
+    def test_count_is_never_below_the_bytes_inside_the_strings(self):
+        """Against a reader that follows the strings byte by byte, on content of the bytes that matter put in any order."""
+        import random
+
+        def inside(data: bytes) -> int:
+            total = depth = index = 0
+            comment = False
+            while index < len(data):
+                byte = data[index:index + 1]
+                if comment:
+                    comment = byte not in b"\r\n"
+                elif depth:
+                    if byte == b"\\":
+                        index += 1
+                        total += 1
+                    elif byte == b"(":
+                        depth += 1
+                    elif byte == b")":
+                        depth -= 1
+                        total -= not depth
+                    total += 1 if depth else 0
+                elif byte == b"(":
+                    depth = 1
+                elif byte == b"%":
+                    comment = True
+                index += 1
+            return total
+
+        chance = random.Random(11)
+        for _ in range(3000):
+            data = b"".join(chance.choice((b"(", b")", b"\\", b"%", b"\n", b"a", b" ", b"<", b">", b"4", b"Tj"))
+                            for _ in range(chance.randrange(1, 40)))
+            assert _pdf_pdfminer._string_bytes(data) >= inside(data), data
+
+    def test_content_of_nothing_but_strings_is_counted_in_linear_time(self):
+        """The string pattern has no choice at any byte: with one, a `(` before a megabyte without a `)` went back and forth."""
+        for data in (b"(" * 300_000, b"(a" * 150_000, b"(" + b"\\" * 300_000, b"(" + b"a" * 300_000 + b"(" * 10):
+            assert _pdf_pdfminer._string_bytes(data) >= len(data) - 1
+
+    def test_strings_of_a_form_count_as_often_as_it_is_drawn(self):
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        with pdfplumber.open(BytesIO(_idle_form_pdf(b"BT (abcdefgh) Tj ET", 3))) as document:
+            costs = pdf_module._page_costs(document.pages[1], 1000)
+
+        assert costs[4] == _pdf_pdfminer._string_bytes(_padded_text(b"Idle page", 0)) + 3 * 10
+        assert costs[:4] == pdf_module._page_drawing(document.pages[1], 1000)
+
+    @pytest.mark.parametrize(("to_unicode", "inherited", "longest"), [
+        (None, False, 1), (b"00660069", False, 2), (b"0041" * 30, False, 31), (b"0041" * 30, True, 31), (b"00 41 " * 30, False, 46),
+    ], ids=["no-map", "ligature", "long-text", "inherited-resources", "long-text-with-spaces"])
+    def test_longest_text_of_a_code_is_found(self, to_unicode, inherited, longest):
+        import pdfplumber
+
+        with pdfplumber.open(BytesIO(_glyphs_pdf(_rows(1), to_unicode=to_unicode, inherited=inherited))) as document:
+            page = document.pages[0]
+            budget = _pdf_pdfminer._InflateBudget(10**9)
+
+            assert _pdf_pdfminer._page_text_bound(page, 100, budget) == 100 * longest
+
+    @staticmethod
+    def _no_pdfium(monkeypatch) -> None:
+        from opendockit.extractors import _pdf_glyph_repair
+        from opendockit.extractors import pdf as pdf_module
+
+        def opened(*args):
+            raise AssertionError("pdfium opened a page past the bound")
+
+        monkeypatch.setattr(pdf_module, "_survey_page", opened)
+        monkeypatch.setattr(pdf_module, "_pdfium_page", opened)
+        monkeypatch.setattr(_pdf_glyph_repair, "_read_glyphs", opened)
+
+    def test_page_whose_text_page_would_be_too_large_is_read_by_pdfminer_alone(self, monkeypatch):
+        """Thirty glyphs that stand for sixty characters each: pdfium is not let open the page, and pdfminer reads it."""
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PDFIUM_TEXT", 1_000)
+        self._no_pdfium(monkeypatch)
+
+        result = convert(_glyphs_pdf(b"BT /F1 6 Tf 20 800 Td (" + b"A" * 30 + b") Tj ET", to_unicode=b"0042" * 60), "a.pdf")
+
+        assert "B" * 60 in result.text and not any("were not read" in warning for warning in result.warnings)
+
+    def test_page_with_strings_too_long_for_either_reader_is_not_read(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PDFIUM_TEXT", 1_000)
+        read = []
+        original_read = pdf_module._read_page
+        monkeypatch.setattr(pdf_module, "_read_page", lambda page, *args: read.append(page.page_number) or original_read(page, *args))
+
+        result = convert(_glyphs_pdf(_rows(2, b"Plain first page"), _rows(40)), "a.pdf")
+
+        assert read == [1] and "Plain first page" in result.text and "AAAA" not in result.text
+        assert any("(2)" in warning and "were not read" in warning for warning in result.warnings)
+
+    def test_page_past_the_glyphs_pdfminer_reads_goes_to_pdfium(self, monkeypatch):
+        """pdfium's count of a page leaves out what lies off it, so a page it counts as small can still be a million glyphs
+        to pdfminer: it stops, and the page is read with pdfium's simple extraction as a page pdfminer fails on is."""
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_READ_GLYPHS", 300)
+
+        result = convert(_glyphs_pdf(_rows(2, b"Plain first page"), _rows(20)), "a.pdf")
+
+        assert "Plain first page" in result.text and "A" * 40 in result.text
+        assert any("(2)" in warning and "simple extraction" in warning for warning in result.warnings)
+
+    def test_page_past_both_bounds_is_not_read(self, monkeypatch):
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PDFIUM_TEXT", 1_000)
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_READ_TEXT", 500)
+        self._no_pdfium(monkeypatch)
+
+        result = convert(_glyphs_pdf(b"BT /F1 6 Tf 20 800 Td (" + b"A" * 30 + b") Tj ET", to_unicode=b"0042" * 60), "a.pdf")
+
+        assert result.text == "" or "B" not in result.text
+        assert any("were not read" in warning for warning in result.warnings)
+
+    def test_glyphs_are_counted_anew_for_each_page(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_MAX_READ_GLYPHS", 300)
+
+        words = [b"apple river stone cloud", b"tiger maple ocean pearl", b"cedar storm amber flint"]
+        pages = [b"BT /F1 6 Tf 20 800 Td 7 TL " + b"".join(b"(%s %s told of it at length) Tj T*\n" % (name, word)
+                                                         for word in words[index].split()) + b"ET"
+                 for index, name in enumerate((b"Anna", b"Boris", b"Clara"))]
+
+        result = convert(_glyphs_pdf(*pages), "a.pdf")
+
+        assert all(line in result.text for line in ("Anna cloud told", "Boris pearl told", "Clara flint told"))
+        assert not result.warnings
+
+    def test_page_within_the_bounds_is_read_as_before(self):
+        content = b"BT /F1 6 Tf 20 800 Td 7 TL " + b"".join(b"(Row %d of the report, with some words) Tj T*\n" % row
+                                                            for row in range(30)) + b"ET"
+
+        result = convert(_glyphs_pdf(content, to_unicode=b"00660069"), "a.pdf")
+
+        assert "Row 29 of the report, with some words" in result.text and not result.warnings
+
+    def test_page_pdfium_must_not_open_is_past_the_bounds_of_the_page_tree_too(self, monkeypatch):
+        import pdfplumber
+
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_MAX_PDFIUM_TEXT", 1_000)
+        with pdfplumber.open(BytesIO(_glyphs_pdf(_rows(2), _rows(40)))) as document:
+            budget = _pdf_pdfminer._InflateBudget(10**9)
+
+            assert [pdf_module._past_bounds(page, budget) for page in document.pages] == [False, True]

@@ -136,12 +136,16 @@ class _InflateBudget:
     line_work: int | None = None  # line-grouping work left to the layout being grouped (None outside `group_textlines`)
     line_spent_layout: object = None  # the layout whose line grouping gave up last: its boxes are not grouped (`_group_few_textboxes`)
     unruled_pages: set[int] = field(default_factory=set)  # pages whose ruled tables were not looked for (`_MAX_RULE_CROSSINGS`)
+    glyph_texts: dict[int, tuple[object, int]] = field(default_factory=dict)  # ToUnicode stream → its longest text (`_glyph_text`)
+    page_glyphs: int = 0  # glyphs pdfminer has drawn on the page being read (`_MAX_READ_GLYPHS`, reset per page)
+    page_text: int = 0  # characters those glyphs stand for (`_MAX_READ_TEXT`, reset per page)
 
     def new_page(self) -> None:
         """Resets the per-page allowances of layout analysis (`_PAGE_GROUPING_COST`, `_LINE_GROUPING_WORK`). Pinned by:
         test_audit_pdf_text.py::TestTooManyTextBoxes::test_the_forms_of_a_page_are_not_charged_for_those_of_the_page_before,
         TestTooMuchLineGrouping::test_the_forms_of_a_page_start_with_a_whole_allowance."""
         self.grouping_cost, self.figure_line_work = 0, _LINE_GROUPING_WORK
+        self.page_glyphs = self.page_text = 0
 
 
 _INFLATE_BUDGET: ContextVar[_InflateBudget | None] = ContextVar("pdf_inflate_budget", default=None)
@@ -361,11 +365,17 @@ def _drawn_objects(page: object, limit: int, painted: dict[int, tuple[object, in
 
 def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
                   forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> tuple[int, int, int, int]:
+    """`_page_costs` without the bytes of strings: the drawn objects, bytes, tokens and path pieces."""
+    return _page_costs(page, limit, painted, forms)[:4]
+
+
+def _page_costs(page: object, limit: int, painted: dict[int, tuple[object, int]] | None = None,
+                forms: dict[tuple[int, int], tuple[object, ...]] | None = None) -> tuple[int, int, int, int, int]:
     """Estimate of the number of drawn objects that drawing the page will create (forms are multiplied by the number of times they
     are drawn; once over `limit` the value where counting stopped), and the bytes of content read to draw them — each content stream
     as often as `/Contents` lists it, and each form's content as often as it is drawn: all its bytes (`_MAX_OPENED_CONTENT_BYTES`),
-    the tokens pdfminer reads from them (`_content_cost`, `_MAX_READ_CONTENT_TOKENS`) and the pieces they add to paths
-    (`_path_segments`, `_MAX_READ_PATH_SEGMENTS`).
+    the tokens pdfminer reads from them (`_content_cost`, `_MAX_READ_CONTENT_TOKENS`), the pieces they add to paths
+    (`_path_segments`, `_MAX_READ_PATH_SEGMENTS`) and the bytes of their strings (`_string_bytes`: the glyphs they can show).
 
     Called before pdfium or pdfminer open the page (`_MAX_DRAWN_OBJECTS`). pdfminer decodes the content and form streams anyway
     (the decoded data is cached), so the extra cost is one regex pass. With `painted` handed over from the document (content stream
@@ -396,7 +406,7 @@ def _page_drawing(page: object, limit: int, painted: dict[int, tuple[object, int
     except DocumentTooLargeError:
         raise
     except Exception:  # noqa: BLE001 — the estimate is a bonus. Page reading meets a broken structure itself and handles it
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0
 
 
 
@@ -478,7 +488,7 @@ def _xobject_calls(data: bytes, limit: int) -> Counter:
 _TOKEN_CLASSES = bytes(32 if byte in b"\x00\t\n\x0c\r " else 100 if byte in b"()<>[]{}/%" else 120 for byte in range(256))
 
 
-_NOTHING_READ = (0, 0, 0)
+_NOTHING_READ = (0, 0, 0, 0)
 
 
 def _plus(cost: tuple[int, ...], more: tuple[int, ...]) -> tuple[int, ...]:
@@ -511,9 +521,56 @@ def _content_cost(data: bytes) -> tuple[int, int]:
 _PATH_OPERATOR = re.compile(rb"(?<![^\s\])>])(?:re|[mlcvyh])(?=[\s\[(/<%]|$)")
 
 
-def _reading_cost(data: bytes) -> tuple[int, int, int]:
-    """Bytes, tokens (`_content_cost`) and path pieces (`_path_segments`) of a content stream."""
-    return (*_content_cost(data), _path_segments(data))
+def _reading_cost(data: bytes) -> tuple[int, int, int, int]:
+    """Bytes, tokens (`_content_cost`), path pieces (`_path_segments`) and bytes of strings (`_string_bytes`) of a content
+    stream."""
+    return (*_content_cost(data), _path_segments(data), _string_bytes(data))
+
+
+# A string, a comment, or a `(` the string pattern did not close: one that holds parentheses, or never ends. The string
+# pattern has no choice at any byte (an escape, or a run without parenthesis or backslash), so it cannot go back and forth.
+_STRING_TOKEN = re.compile(rb"\([^()\\]*(?:\\.[^()\\]*)*\)|<[0-9A-Fa-f\s]*>|%[^\r\n]*|\(", re.DOTALL)
+_PARENTHESIS = re.compile(rb"\\.|[()]", re.DOTALL)
+
+
+def _string_bytes(data: bytes) -> int:
+    """An upper bound of the glyphs a content stream can show: the bytes of its strings, a hexadecimal string counted by its
+    pairs. Only a text-showing operator draws glyphs, a byte of its string for each at least, so no reading of the stream
+    shows more.
+
+    The readers count what they are given to read in drawn objects, bytes and tokens, and a string is one token whatever its
+    length: a 1.5 KB file whose one string holds a million glyphs took pdfminer 20 s and 2.5 GB, four million more than 3 GB,
+    and in strings of fifty they are a million characters of pdfium's text page, 0.3 KB each
+    (Pinned by: test_pdf_resource_limits.py::TestGlyphsOfAPage). The data of an inline image is read as content too: where its
+    data ends is decided differently by the two readers, and what one takes for data the other may draw. Past
+    `_STRING_BYTES_COUNTED` the count stops (it is then at least that)."""
+    shown = at = 0
+    search = _STRING_TOKEN.search
+    while shown <= _STRING_BYTES_COUNTED:
+        found = search(data, at)
+        if found is None:
+            break
+        start, at = found.span()
+        first = data[start]
+        if at - start == 1:  # a string with parentheses inside, or one that never ends
+            depth, at = 1, len(data)
+            for one in _PARENTHESIS.finditer(data, start + 1):
+                if one.end() - one.start() == 1:
+                    depth += 1 if data[one.start()] == 0x28 else -1
+                    if not depth or one.start() - start > _STRING_BYTES_COUNTED:
+                        at = one.end()
+                        break
+            shown += at - start
+        else:
+            # A comment shows nothing and counts for one byte, like the shortest string: the count then ends after as many
+            # tokens as bytes it counts up to
+            shown += at - start if first == 0x28 else max((at - start) // 2, 1) if first == 0x3C else 1
+    return shown
+
+
+# The bytes of strings are counted up to this many in one stream (`_string_bytes`): more is more than any bound asks about,
+# and counting on costs a tenth of a microsecond a byte in content made of nothing but strings.
+_STRING_BYTES_COUNTED = 8_000_000
 
 
 def _path_segments(data: bytes) -> int:
@@ -568,13 +625,13 @@ class _FormWalk:
         self.calls: list[int] = []  # how many times the call drawing each form of the chain draws it
         self.loop: int | None = None  # place in the chain of the form an open loop comes back to
 
-    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> tuple[int, tuple[int, int, int]]:
+    def objects(self, data: bytes, resources: object, depth: int, paints: int | None = None) -> tuple[int, tuple[int, ...]]:
         """Drawn objects of the content stream `data`, and what reading it and its forms costs (`_reading_cost`)."""
         total = _paint_operators(data, self.limit) if paints is None else paints
         objects, read = self.drawn(_xobject_calls(data, self.limit), resources, depth, total)
         return objects, _plus(read, _reading_cost(data))
 
-    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> tuple[int, tuple[int, int, int]]:
+    def drawn(self, calls: Counter, resources: object, depth: int, total: int) -> tuple[int, tuple[int, ...]]:
         """`total` plus the drawn objects of the XObject calls `calls` (name → times) made with `resources`, and what reading the
         content of the forms costs (`_reading_cost`): each form's content and that of the forms inside it, as often as it is drawn."""
         limit, counted = self.limit, self.counted
@@ -621,6 +678,72 @@ class _FormWalk:
             if total > limit:
                 break
         return total, read
+
+
+# A hexadecimal string of a ToUnicode map long enough to say more than two characters for a code
+_LONG_HEX_STRING = re.compile(rb"<[0-9A-Fa-f\s]{9,}>")
+# Dictionaries of resources and forms followed for the fonts of a page; past it what a glyph stands for is not known
+_FONT_RESOURCES_FOLLOWED = 5000
+_UNKNOWN_GLYPH_TEXT = 1 << 20
+
+
+def _page_text_bound(page: object, strings: int, budget: _InflateBudget) -> int:
+    """An upper bound of the characters pdfium's text page of `page` holds: the bytes of the strings its content shows
+    (`_page_costs`) times what a glyph stands for at most (`_glyph_text`) in its resources, its own and those pdfium takes
+    from `/Parent`. 0 when it cannot be worked out: page reading meets a broken structure itself."""
+    if not strings:
+        return 0
+    try:
+        page_obj = page.page_obj
+        return strings * max(_glyph_text(page_obj.resources, budget), _glyph_text(_parent_resources(page_obj), budget))
+    except DocumentTooLargeError:
+        raise
+    except Exception:  # noqa: BLE001 — the estimate is a bonus (see `_page_costs`)
+        return 0
+
+
+def _glyph_text(resources: object, budget: _InflateBudget) -> int:
+    """An upper bound of the characters one glyph stands for in the text pdfium reads, among the fonts of `resources` and of the
+    forms in them: the longest text a /ToUnicode map gives a code (2 for a map without a longer one: a ligature; 1 without a
+    map), `_UNKNOWN_GLYPH_TEXT` when the resources go on past `_FONT_RESOURCES_FOLLOWED` dictionaries.
+
+    A map may give one code any text. pdfium's text page holds a character for each unit of it for each glyph drawn: an 18 KB
+    file whose one code stands for 2,000 characters, drawn 2,000 times, took 1.2 GB there, and 4,000 by 4,000 more than 3 GB in
+    0.7 s (Pinned by: test_pdf_resource_limits.py::TestGlyphsOfAPage)."""
+    longest, pending, seen = 1, [resources], set()
+    while pending:
+        current = resolve1(pending.pop())
+        if not isinstance(current, dict) or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if len(seen) > _FONT_RESOURCES_FOLLOWED:
+            return _UNKNOWN_GLYPH_TEXT
+        fonts = resolve1(current.get("Font"))
+        for font in fonts.values() if isinstance(fonts, dict) else ():
+            font = resolve1(font)
+            table = resolve1(font.get("ToUnicode")) if isinstance(font, dict) else None
+            if not isinstance(table, PDFStream):
+                continue
+            if id(table) not in budget.glyph_texts:
+                strings = _LONG_HEX_STRING.findall(table.get_data())
+                budget.glyph_texts[id(table)] = (table, max(map(len, strings)) // 4 + 1 if strings else 2)
+            longest = max(longest, budget.glyph_texts[id(table)][1])
+        xobjects = resolve1(current.get("XObject"))
+        for xobject in xobjects.values() if isinstance(xobjects, dict) else ():
+            xobject = resolve1(xobject)
+            if _is_form(xobject):
+                pending.append(xobject.attrs.get("Resources"))
+    return longest
+
+
+# Glyphs pdfminer draws on one page, and the characters they stand for, before the page is given up: it keeps about 2.5 KB and
+# 20 microseconds a glyph, and the count pdfium gives of a page (`_MAX_PAGE_CHARS` in pdf.py) leaves out what lies off the page.
+_MAX_READ_GLYPHS = 250_000
+_MAX_READ_TEXT = 2_000_000
+
+
+class _TooManyGlyphs(Exception):
+    """A page draws more glyphs, or stands for more text, than pdfminer is let read (`_MAX_READ_GLYPHS`, `_MAX_READ_TEXT`)."""
 
 
 # Upper bound on expanding font ranges. pdfminer expands the ranges of a CID font's /W and /W2 (`c1 c2 w`) and the bfrange/cidrange
@@ -734,11 +857,16 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
     the next character's position is the same). For a character under fill opacity (`_FILL_ALPHA`) the fill colour is replaced by
     the visible colour blended onto a white background (`_blended_fill`). The function is not copied."""
     advance = _render_char_all_copies(self, *args, **kwargs)
-    if _INFLATE_BUDGET.get() is None:
+    budget = _INFLATE_BUDGET.get()
+    if budget is None:
         return advance
     objs = self.cur_item._objs
     char = objs[-1] if objs else None
     if isinstance(char, LTChar):
+        budget.page_glyphs += 1
+        budget.page_text += len(char._text)
+        if budget.page_glyphs > _MAX_READ_GLYPHS or budget.page_text > _MAX_READ_TEXT:
+            raise _TooManyGlyphs
         _blended_fill(char.graphicstate)
         font = kwargs.get("font", args[1] if len(args) > 1 else None)
         _symbol_font_glyph(char, font)
