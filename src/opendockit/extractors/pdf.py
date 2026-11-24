@@ -128,6 +128,7 @@ from opendockit.extractors._pdf_pdfminer import (
     _TOO_LARGE,
     _charge_page,
     _drawn_objects,  # noqa: F401 — the tests count a page's drawn objects through this module
+    _gives_a_code_long_text,
     _InflateBudget,
     _name,
     _page_drawing,
@@ -362,11 +363,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
             try:
                 for page in pdf.pages[:limit]:
                     index: int | None = None  # pdfium's number of the page; None: pdfium must not open it
+                    wordy = False  # a font of the page gives a code a long text (`_gives_a_code_long_text`)
                     try:
                         _charge_page(page, budget)
                         _annotated_attachments(page.page_obj, attachments)
                         objects, content, tokens, segments = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
-                        if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES:
+                        # pdfium does not open a page one of whose fonts gives a code a long text: its text page holds that
+                        # text for every glyph. pdfminer reads the page alone, within its bounds (`_MAX_READ_TEXT`)
+                        wordy = _gives_a_code_long_text(page, budget)
+                        if objects <= _MAX_DRAWN_OBJECTS and content <= _MAX_OPENED_CONTENT_BYTES and not wordy:
                             fallback = fallback or _open_pdfium(data)
                             numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
                             index = numbering.index(page.page_obj.pageid, page.page_number - 1)
@@ -380,6 +385,15 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                             continue
                         late = options.pdf_time_budget is not None and time.perf_counter() - started > options.pdf_time_budget
                         heavy = tokens > _MAX_READ_CONTENT_TOKENS or segments > _MAX_READ_PATH_SEGMENTS
+                        if wordy and (late or heavy or objects > _MAX_PAGE_OBJECTS):
+                            # A page for pdfium's simple extraction that pdfium is not let open: nobody reads it. The drawn
+                            # objects are those of the estimate here: the count of the survey is pdfium's
+                            refused.append(page.page_number)
+                            pages.append(_Page(number=page.page_number, width=float(page.width), height=float(page.height),
+                                               lines=[], tables=[], has_images=False,
+                                               view=(0.0, 0.0, float(page.width), float(page.height)), simple=True,
+                                               pdfium_index=-1))
+                            continue
                         pieces, line_pieces, paths, crowded_page = ((0, 0, 0, None) if late or heavy or index is None
                                                                     else _survey_page(fallback, index))
                         if heavy and not late:
@@ -477,9 +491,14 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 break
                             link = link.__context__ or link.__cause__ or (link.args[0] if link.args else None)
                         _check_budget(budget)
-                        fallback = fallback or _open_pdfium(data)
-                        numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
-                        index = numbering.index(page.page_obj.pageid, page.page_number - 1)
+                        if wordy:
+                            # pdfminer gave the page up and pdfium is not let open it: nobody reads it
+                            index = None
+                            refused.append(page.page_number)
+                        else:
+                            fallback = fallback or _open_pdfium(data)
+                            numbering = numbering or _PdfiumPages(pdf.doc.catalog.get("Pages"), fallback, past)
+                            index = numbering.index(page.page_obj.pageid, page.page_number - 1)
                         try:
                             pages.append(_numbered(_pdfium_page_at(fallback, index), page.page_number))
                         except pdfium.PdfiumError:  # neither library reads the page: an empty page (see above)
@@ -487,7 +506,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                                lines=[], tables=[], has_images=False,
                                                view=(0.0, 0.0, float(page.width), float(page.height)), simple=True))
                         pages[-1].form_values = simple_form_values(page)  # (see `late` above)
-                        failed.append(page.page_number)
+                        if not wordy:
+                            failed.append(page.page_number)
                     finally:
                         page.close()
                     pages[-1].pdfium_index = -1 if index is None else index  # the page the renderer draws
@@ -858,9 +878,10 @@ def _read_with_pdfium(data: bytes, options: ConvertOptions, error: Exception,
 
 
 def _past_bounds(page: object, budget: _InflateBudget) -> bool:
-    """Whether drawing `page` is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`, `_MAX_OPENED_CONTENT_BYTES`)."""
+    """Whether pdfium must not open `page`: its drawing is past the bounds by which nobody opens a page (`_MAX_DRAWN_OBJECTS`,
+    `_MAX_OPENED_CONTENT_BYTES`), or one of its fonts gives a code a long text (`_gives_a_code_long_text`)."""
     objects, content, *_ = _page_drawing(page, _MAX_DRAWN_OBJECTS, budget.painted, budget.forms)
-    return objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES
+    return objects > _MAX_DRAWN_OBJECTS or content > _MAX_OPENED_CONTENT_BYTES or _gives_a_code_long_text(page, budget)
 
 
 def _page_tree_root(data: bytes) -> object:
