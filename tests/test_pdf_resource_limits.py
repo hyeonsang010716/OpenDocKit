@@ -1617,3 +1617,81 @@ class TestManyLinesReachingOutOfTheirCells:
 
         assert time.perf_counter() - started < allowed(5), "13 seconds before"
         assert result.text.count("X") == 300
+
+
+class TestAscii85InPieces:
+    """The decoder of the standard library holds some forty bytes for each one it reads, so a file of 10 MB behind an
+    ASCII85 filter took 390 MB to convert. Long data is decoded a piece at a time, to the same bytes."""
+
+    @staticmethod
+    def _encoded(data: bytes, width: int = 0) -> bytes:
+        import base64
+
+        return base64.a85encode(data, wrapcol=width)
+
+    @pytest.fixture
+    def short_pieces(self, monkeypatch):
+        monkeypatch.setattr(_pdf_pdfminer, "_ASCII85_PIECE", 5 * 8)
+
+    @pytest.mark.parametrize("length", [0, 1, 3, 4, 31, 32, 33, 39, 40, 41, 160, 161, 163, 1000])
+    @pytest.mark.parametrize("width", [0, 7, 40], ids=["one-line", "lines-of-7", "lines-of-40"])
+    @pytest.mark.parametrize("ending", [b"", b"~>", b"~", b" ~ >\n"], ids=["bare", "closed", "tilde", "spaced"])
+    def test_pieces_give_the_bytes_of_the_whole(self, short_pieces, length, width, ending):
+        data = bytes((index * 37 + 11) % 255 + 1 for index in range(length))   # no four zero bytes, so no abbreviation
+        encoded = self._encoded(data, width) + ending
+
+        assert _pdf_pdfminer.ascii85decode(encoded) == _pdf_pdfminer._ascii85_whole(encoded) == data
+
+    def test_data_with_an_abbreviation_is_decoded_whole(self, short_pieces, monkeypatch):
+        """`z` stands for four zero bytes in one character: the fives no longer fall where the pieces are cut."""
+        data = b"abc" + bytes(9) + b"defgh" * 30
+        encoded = self._encoded(data)
+        calls = []
+        whole = _pdf_pdfminer._ascii85_whole
+        monkeypatch.setattr(_pdf_pdfminer, "_ascii85_whole", lambda given: calls.append(1) or whole(given))
+
+        assert b"z" in encoded and _pdf_pdfminer.ascii85decode(encoded) == data and calls == [1]
+
+    @pytest.mark.parametrize("damage", [b"\x00", b"v", b"~", b"\x0c", b"y"], ids=["nul", "v", "tilde", "form-feed", "y"])
+    @pytest.mark.parametrize("place", [3, 57, 200])
+    def test_damaged_data_raises_as_the_whole_does(self, short_pieces, damage, place):
+        encoded = bytearray(self._encoded(bytes(range(1, 251))))
+        encoded[place:place + 1] = damage
+
+        with pytest.raises(ValueError):
+            _pdf_pdfminer._ascii85_whole(bytes(encoded))
+        with pytest.raises(ValueError):
+            _pdf_pdfminer.ascii85decode(bytes(encoded))
+
+    @pytest.mark.parametrize("between", [b"\x0c", b"\x00", b"\xa0"], ids=["form-feed", "nul", "byte-160"])
+    def test_only_the_white_space_of_the_library_is_passed_over(self, short_pieces, between):
+        """A byte the library raises on is not taken out as white space: also where it stands between two fives."""
+        encoded = self._encoded(bytes(range(1, 251)))
+        encoded = encoded[:40] + between + encoded[40:]
+
+        with pytest.raises(ValueError):
+            _pdf_pdfminer._ascii85_whole(encoded)
+        with pytest.raises(ValueError):
+            _pdf_pdfminer.ascii85decode(encoded)
+
+    def test_long_data_is_decoded_in_pieces(self, short_pieces, monkeypatch):
+        sizes = []
+        decode = _pdf_pdfminer.pdfminer_ascii85.a85decode
+        monkeypatch.setattr(_pdf_pdfminer.pdfminer_ascii85, "a85decode", lambda piece: sizes.append(len(piece)) or decode(piece))
+
+        _pdf_pdfminer.ascii85decode(self._encoded(bytes(range(1, 101)), 30))
+
+        assert sizes == [40, 40, 40, 5]
+
+    def test_page_behind_the_filter_is_read_through_it(self, short_pieces):
+        """pdfminer looks the function up in its own module: a stream it decodes goes through the pieces too."""
+        from pdfminer import pdftypes
+
+        content = self._encoded(b"BT /F1 12 Tf 72 720 Td (Text behind an ASCII filter, long enough for pieces) Tj ET") + b"~>"
+        objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                   3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 "
+                      b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>",
+                   4: b"<< /Length %d /Filter /ASCII85Decode >>\nstream\n" % len(content) + content + b"\nendstream"}
+
+        assert pdftypes.ascii85decode is _pdf_pdfminer.ascii85decode
+        assert "Text behind an ASCII filter, long enough for pieces" in convert(_raw_pdf(objects), "a.pdf").text
