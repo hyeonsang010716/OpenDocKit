@@ -1866,6 +1866,16 @@ class TestAscii85InPieces:
         with pytest.raises(ValueError):
             _pdf_pdfminer.ascii85decode(bytes(encoded))
 
+    def test_abbreviation_inside_the_five_a_cut_falls_in_raises_as_the_whole_does(self, short_pieces):
+        """Walking back to where that five begins passes the abbreviation without counting it: counted, the cut fell one
+        character late, nothing overflowed in these fives, and 83 bytes came out of data the library raises on."""
+        encoded = b"!" * 36 + b"z" + b"!" * 64
+
+        with pytest.raises(ValueError):
+            _pdf_pdfminer._ascii85_whole(encoded)
+        with pytest.raises(ValueError):
+            _pdf_pdfminer.ascii85decode(encoded)
+
     def test_piece_of_abbreviations_behind_a_cut_five_raises_as_the_whole_does(self, short_pieces):
         """No place to cut: fewer than five characters, then more abbreviations than a piece holds."""
         encoded = b"abcd" + b"z" * 60 + b"abcde" * 10
