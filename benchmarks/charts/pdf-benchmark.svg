@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 336" width="760" height="336" role="img" aria-label="Score on the 200 PDFs of opendataloader-bench">
+<style>
+  .surface { fill: #fcfcfb; } .title { fill: #0b0b0b; font-weight: 600; } .label { fill: #0b0b0b; }
+  .note, .tick { fill: #52514e; } .axis { stroke: #d8d7d2; } .bar { fill: #9a9993; } .bar.us { fill: #2a78d6; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; } .title, .label { fill: #f0efec; } .note, .tick { fill: #c3c2b7; }
+    .axis { stroke: #3a3a37; } .bar { fill: #7d7c76; } .bar.us { fill: #3987e5; }
+  }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 14px; }
+</style>
+<rect class="surface" width="760" height="336" rx="8"/>
+<text class="title" x="24" y="32" font-size="16">Score on the 200 PDFs of opendataloader-bench</text>
+<line class="axis" x1="150" y1="56" x2="150" y2="284"/>
+<text class="label" x="138" y="80" text-anchor="end">kordoc</text>
+<path class="bar" d="M150,64 h382.0 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-382.0 z"/>
+<text class="label" x="544.0" y="80">0.965 · with models</text>
+<text class="label" x="138" y="118" text-anchor="end">Docling</text>
+<path class="bar" d="M150,102 h352.64 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-352.64 z"/>
+<text class="label" x="514.64" y="118">0.892 · with models</text>
+<text class="label" x="138" y="156" text-anchor="end" font-weight="600">OpenDocKit</text>
+<path class="bar us" d="M150,140 h346.84 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-346.84 z"/>
+<text class="label" x="508.84" y="156">0.877</text>
+<text class="label" x="138" y="194" text-anchor="end">Unstructured</text>
+<path class="bar" d="M150,178 h274.71999999999997 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-274.71999999999997 z"/>
+<text class="label" x="436.71999999999997" y="194">0.697</text>
+<text class="label" x="138" y="232" text-anchor="end">Kreuzberg</text>
+<path class="bar" d="M150,216 h271.64000000000004 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-271.64000000000004 z"/>
+<text class="label" x="433.64000000000004" y="232">0.689</text>
+<text class="label" x="138" y="270" text-anchor="end">MarkItDown</text>
+<path class="bar" d="M150,254 h231.4 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-231.4 z"/>
+<text class="label" x="393.4" y="270">0.589</text>
+<text class="note" x="24" y="320" font-size="12">Reading order, tables and headings; scored in this run. Tool versions and method: benchmarks/README.md</text>
+</svg>

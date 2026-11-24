@@ -63,8 +63,8 @@ class TestTranslatedReadme:
     def test_figures_are_the_same(self, name: str):
         """The numbers a reader acts on — benchmark results, versions, limits. A figure changed in one page and not in the
         other is caught."""
-        # "about thirty times faster" and "about a second" are words in English and in Chinese, numerals in Korean.
-        spelled_out = {"README.ko.md": ["30", "1"], "README.zh-CN.md": []}[name]
+        # A number one page writes as a word and another as a numeral would be listed here; today there is none.
+        spelled_out = {"README.ko.md": [], "README.zh-CN.md": []}[name]
         assert _figures(_page(name)) == sorted([*_figures(_page("README.md")), *spelled_out])
 
     def test_every_page_links_to_the_other_two_and_names_the_english_page_as_authoritative(self, name: str):

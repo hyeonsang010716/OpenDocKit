@@ -81,7 +81,9 @@ is meant to leave the output alone should say "0 of 200".
 | PyMuPDF4LLM | 0.732 | 0.885 | 0.401 | 0.412 | no |
 | MarkItDown | 0.589 | 0.844 | 0.273 | 0.000 | no |
 
-The other rows are that benchmark's published figures. What the first runs showed:
+The other rows are that benchmark's published figures. Current versions of six converters, kordoc among them, are run
+on the same PDFs and scored by this scorer in [`benchmarks/README.md`](../benchmarks/README.md#3-a-pdf-benchmark-we-did-not-write).
+What the first runs showed:
 
 - **Reading order is already among the best**, ahead of Docling.
 - **Tables** are well ahead of OpenDataLoader's rules and PyMuPDF4LLM, and 0.11 behind Docling. The first run had

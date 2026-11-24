@@ -66,6 +66,8 @@ result.warnings    # 건너뛰었거나 근사 처리한 내용을 평이한 문
   MIT / BSD / Apache 계열입니다(PyMuPDF, pyhwp 없음). ML 모델도 GPU도 필요 없습니다. 카피레프트 코드는 선택
   설치인 `heic` 추가 기능에만 있습니다.
 
+이 주장을 뒷받침하는 수치와 OpenDocKit이 뒤지는 부분은 [다른 도구와의 비교](#다른-도구와의-비교)에 있습니다.
+
 ## 설치
 
 ```bash
@@ -171,6 +173,8 @@ opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이
 `mode="sections"`를 주면 페이지, 슬라이드, 시트가 각각 하나의 Document가 되고, 그 번호가 메타데이터에 들어 있어 출처 표기에 쓸 수 있습니다.
 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md)를 참고하세요.
 
+[![hyeonsang010716/OpenDocKit MCP server](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit/badges/score.svg)](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit)
+
 ### Hermes Agent
 
 OpenDocKit은 [Hermes Agent 플러그인 카탈로그](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)에 등록되어 있습니다. 이 카탈로그의 플러그인은 모두 Hermes
@@ -231,7 +235,7 @@ opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → Ext
 
 | 형식 | 섹션 단위 | 주요 기능 |
 | --- | --- | --- |
-| PDF | 페이지 | 다단 읽기 순서, 선이 있는 표와 테두리 없는 표, 양식 필드 값, 글자 크기로 추정한 제목, 반복되는 머리글 · 바닥글 제거, 근거가 확실한 페이지의 각주 연결, 스캔 페이지는 비전 모델로 |
+| PDF | 페이지 | 다단 읽기 순서, 선이 있는 표와 테두리 없는 표, 양식 필드 값, 글자 크기와 굵기로 추정한 제목, 반복되는 머리글 · 바닥글 제거, 근거가 확실한 페이지의 각주 연결, 스캔 페이지는 비전 모델로 |
 | DOCX | 문서 | 제목 스타일, 목록 번호, 병합 셀, 차트 → 표, SmartArt, 각주 · 미주, 수식 → LaTeX, 메모 |
 | PPTX | 슬라이드 | 화면에 보이는 순서, 글머리 기호 수준, 표, 차트 → 표, SmartArt, 수식, 발표자 노트 |
 | XLSX · XLS · Excel 2003 XML · CSV | 시트 | 한 시트 안의 여러 표, 병합 셀, 숫자 · 날짜 표시 형식, 차트, 셀 메모 |
@@ -253,21 +257,44 @@ opendockit-open-webui --host 0.0.0.0     # then in Open WebUI: Documents → Ext
 ## 다른 도구와의 비교
 
 <p align="center">
-  <img alt="통과한 구조 검사: OpenDocKit 49개 중 49개, Docling 36개, MarkItDown 31개, Kreuzberg 29개, Unstructured 12개"
+  <img alt="통과한 구조 검사: OpenDocKit 49개 중 49개, Docling 37개, MarkItDown 31개, Kreuzberg 29개, kordoc 22개, Unstructured 12개"
        src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/structure-checks.svg" width="720">
 </p>
 
-OpenDocKit, MarkItDown, Kreuzberg, Unstructured, Docling을 표준 GitHub 러너에서 같은 파일로 실행했습니다
-([방법, 원본 결과, 직접 다시 돌리는 법](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)).
+OpenDocKit, MarkItDown, Kreuzberg, Unstructured, Docling, kordoc을 GPU 없는 4코어 표준 GitHub 러너에서 같은 파일로
+돌렸습니다. 측정 방법과 원본 결과, 직접 다시 돌리는 법은 [전체 보고서](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)에 있습니다.
 
-- **구조** — OpenDocKit이 가장 많이 보존합니다. "병합된 셀이 여전히 제 행에 붙어 있는가" 같은 검사 49개 중 49개를
-  통과했고, 다음 도구는 36개입니다. 다만 이 검사는 저희가 만든 것이고 0.2.0은 그 항목을 알고 개발했습니다. 그것이
-  무엇을 뜻하는지는 보고서에 적어 두었습니다.
-- **형식** — 테스트한 31개 형식 중 26개를 모델이나 외부 서비스 없이 읽습니다. 다섯 도구 중 가장 많고, HWP와
-  HWPX를 읽는 도구는 OpenDocKit뿐입니다.
-- **가장 빠르지는 않고, OCR이 없습니다** — 스캔 문서와 이미지는 비전 모델을 통해서만 읽습니다. Docling과
-  Unstructured는 오프라인으로 읽습니다. Kreuzberg는 약 30배 빠르고, 구형 `.doc` / `.ppt`는 LibreOffice를 거치기
-  때문에 파일당 1초 정도 걸립니다.
+|  | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling | kordoc |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| 읽은 형식 (31개 중) | **26** | 19 | 22 | 24 | 22 | 11 |
+| HWP · HWPX | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 통과한 구조 검사 (49개 중, 저희가 만든 검사) | **49** | 31 | 29 | 12 | 37 | 22 |
+| PDF 벤치마크 점수 (200개 파일, 외부 벤치마크) | 0.877 | 0.589 | 0.689 | 0.697 | 0.892 | **0.965** |
+| 그 PDF 200개에 걸린 시간 (초) | 37 | 38 | **4** | 52 | 1,514 | 589 |
+| 그때의 최대 메모리 (MB) | 222 | 310 | **82** | 2,127 | 3,023 | 1,309 |
+| 설치 크기 (MB) | **103** | 337 | 5,792 | 6,746 | 5,987 | 670 |
+
+- **모델 없이 가장 넓게 읽습니다.** 테스트한 31개 형식 중 26개를 CPU만으로 읽어 여섯 도구 가운데 가장 많고,
+  "병합된 셀이 여전히 제 행에 붙어 있는가" 같은 구조 검사 49개를 모두 통과합니다. 다만 이 검사는 저희가 만든
+  것이라, 그 점을 어떻게 받아들여야 하는지 보고서에 적어 두었습니다.
+- **PDF는 모델을 쓰는 도구에 가깝고, 시간은 훨씬 덜 듭니다.** 저희가 만들지 않은 벤치마크인 opendataloader-bench의
+  PDF 200개에서 OpenDocKit은 0.877점입니다. kordoc(0.965)과 Docling(0.892)이 더 높지만 둘은 모델을 돌려서 얻은
+  점수이고, 200개를 처리하는 데 각각 589초와 1,514초가 걸립니다. OpenDocKit은 37초입니다.
+- **HWP와 HWPX.** 이 두 형식을 읽는 도구는 OpenDocKit과 kordoc뿐입니다. PDF 점수와 로컬 스캔 인식은 kordoc이
+  앞서고, OpenDocKit은 나머지 형식까지 같은 함수 하나로, Python에서 읽습니다.
+- **모르는 사람이 올린 파일을 받는 서버를 위해 만들었습니다.** 퍼저가 찾아낸 파일과 공격용 파일 113개에서 한 번도
+  죽거나 멈추지 않았고, 가장 크게 쓴 메모리가 97 MB였습니다. 그중 한 파일에서 다른 도구 2개는
+  메모리 6 GB를 넘겼습니다.
+- **부족한 점.** OCR이 없습니다. 스캔 문서와 이미지는 비전 모델이 있어야 읽고, Docling · Unstructured · kordoc은
+  로컬에서 읽습니다. PDF에서 가장 약한 항목은 표입니다(0.776, kordoc은 0.981). 속도는 Kreuzberg가 전반적으로 훨씬
+  빠르고, 구형 `.doc` / `.ppt`는 LibreOffice를 거칩니다.
+
+<p align="center">
+  <img alt="opendataloader-bench PDF 200개 점수: kordoc 0.965, Docling 0.892, OpenDocKit 0.877, Unstructured 0.697, Kreuzberg 0.689, MarkItDown 0.589"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/pdf-benchmark.svg" width="720">
+  <img alt="그 PDF 200개를 변환하는 데 걸린 시간(초): Kreuzberg 4, OpenDocKit 37, MarkItDown 38, Unstructured 52, kordoc 589, Docling 1,514"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/pdf-time.svg" width="720">
+</p>
 
 ## 예제
 

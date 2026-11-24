@@ -8,7 +8,7 @@ on:
       suite:
         description: "Which suites to run"
         type: choice
-        options: [all, cases, corpus]
+        options: [all, cases, corpus, pdfbench]
         default: all
       opendockit:
         description: "OpenDocKit from the pinned PyPI release, or built from this checkout"
@@ -30,7 +30,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           df -h / | tail -1
       - uses: astral-sh/setup-uv@v10.3.3
-      - name: Install the five tools
+      - name: Install the six tools
         run: |
           if [ "${{ inputs.opendockit }}" = checkout ]; then
             uv build --wheel --out-dir "$RUNNER_TEMP/wheel"
@@ -52,15 +52,24 @@ jobs:
           print(info)
           PY
       - name: Download the public corpus
-        if: inputs.suite != 'cases'
+        if: inputs.suite == 'all' || inputs.suite == 'corpus'
         run: sh benchmarks/fetch_corpus.sh "$RUNNER_TEMP/corpus"
+      - name: Download the PDF benchmark (opendataloader-bench, 200 documents with references)
+        if: inputs.suite == 'all' || inputs.suite == 'pdfbench'
+        run: |
+          git lfs install
+          sh evals/fetch_corpus.sh "$RUNNER_TEMP/pdfbench"
+          ls "$RUNNER_TEMP/pdfbench/opendataloader-bench/pdfs" | wc -l
       - name: Run
-        run: sudo env BENCH_VENVS=/venvs CORPUS="$RUNNER_TEMP/corpus" sh benchmarks/run_all.sh "${{ inputs.suite }}"
+        run: |
+          sudo env "PATH=$PATH" BENCH_VENVS=/venvs CORPUS="$RUNNER_TEMP/corpus" \
+            PDFBENCH="$RUNNER_TEMP/pdfbench/opendataloader-bench" sh benchmarks/run_all.sh "${{ inputs.suite }}"
       - name: Pack the results
         if: always()
         run: |
           sudo chown -R "$USER" benchmarks/results
           # keep every JSON and the converted text of the case suite; the corpus outputs are large and not needed for scoring
+          # (the outputs of the PDF benchmark suite stay in the artifact: they are what was scored)
           rm -rf benchmarks/results/ordinary/*/ benchmarks/results/hostile/*/
           du -sh benchmarks/results
       - uses: actions/upload-artifact@v7

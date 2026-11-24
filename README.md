@@ -65,6 +65,8 @@ Most converters handle the happy path. OpenDocKit is built for the files people 
   Apache-style (no PyMuPDF, no pyhwp), with no ML models and no GPU. The only copyleft code is behind the opt-in
   `heic` extra.
 
+The numbers behind these claims, and the places where OpenDocKit loses, are in [How it compares](#how-it-compares).
+
 ## Installation
 
 ```bash
@@ -168,6 +170,8 @@ To let the client start the server itself, with nothing installed beforehand, ad
 
 With `mode="sections"` each page, slide or sheet is its own Document, with its number in the metadata for citations. See [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md).
 
+[![hyeonsang010716/OpenDocKit MCP server](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit/badges/score.svg)](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit)
+
 ### Hermes Agent
 
 OpenDocKit is listed in the [Hermes Agent plugin catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog), where every plugin is reviewed by the Hermes
@@ -228,7 +232,7 @@ key. Each file is converted offline in a worker process with memory and time lim
 
 | Format | Sections | Highlights |
 | --- | --- | --- |
-| PDF | page | reading order across columns, ruled and borderless tables, form field values, headings from font size, repeated header/footer removal, footnotes linked where the page proves them, scanned pages via vision model |
+| PDF | page | reading order across columns, ruled and borderless tables, form field values, headings from font size and weight, repeated header/footer removal, footnotes linked where the page proves them, scanned pages via vision model |
 | DOCX | document | heading styles, list numbering, merged cells, charts → tables, SmartArt, footnotes/endnotes, equations → LaTeX, comments |
 | PPTX | slide | on-screen order, bullet levels, tables, charts → tables, SmartArt, equations, speaker notes |
 | XLSX · XLS · Excel 2003 XML · CSV | sheet | several tables per sheet, merged cells, number and date formats, charts, cell comments |
@@ -249,21 +253,43 @@ what each format restores is in [docs/formats.md](https://github.com/hyeonsang01
 ## How it compares
 
 <p align="center">
-  <img alt="Structure checks passed: OpenDocKit 49 of 49, Docling 36, MarkItDown 31, Kreuzberg 29, Unstructured 12"
+  <img alt="Structure checks passed: OpenDocKit 49 of 49, Docling 37, MarkItDown 31, Kreuzberg 29, kordoc 22, Unstructured 12"
        src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/structure-checks.svg" width="720">
 </p>
 
-We ran OpenDocKit, MarkItDown, Kreuzberg, Unstructured and Docling on the same files on a standard GitHub runner
-([method, raw results and how to rerun it](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md)):
+OpenDocKit, MarkItDown, Kreuzberg, Unstructured, Docling and kordoc were run on the same files on a standard GitHub
+runner with 4 cores and no GPU. The [full report](https://github.com/hyeonsang010716/OpenDocKit/blob/main/benchmarks/README.md) has the method, every raw result and the way to rerun it.
 
-- **Structure** — OpenDocKit keeps the most: 49 of 49 checks such as "is the merged cell still attached to its row",
-  against 36 for the next tool. The checks are ours, and 0.2.0 was written with them known; the report says what that
-  means.
-- **Formats** — it reads 26 of the 31 formats tested without any model or service, the most of the five, and is the
-  only one that reads HWP and HWPX.
-- **Not the fastest, and no OCR** — scans and images are read only through a vision model, where Docling and
-  Unstructured read them offline. Kreuzberg is about thirty times faster, and legacy `.doc` / `.ppt` cost about a
-  second each because they go through LibreOffice.
+|  | OpenDocKit | MarkItDown | Kreuzberg | Unstructured | Docling | kordoc |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Formats read, of 31 | **26** | 19 | 22 | 24 | 22 | 11 |
+| HWP and HWPX | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Structure checks passed, of 49 (ours) | **49** | 31 | 29 | 12 | 37 | 22 |
+| PDF benchmark score, 200 files (not ours) | 0.877 | 0.589 | 0.689 | 0.697 | 0.892 | **0.965** |
+| Seconds for those 200 PDFs | 37 | 38 | **4** | 52 | 1,514 | 589 |
+| Peak memory on them, MB | 222 | 310 | **82** | 2,127 | 3,023 | 1,309 |
+| Installed size, MB | **103** | 337 | 5,792 | 6,746 | 5,987 | 670 |
+
+- **The widest reach without a model.** OpenDocKit reads 26 of the 31 formats tested on nothing but a CPU, more than
+  any of the others, and passes all 49 structure checks such as "is the merged cell still attached to its row". We
+  wrote those checks, and the report says what that means.
+- **Close to the model-based tools on PDF, in a fraction of the time.** On the 200 PDFs of opendataloader-bench, a
+  benchmark we did not write, OpenDocKit scores 0.877. kordoc (0.965) and Docling (0.892) score higher and run models
+  to get there: they take 589 and 1,514 seconds for the 200 files, OpenDocKit 37.
+- **HWP and HWPX.** Only OpenDocKit and kordoc read them. kordoc is ahead on PDF and reads scans on the machine;
+  OpenDocKit reads the other formats through the same call, from Python.
+- **Made for uploads from strangers.** On 113 fuzzer findings and attack files it neither crashed nor hung, and its
+  largest process was 97 MB. One of those files pushed 2 of the other tools past 6 GB.
+- **Where it loses.** It has no OCR: scans and images need a vision model, where Docling, Unstructured and kordoc read
+  them on the machine. Tables are its weakest PDF score (0.776, against 0.981 for kordoc). Kreuzberg is much faster
+  across the board, and legacy `.doc` / `.ppt` go through LibreOffice.
+
+<p align="center">
+  <img alt="Score on the 200 PDFs of opendataloader-bench: kordoc 0.965, Docling 0.892, OpenDocKit 0.877, Unstructured 0.697, Kreuzberg 0.689, MarkItDown 0.589"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/pdf-benchmark.svg" width="720">
+  <img alt="Seconds to convert those 200 PDFs: Kreuzberg 4, OpenDocKit 37, MarkItDown 38, Unstructured 52, kordoc 589, Docling 1,514"
+       src="https://github.com/hyeonsang010716/OpenDocKit/raw/main/benchmarks/charts/pdf-time.svg" width="720">
+</p>
 
 ## Examples
 

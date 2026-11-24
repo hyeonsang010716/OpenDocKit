@@ -1,4 +1,5 @@
-# The benchmark environment as a container: the five tools, each in its own virtual environment (see setup_tools.sh).
+# The benchmark environment as a container: the five Python tools, each in its own virtual environment (see setup_tools.sh).
+# kordoc needs Node 20 or newer, which this image does not have, so it is left out here; the GitHub workflow runs all six.
 #   docker build -t opendockit-bench benchmarks
 # Note: under Docker on Apple silicon the ML-based tools die with "Illegal instruction" (OpenCV uses CPU features the
 # virtual machine reports but cannot execute). Use an x86-64 host, or the GitHub Actions workflow, for real numbers.

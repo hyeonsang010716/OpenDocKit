@@ -1,0 +1,26 @@
+{
+ "opendockit": {
+  "megabytes": 103,
+  "packages": 21
+ },
+ "markitdown": {
+  "megabytes": 337,
+  "packages": 48
+ },
+ "kreuzberg": {
+  "megabytes": 5792,
+  "packages": 46
+ },
+ "unstructured": {
+  "megabytes": 6746,
+  "packages": 156
+ },
+ "docling": {
+  "megabytes": 5987,
+  "packages": 123
+ },
+ "kordoc": {
+  "megabytes": 670,
+  "packages": 139
+ }
+}

@@ -1,0 +1,280 @@
+{
+ "tool": "kordoc",
+ "version": "4.25.3",
+ "import_seconds": 0.189655827,
+ "wall_seconds": 4.013224717999947,
+ "results": {
+  "analysis.ipynb": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/analysis.ipynb",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.007194204000000013,
+   "peak_rss_mb": 108.15234375,
+   "outcome": "error"
+  },
+  "article.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/article.html",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00022129200000000536,
+   "peak_rss_mb": 108.15234375,
+   "outcome": "error"
+  },
+  "branch-sales-cp949.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/branch-sales-cp949.csv",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00014954000000000177,
+   "peak_rss_mb": 108.15234375,
+   "outcome": "error"
+  },
+  "dashboard.mht": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/dashboard.mht",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00014528199999998037,
+   "peak_rss_mb": 108.15234375,
+   "outcome": "error"
+  },
+  "deck.odp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.odp",
+   "ok": false,
+   "error": "HWPX에서 섹션 파일을 찾을 수 없습니다",
+   "seconds": 0.028249179999999995,
+   "peak_rss_mb": 108.76953125,
+   "outcome": "error"
+  },
+  "deck.pptx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/deck.pptx",
+   "ok": true,
+   "chars": 488,
+   "seconds": 0.013620480999999985,
+   "peak_rss_mb": 114.83203125,
+   "outcome": "ok"
+  },
+  "fax.tiff": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/fax.tiff",
+   "ok": true,
+   "chars": 101,
+   "seconds": 1.4426547920000001,
+   "peak_rss_mb": 452.89453125,
+   "outcome": "ok"
+  },
+  "html-table-named.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/html-table-named.xls",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.0002842089999999189,
+   "peak_rss_mb": 453.01953125,
+   "outcome": "error"
+  },
+  "inventory-2003.xml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/inventory-2003.xml",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00018318100000010417,
+   "peak_rss_mb": 453.01953125,
+   "outcome": "error"
+  },
+  "invoice.png": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/invoice.png",
+   "ok": true,
+   "chars": 67,
+   "seconds": 0.3572982790000001,
+   "peak_rss_mb": 455.61328125,
+   "outcome": "ok"
+  },
+  "legacy-deck.ppt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-deck.ppt",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.004215852000000268,
+   "peak_rss_mb": 455.61328125,
+   "outcome": "error"
+  },
+  "legacy-report.doc": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-report.doc",
+   "ok": false,
+   "error": "FileHeader 스트림 없음",
+   "seconds": 0.0005037430000002132,
+   "peak_rss_mb": 455.61328125,
+   "outcome": "error"
+  },
+  "legacy-sales.xls": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/legacy-sales.xls",
+   "ok": true,
+   "chars": 991,
+   "seconds": 0.0041967050000002925,
+   "peak_rss_mb": 456.19140625,
+   "outcome": "ok"
+  },
+  "mailbox.mbox": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/mailbox.mbox",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00017017700000042168,
+   "peak_rss_mb": 456.19140625,
+   "outcome": "error"
+  },
+  "meeting.eml": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/meeting.eml",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00010425800000029995,
+   "peak_rss_mb": 456.19140625,
+   "outcome": "error"
+  },
+  "notes.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notes.txt",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 7.694199999968987e-05,
+   "peak_rss_mb": 456.19140625,
+   "outcome": "error"
+  },
+  "notice-cp949.txt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/notice-cp949.txt",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.00011737200000015946,
+   "peak_rss_mb": 456.19140625,
+   "outcome": "error"
+  },
+  "numbered-outline.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/numbered-outline.hwpx",
+   "ok": true,
+   "chars": 269,
+   "seconds": 0.02276054299999987,
+   "peak_rss_mb": 456.81640625,
+   "outcome": "ok"
+  },
+  "orders.csv": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/orders.csv",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.0001412689999997383,
+   "peak_rss_mb": 456.81640625,
+   "outcome": "error"
+  },
+  "receipt.jpg": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/receipt.jpg",
+   "ok": true,
+   "chars": 57,
+   "seconds": 0.32104731200000014,
+   "peak_rss_mb": 467.73046875,
+   "outcome": "ok"
+  },
+  "release-notes.epub": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.epub",
+   "ok": false,
+   "error": "HWPX에서 섹션 파일을 찾을 수 없습니다",
+   "seconds": 0.0010669950000001336,
+   "peak_rss_mb": 467.73046875,
+   "outcome": "error"
+  },
+  "release-notes.md": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/release-notes.md",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.0001711089999998876,
+   "peak_rss_mb": 467.73046875,
+   "outcome": "error"
+  },
+  "report.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.docx",
+   "ok": true,
+   "chars": 1050,
+   "seconds": 0.029098653999999897,
+   "peak_rss_mb": 469.23046875,
+   "outcome": "ok"
+  },
+  "report.odt": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.odt",
+   "ok": false,
+   "error": "HWPX에서 섹션 파일을 찾을 수 없습니다",
+   "seconds": 0.001580482999999731,
+   "peak_rss_mb": 469.23046875,
+   "outcome": "error"
+  },
+  "report.rtf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/report.rtf",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.0012814189999999144,
+   "peak_rss_mb": 469.23046875,
+   "outcome": "error"
+  },
+  "rich-text.docx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.docx",
+   "ok": true,
+   "chars": 286,
+   "seconds": 0.025852947000000313,
+   "peak_rss_mb": 469.85546875,
+   "outcome": "ok"
+  },
+  "rich-text.html": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/rich-text.html",
+   "ok": false,
+   "error": "지원하지 않는 파일 형식입니다.",
+   "seconds": 0.0013303949999999532,
+   "peak_rss_mb": 469.85546875,
+   "outcome": "error"
+  },
+  "sales.ods": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.ods",
+   "ok": false,
+   "error": "HWPX에서 섹션 파일을 찾을 수 없습니다",
+   "seconds": 0.013905880000000252,
+   "peak_rss_mb": 469.85546875,
+   "outcome": "error"
+  },
+  "sales.xlsx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/sales.xlsx",
+   "ok": true,
+   "chars": 991,
+   "seconds": 0.010411062000000129,
+   "peak_rss_mb": 470.4609375,
+   "outcome": "ok"
+  },
+  "scanned-notice.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/scanned-notice.pdf",
+   "ok": true,
+   "chars": 376,
+   "seconds": 1.3558468520000002,
+   "peak_rss_mb": 665.54296875,
+   "outcome": "ok"
+  },
+  "score-table.hwpx": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/score-table.hwpx",
+   "ok": true,
+   "chars": 166,
+   "seconds": 0.009431174000000283,
+   "peak_rss_mb": 665.79296875,
+   "outcome": "ok"
+  },
+  "service-report.pdf": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/service-report.pdf",
+   "ok": true,
+   "chars": 7501,
+   "seconds": 0.08158884399999988,
+   "peak_rss_mb": 674.21875,
+   "outcome": "ok"
+  },
+  "table.hwp": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/table.hwp",
+   "ok": true,
+   "chars": 158,
+   "seconds": 0.014656015999999909,
+   "peak_rss_mb": 674.59765625,
+   "outcome": "ok"
+  },
+  "ticket.heic": {
+   "path": "/home/runner/work/OpenDocKit/OpenDocKit/benchmarks/cases/ticket.heic",
+   "ok": false,
+   "error": "HEIC·HEIF 이미지를 읽으려면 optional dependency 'libheif-js' 가 필요합니다. `npm install libheif-js` 후 다시 실행하세요. 원인: Cannot find package 'libheif-js' imported from /venvs/kordoc/node_modules/kordoc/dist/chunk-PEN2SUJQ.js",
+   "seconds": 0.0036810599999998884,
+   "peak_rss_mb": 674.59765625,
+   "outcome": "error"
+  }
+ }
+}

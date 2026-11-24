@@ -9,3 +9,23 @@ Cc: Sam Park &lt;sam@example.com&gt;
 Date: 2026-02-09T00:12:00+00:00
 
 The budget review moves to Thursday. Please read the attached draft before the meeting.
+
+### Calendar
+
+Message type: Invitation
+
+#### Budget review
+
+Start: 2026-02-12 14:00 Asia/Seoul
+
+End: 2026-02-12 15:00 Asia/Seoul
+
+Repeats: Weekly on Thursday, 4 times
+
+Location: Room 7B
+
+Organizer: Dana Lee &lt;dana@example.com&gt;
+
+##### Attendees
+
+- Sam Park &lt;sam@example.com&gt;
