@@ -102,6 +102,6 @@ class TestALineThatStartsWithALetterIsNotCleanedToSeeWhetherItIsEmpty:
         assert removed == []
 
     def test_a_line_of_characters_cleaning_removes_is_still_empty(self):
-        text = _text(_deck(boxes=[["​­", "가​나", "​# 다"]]))
+        text = _text(_deck(boxes=[["\u200b\u00ad", "가\u200b나", "\u200b# 다"]]))
 
         assert text.endswith("- 본문\n\n가나\n# 다")
