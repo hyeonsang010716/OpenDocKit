@@ -525,8 +525,13 @@ def _without_a_closing_line_in_base64(multipart: Message) -> None:
     last = multipart
     while last.is_multipart() and last.get_content_maintype() == "multipart" and last.get_payload():
         last = last.get_payload()[-1]
-    body = last.get_payload()
-    if not isinstance(body, str) or str(last.get("Content-Transfer-Encoding", "")).strip().lower() != "base64":
+    if str(last.get("Content-Transfer-Encoding", "")).strip().lower() != "base64":
+        return
+    try:
+        body = last.get_payload()
+    except (ValueError, LookupError):  # a charset the standard library cannot name (a NUL in it): the part is read as it is
+        return
+    if not isinstance(body, str):
         return
     closing = _CLOSING_LINE.search(body)
     if closing is not None:
@@ -1301,7 +1306,14 @@ def part_content(part: Message) -> bytes | None:
     payload = part.get_payload(decode=True)
     if not any(isinstance(defect, InvalidBase64LengthDefect) for defect in part.defects[seen:]):
         return payload
-    encoded = part.get_payload()
+    try:
+        encoded = part.get_payload()
+    except (ValueError, LookupError):
+        # A charset the standard library cannot name (a NUL in it) raised here when the part also held a byte outside ASCII:
+        # the mail was refused as corrupted (Pinned by:
+        # test_core_malformed_mail_and_html.py::TestMultipartSplitAtTheDelimiterInUse::
+        # test_last_part_with_a_charset_that_cannot_be_named_is_read_as_it_is)
+        return payload
     return base64_prefix(encoded) if isinstance(encoded, str) else payload
 
 

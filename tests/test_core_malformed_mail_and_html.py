@@ -124,6 +124,15 @@ class TestMultipartSplitAtTheDelimiterInUse:
             if not line.startswith(("--BBB", "--X", "Content-T")) or line.startswith("--BBBx"):
                 assert line.strip() in shown
 
+    def test_last_part_with_a_charset_that_cannot_be_named_is_read_as_it_is(self):
+        """Looking at the last part for a stray closing line reads its text, and a charset with a NUL in it raised there:
+        the mail, read before, was refused as corrupted."""
+        body = ("--BBB\r\nContent-Type: text/plain; charset=\x00euc-kr\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                "\udcc3\udcb9\r\n--Other--\r\n")
+        data = (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\n\r\n' + body).encode("ascii", "surrogateescape")
+
+        assert convert(data, "a.eml").text.startswith("Subject: test")
+
     def test_blank_lines_before_the_delimiter_are_skipped(self):
         body = "\r\n" * 2000 + "--BBB\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n본문 글\r\n--BBB--\r\n"
 
