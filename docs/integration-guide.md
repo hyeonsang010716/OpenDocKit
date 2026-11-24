@@ -264,7 +264,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - OLE objects other than charts, such as pasted Excel tables, and videos, do not have their content read; only `[OLE object]` and `[Video]` placeholders remain (a warning reports the count).
 - Known issues:
   - "Start new number" is not applied, so paragraph numbering continues.
-  - In HWPX tracked changes, text deleted across runs with different character formatting can remain.
+  - Tracked changes are read as the final version in HWPX; binary HWP writes deleted and inserted text alike.
 
 ## 7. HTML
 
