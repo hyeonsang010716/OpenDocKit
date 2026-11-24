@@ -209,9 +209,10 @@ def omml_to_latex(element: etree._Element) -> str:
     return _join_math(element)
 
 
-# Stands for the `#` that sets the number of an equation apart while its row is written (`_numbered`): a character of the
-# private use area, which no equation text is escaped into
-_NUMBER_MARK = "\uE000"
+# Stand for the `#` that sets the number of an equation apart while its row is written (`_numbered`): characters of the
+# private use area, which no equation text is escaped into. The first that the row does not hold itself is used.
+_NUMBER_MARKS = "\uE000\uE001\uE002"
+_UNESCAPED_BRACE = re.compile(r"(?<!\\)[{}]")
 
 
 def _numbered(array: etree._Element, row: etree._Element) -> str:
@@ -220,25 +221,32 @@ def _numbered(array: etree._Element, row: etree._Element) -> str:
     Enter is how an equation is numbered). It was written as the escaped character, `x=x\\#(1)`
     (Pinned by: test_office_equations.py::TestOmmlEquationNumber).
 
-    Only a `#` in a run of the row itself is one, the last of them, and only with something on both sides of it: a `#` inside
-    a fraction, a radical or a script of the row stays the character, also when the row has one of its own. The mark is
-    put into the text of that run while the row is written and taken out again."""
+    Only a `#` in a run of the row itself is one, the last of them, with something on both sides of it and outside every
+    group of the row: a `#` inside a fraction, a radical or a script stays the character, also when the row has one of
+    its own. The mark is put into the text of that run while the row is written and taken out again. The row is written
+    once: where the mark turns out to be no number it is made the character again in what was written - written a second
+    time, an array inside an array inside an array doubled the work at each level, 12 s for an equation of 2 KB."""
     spread = array.find(f"{_m('eqArrPr')}/{_m('maxDist')}")
     if spread is None or spread.get(_m("val"), "1") in _OFF_VALUES:
         return omml_to_latex(row)
     own = [text for run in row.iterchildren(_m("r")) for text in run.iterchildren(_m("t")) if "#" in (text.text or "")]
     if not own:
         return omml_to_latex(row)
+    held = "".join(row.itertext())
+    mark = next((one for one in _NUMBER_MARKS if one not in held), None)
+    if mark is None:
+        return omml_to_latex(row)
     last, written = own[-1], own[-1].text
     before, _, after = written.rpartition("#")
-    last.text = f"{before}{_NUMBER_MARK}{after}"
+    last.text = f"{before}{mark}{after}"
     try:
         marked = omml_to_latex(row)
     finally:
         last.text = written
-    equation, mark, number = marked.partition(_NUMBER_MARK)
-    if not mark or not equation.strip() or not number.strip():
-        return omml_to_latex(row)
+    equation, found, number = marked.partition(mark)
+    opened = sum(1 if brace.group() == "{" else -1 for brace in _UNESCAPED_BRACE.finditer(equation))
+    if not found or not equation.strip() or not number.strip() or opened or mark in number:
+        return marked.replace(mark, "\\#")
     return f"{equation.rstrip()} \\qquad {number.strip()}"
 
 

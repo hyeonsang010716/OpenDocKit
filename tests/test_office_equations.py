@@ -232,6 +232,37 @@ class TestOmmlEquationNumber:
         behind the row's own took the gap and the real mark stayed a character."""
         assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
 
+    def test_private_use_character_of_the_document_is_not_taken_for_the_mark(self):
+        row = _run("a\uE000b#(1)")
+
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$ab \\qquad (1)$"
+
+    def test_number_sign_that_a_script_group_encloses_stays_the_character(self):
+        row = "<m:r><m:t>a^#</m:t><m:t>b</m:t></m:r>"
+
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$a^{\\#}b$"
+
+    def test_last_run_with_a_number_sign_holds_the_mark(self):
+        row = _run("a#b") + _fraction("p", "q") + _run("=c#(2)")
+
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == "$a\\#b\\frac{p}{q}=c \\qquad (2)$"
+
+    @pytest.mark.timing
+    def test_arrays_inside_one_another_are_written_once(self):
+        """A row whose own `#` has nothing behind it was written a second time, and with an array of the same kind inside it
+        the work doubled at each level: 18 levels, 2.3 KB, took 12 s."""
+        from tests.timing import fastest
+
+        def nested(depth: int) -> bytes:
+            inner = _run("a#")
+            for _ in range(depth):
+                inner = "<m:d><m:e>" + self._array(inner) + "</m:e></m:d>" + _run("#")
+            return _docx_with_body(_equations(self._array(inner)))
+
+        shallow, deep = nested(6), nested(18)
+
+        assert fastest(lambda: convert(deep, "a.docx")) < 6 * fastest(lambda: convert(shallow, "a.docx")) + 0.05
+
     @pytest.mark.parametrize("properties", ["", '<m:eqArrPr><m:maxDist m:val="0"/></m:eqArrPr>'], ids=["no-property", "set-off"])
     def test_array_that_does_not_spread_over_the_line_has_no_number(self, properties):
         body = _equations(f"<m:eqArr>{properties}<m:e>{_run('n=#A')}</m:e><m:e>{_run('m=B')}</m:e></m:eqArr>")
