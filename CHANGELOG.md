@@ -58,6 +58,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **macOS: `IsolatedConverter` under gevent or eventlet no longer loses a conversion.** Those libraries make every socket
+  non-blocking, the forkserver's too, and on macOS and the BSDs a socket it accepts is then non-blocking as well: a worker
+  asked for at a busy moment made the forkserver die, so the file being converted failed and the next one was refused
+  (two Dify requests at once on macOS: 2 runs in 100 under load). There, and only there, each worker is spawned: about
+  0.1 s for a file instead of a few ms. Linux, the Dify runtime, keeps its forkserver.
+
 - **Windows: a document at a path of 260 characters or more is read.** Without LongPathsEnabled — off by default —
   such a path was "File not found" on the command line, a `FileNotFoundError` from `convert_file` and "No file at
   that path." from the MCP server, for a file that was there: a document deep in a synchronised folder with long
