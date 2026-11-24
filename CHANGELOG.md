@@ -16,6 +16,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **A report of what a change does to real documents** (`evals/changes.py`): it converts folders of documents with the
   reader before and after a change and lists the texts that changed, the words that are gone, the headings that
   appeared or went, the documents refused now and the HWP and HWPX twins that no longer convert alike.
+- **Two checks of the HWP and HWPX readers on every change to them** (the `Hangul` workflow). `evals/parity.py` converts
+  one document saved in both formats and fails when two texts that were the same are not any more. `evals/damage.py`
+  cuts, flips and overwrites real documents — the file, a part of a ZIP package, a stream of an HWP file — and converts
+  each copy in a worker: none may end it, hang or raise anything but a conversion error. 47,193 damaged copies of the
+  public samples did none of these.
 
 ### Changed
 

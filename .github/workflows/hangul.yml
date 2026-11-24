@@ -1,0 +1,63 @@
+name: Hangul
+
+# The readers of HWP and HWPX on the public sample documents of hwplib, hwpxlib and hwp2hwpx (evals/README.md): no word
+# of a document lost that was kept, no HWP and HWPX of one document converted apart that were converted alike, and no
+# damaged copy of a document that ends a worker, hangs it or raises anything but a conversion error. Runs when something
+# these readers depend on changes.
+on:
+  pull_request:
+    paths:
+      - "src/opendockit/extractors/hwp.py"
+      - "src/opendockit/extractors/hwpx.py"
+      - "src/opendockit/extractors/_hangul.py"
+      - "src/opendockit/extractors/_hancom_symbols.py"
+      - "src/opendockit/extractors/_equation.py"
+      - "src/opendockit/extractors/_lists.py"
+      - "src/opendockit/extractors/_inline.py"
+      - "src/opendockit/extractors/_notation.py"
+      - "src/opendockit/extractors/_charts.py"
+      - "src/opendockit/extractors/_ole.py"
+      - "src/opendockit/extractors/_package.py"
+      - "src/opendockit/extractors/_xml.py"
+      - "src/opendockit/converter.py"
+      - "src/opendockit/markdown.py"
+      - "src/opendockit/isolated.py"
+      - "evals/**"
+      - "tests/builder.py"
+      - "uv.lock"
+      - ".github/workflows/hangul.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  samples:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.12
+      - name: Fetch the sample documents
+        run: uv run python evals/fetch_hangul_samples.py "$RUNNER_TEMP/hangul"
+      - name: Words of the documents missing from the output
+        run: >
+          uv run python -m evals.recall
+          --documents "$RUNNER_TEMP/hangul/hangul-samples"
+          --baseline evals/baselines/recall-hangul-samples.json
+      - name: HWP and HWPX of one document converted alike
+        if: ${{ !cancelled() }}
+        run: >
+          uv run python -m evals.parity
+          --documents "$RUNNER_TEMP/hangul/hangul-samples"
+          --baseline evals/baselines/parity-hangul-samples.json --show 5
+      - name: Damaged copies of the documents
+        if: ${{ !cancelled() }}
+        run: uv run python -m evals.damage --documents "$RUNNER_TEMP/hangul/hangul-samples"
