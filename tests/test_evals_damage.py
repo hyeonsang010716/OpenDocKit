@@ -59,10 +59,17 @@ class TestDamageOfBytes:
 
 
 class TestDamaged:
-    def test_the_copies_are_the_same_on_every_run(self):
-        data = _hwpx()
+    def test_the_copies_are_the_same_on_every_run(self, monkeypatch):
+        """Also the archives written again: a part was stamped with the time it was written at, so two runs a second
+        apart made two archives (and this test failed when a second began between its two calls)."""
+        import time
 
-        assert list(damaged("a.hwpx", data)) == list(damaged("a.hwpx", data))
+        data = _hwpx()
+        first = list(damaged("a.hwpx", data))
+        monkeypatch.setattr(time, "time", lambda: 1_900_000_000.0)
+        monkeypatch.setattr(time, "localtime", lambda *_: time.struct_time((2030, 3, 17, 17, 46, 40, 6, 76, 0)))
+
+        assert list(damaged("a.hwpx", data)) == first
 
     def test_another_round_damages_other_places_and_does_not_repeat_the_whole_document(self):
         data = _hwpx()

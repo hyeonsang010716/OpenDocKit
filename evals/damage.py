@@ -56,6 +56,7 @@ _NUMBER = re.compile(rb'="(\d{1,4})"')
 _NUMBERS = (b"0", b"-1", b"65535", b"99999999")
 _VALUES = (b"\xff\xff", b"\xff\x7f", b"\xff\xff\xff\x7f", b"\xff\xff\xff\xff", b"\x00\x00\x00\x00", b"\x00\x00\x01\x00")
 FAILURES = ("died", "hung", "raised")
+_WRITTEN = (1980, 1, 1, 0, 0, 0)  # the time every part of an archive written again is stamped with
 
 
 class Dice:
@@ -108,7 +109,10 @@ def _of_a_package(data: bytes, dice: Dice) -> Iterator[tuple[str, bytes]]:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
             for name, body in changed.items():
-                archive.writestr(name, body, zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED)
+                # A part named by a string is stamped with the time it is written at: two runs made two archives
+                entry = zipfile.ZipInfo(name, date_time=_WRITTEN)
+                entry.compress_type = zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED
+                archive.writestr(entry, body)
         return buffer.getvalue()
 
     for name in sorted((name for name in parts if name.lower().endswith(".xml")), key=lambda name: (-len(parts[name]), name))[:PARTS]:
