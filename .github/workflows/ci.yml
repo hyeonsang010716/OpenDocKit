@@ -5,8 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a pull request cancels its older run. Every commit on main gets a run of its own that finishes: a
+# cancelled run there showed as a failure on the commit, and that commit was never tested on its own. A group per
+# commit, because a group holds one pending run and cancels the one already waiting, even without cancel-in-progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
