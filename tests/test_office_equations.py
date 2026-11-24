@@ -216,11 +216,33 @@ class TestOmmlEquationNumber:
 
         assert convert(_docx_with_body(body), "a.docx").text == "$a=b \\qquad (1) \\\\ c=d \\\\ e=f \\qquad (3)$"
 
+    @pytest.mark.parametrize(("row", "expected"), [
+        (_run("x=x#") + _fraction("a#", "b"), "$x=x \\qquad \\frac{a\\#}{b}$"),
+        (_run("y=1#") + _fraction("a#", "b") + _run("(1)"), "$y=1 \\qquad \\frac{a\\#}{b}(1)$"),
+        (_run("a#(1)") + "<m:rad><m:radPr><m:degHide/></m:radPr><m:deg/><m:e>" + _run("#") + "</m:e></m:rad>",
+         "$a \\qquad (1)\\sqrt{\\#}$"),
+        (_run("a#b") + _script("sSup", "c", "#2"), "$a \\qquad bc^{\\#2}$"),
+        (_run("a#b#(2)"), "$a\\#b \\qquad (2)$"),
+        ("<m:r><m:t>x=x</m:t><m:t>#(1)</m:t></m:r>", "$x=x \\qquad (1)$"),
+        (_run("x=x# ") , "$x=x\\#$"),
+    ], ids=["fraction-with-one-behind", "fraction-with-one-between", "radical-with-one-behind", "script-with-one-behind",
+            "two-in-the-row", "second-text-of-a-run", "only-a-space-behind"])
+    def test_only_the_last_number_sign_of_the_row_itself_is_the_mark(self, row, expected):
+        """The mark is found in the runs of the row, not in what the row is written as: cut there, a `#` inside a fraction
+        behind the row's own took the gap and the real mark stayed a character."""
+        assert convert(_docx_with_body(_equations(self._array(row))), "a.docx").text == expected
+
+    @pytest.mark.parametrize("properties", ["", '<m:eqArrPr><m:maxDist m:val="0"/></m:eqArrPr>'], ids=["no-property", "set-off"])
+    def test_array_that_does_not_spread_over_the_line_has_no_number(self, properties):
+        body = _equations(f"<m:eqArr>{properties}<m:e>{_run('n=#A')}</m:e><m:e>{_run('m=B')}</m:e></m:eqArr>")
+
+        assert convert(_docx_with_body(body), "a.docx").text == "$n=\\#A \\\\ m=B$"
+
     @pytest.mark.parametrize(("equation", "expected"), [
         (_run("a#b"), "$a\\#b$"),
-        ('<m:eqArr><m:e>' + _fraction("a#", "b") + '</m:e></m:eqArr>', "$\\frac{a\\#}{b}$"),
-        ('<m:eqArr><m:e>' + _run("x=x#") + '</m:e></m:eqArr>', "$x=x\\#$"),
-        ('<m:eqArr><m:e>' + _run("#(1)") + '</m:e></m:eqArr>', "$\\#(1)$"),
+        ('<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>' + _fraction("a#", "b") + '</m:e></m:eqArr>', "$\\frac{a\\#}{b}$"),
+        ('<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>' + _run("x=x#") + '</m:e></m:eqArr>', "$x=x\\#$"),
+        ('<m:eqArr><m:eqArrPr><m:maxDist/></m:eqArrPr><m:e>' + _run("#(1)") + '</m:e></m:eqArr>', "$\\#(1)$"),
     ], ids=["outside-an-array", "inside-a-fraction", "nothing-after-it", "nothing-before-it"])
     def test_other_number_signs_stay_characters(self, equation, expected):
         assert convert(_docx_with_body(_equations(equation)), "a.docx").text == expected

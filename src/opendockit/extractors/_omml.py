@@ -201,7 +201,7 @@ def omml_to_latex(element: etree._Element) -> str:
         return "" if prop("phantPr", "show", "on") in _OFF_VALUES else part("e")
     if tag == _m("eqArr"):
         # A multi-line equation. Joining the rows with no separator gave `a+b=1a-b=3`. The same row separator as a matrix is used.
-        return " \\\\ ".join(_numbered(child, omml_to_latex(child)) for child in element.iterchildren(_m("e")))
+        return " \\\\ ".join(_numbered(element, child) for child in element.iterchildren(_m("e")))
     if tag == _m("m"):
         rows = [" & ".join(omml_to_latex(cell) for cell in row.iterchildren(_m("e")))
                 for row in element.iterchildren(_m("mr"))]
@@ -209,15 +209,37 @@ def omml_to_latex(element: etree._Element) -> str:
     return _join_math(element)
 
 
-def _numbered(row: etree._Element, text: str) -> str:
-    """The row of an equation array with its number set apart. In a row, `#` is not a character: what follows it is the
-    number of the equation, which Word sets at the right margin (`x=x#(1)` is typed to number an equation). It was written as
-    the escaped character, `x=x\\#(1)` (Pinned by: test_office_equations.py::TestOmmlEquationNumber). Only a `#` in the text
-    of the row itself is one, the last of them."""
-    if not any("#" in (run.findtext(_m("t")) or "") for run in row.iterchildren(_m("r"))):
-        return text
-    equation, mark, number = text.rpartition("\\#")
-    return f"{equation} \\qquad {number}" if mark and equation and number else text
+# Stands for the `#` that sets the number of an equation apart while its row is written (`_numbered`): a character of the
+# private use area, which no equation text is escaped into
+_NUMBER_MARK = "\uE000"
+
+
+def _numbered(array: etree._Element, row: etree._Element) -> str:
+    """The row of an equation array, its number set apart. In a row of an array that spreads over the line (m:maxDist), `#`
+    is not a character: what follows it is the number of the equation, which Word sets at the right margin (`x=x#(1)` and
+    Enter is how an equation is numbered). It was written as the escaped character, `x=x\\#(1)`
+    (Pinned by: test_office_equations.py::TestOmmlEquationNumber).
+
+    Only a `#` in a run of the row itself is one, the last of them, and only with something on both sides of it: a `#` inside
+    a fraction, a radical or a script of the row stays the character, also when the row has one of its own. The mark is
+    put into the text of that run while the row is written and taken out again."""
+    spread = array.find(f"{_m('eqArrPr')}/{_m('maxDist')}")
+    if spread is None or spread.get(_m("val"), "1") in _OFF_VALUES:
+        return omml_to_latex(row)
+    own = [text for run in row.iterchildren(_m("r")) for text in run.iterchildren(_m("t")) if "#" in (text.text or "")]
+    if not own:
+        return omml_to_latex(row)
+    last, written = own[-1], own[-1].text
+    before, _, after = written.rpartition("#")
+    last.text = f"{before}{_NUMBER_MARK}{after}"
+    try:
+        marked = omml_to_latex(row)
+    finally:
+        last.text = written
+    equation, mark, number = marked.partition(_NUMBER_MARK)
+    if not mark or not equation.strip() or not number.strip():
+        return omml_to_latex(row)
+    return f"{equation.rstrip()} \\qquad {number.strip()}"
 
 
 def _literal(text: str) -> str:
