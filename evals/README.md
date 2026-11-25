@@ -484,6 +484,10 @@ rows of ASCII), as text and as HTML, and compares what the reader gives with wha
   of Python: 12 of 47,684 samples are read otherwise under 3.13 and 3.14, and a run there ends with status 1 on code
   that did not change. The card names the versions of Python and of charset-normalizer it was made with, the workflow
   runs 3.12, and a run with other versions says so before its comparison.
+- **And with charset-normalizer 3.5.2, the version of the lockfile.** With 3.5.3, which a new install resolves to since
+  2026-11-23, the same samples give 8,726 and 24,020: more of the first row, fewer of the second, and samples that were
+  read right read wrong (Finnish and Spanish in Windows-1252, Estonian in Windows-1257). The rules of this reader come
+  before the guess and do not change with it; what the library guesses for the rest does.
 - **Most of what is read wrong is no defect of a rule but a text that reads two ways.** `è` is `č` in Windows-1250, a
   Czech sentence in Windows-1250 is a row of Western letters in Windows-1252, and DOS and Macintosh text is hardly
   guessed at all (`docs/decisions/encoding.md`). The numbers say where the reader stands, not what it should reach.
