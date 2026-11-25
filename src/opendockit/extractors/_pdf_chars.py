@@ -4,6 +4,7 @@ closed up, and superscripts and subscripts marked."""
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 import math
+from operator import itemgetter
 import re
 import statistics
 
@@ -33,6 +34,20 @@ _NUMBER_START = re.compile(r"[\d(△▲▼+\-−–]")  # numeric character star
 # character spacing widened beyond that cannot be told from word gaps (`_letter_spacings`).
 _LETTER_SPACING_MAX = 0.5
 _SPACING_TOLERANCE = 0.3
+
+
+# Text set on a grid (`_fixed_pitches`): the middles of the characters of a line, its own space characters among them,
+# stand a whole number of one pitch apart, to within this share of the pitch; the pitch is between these shares of the
+# character size (a printer's ten or twelve to the inch is 0.6 of its size; wider apart than the size, letters are the cells
+# of a row); and a line shows it with this many letters, this many of its characters in neighbouring cells
+_PITCH_TOLERANCE = 0.1
+_PITCH_MIN_RATIO = 0.3
+_PITCH_MAX_RATIO = 1.0
+_PITCH_LINE_CHARS = 8
+_PITCH_NEIGHBOURS = 4
+# A space character belongs to a line when its bottom is this near (pt) that of the line's letters: the characters of one
+# row of text stand on one baseline, and a row of blanks laid over the line stands on its own
+_SAME_ROW = 0.1
 
 
 # Superscript/subscript estimation (_scripted_text): maximum size of a script relative to the line's usual character size, and the
@@ -149,6 +164,99 @@ def _letter_spacings(lines: list[list[dict]]) -> list[float]:
                 and near >= len(gaps) * 0.6 and not any(abs(narrowest - known) <= _SPACING_TOLERANCE for known in found)):
             found.append(narrowest)
     return found
+
+
+_X0 = itemgetter("x0")
+
+
+def _pitch_steps(chars: list[dict]) -> tuple[list[dict], list[float]]:
+    """The characters of a line from left to right - its letters, and the space characters that stand on their baseline
+    (`_SAME_ROW`) - and the distance from the middle of each to the middle of the next. A space character of another row,
+    laid over the line, is none of the line's."""
+    bottoms = [char["bottom"] for char in chars]
+    if bottoms and bottoms.count(bottoms[0]) == len(bottoms):
+        ordered = sorted(chars, key=_X0)  # one baseline: the usual line
+    else:
+        letters = [char["bottom"] for char in chars if char["text"].strip()]
+        if not letters:
+            return [], []
+        bottom = statistics.median(letters)
+        ordered = sorted((char for char in chars if char["text"].strip() or abs(char["bottom"] - bottom) <= _SAME_ROW), key=_X0)
+    middles = [(char["x0"] + char["x1"]) / 2 for char in ordered]
+    return ordered, [right - left for left, right in zip(middles, middles[1:], strict=False)]
+
+
+def _cells_apart(step: float, pitch: float) -> int:
+    """How many cells of a grid of `pitch` two characters `step` apart are from each other; 0 when they do not stand on it."""
+    if not (pitch > 0 and math.isfinite(step)):
+        return 0
+    cells = round(step / pitch)
+    return cells if cells >= 1 and abs(step - cells * pitch) <= pitch * _PITCH_TOLERANCE else 0
+
+
+def _fixed_pitches(lines: list[list[dict]]) -> list[tuple[float, float]]:
+    """The (pitch, character size) of the lines of the page that are set on a grid: `_PITCH_LINE_CHARS` letters or more, the
+    middle of each character a whole number of pitches from the one before, the pitch (the median of the distances near the
+    smallest, `_PITCH_NEIGHBOURS` of them or more) between `_PITCH_MIN_RATIO` and `_PITCH_MAX_RATIO` of the character size,
+    and two letters in neighbouring cells so far apart somewhere that a space would be read between them. A short piece on
+    such a page ('20', an amount) is judged with these."""
+    found: list[tuple[float, float]] = []
+    for chars in lines:
+        if len(chars) < _PITCH_LINE_CHARS:
+            continue
+        # The lines of every page come here, and hardly one stands on a grid: what turns a line away is asked in the order
+        # of its cost, the median last
+        ordered, steps = _pitch_steps(chars)
+        smallest = min(steps, default=0.0)
+        if not smallest > 0:
+            continue  # characters drawn over each other, or a place that is no number: no grid
+        neighbours = [step for step in steps if step <= smallest * (1 + 2 * _PITCH_TOLERANCE)]
+        if len(neighbours) < _PITCH_NEIGHBOURS or sum(1 for char in ordered if char["text"].strip()) < _PITCH_LINE_CHARS:
+            continue
+        size = max(char["size"] for char in ordered)
+        pitch = statistics.median(neighbours)
+        if not (size > 0 and size * _PITCH_MIN_RATIO <= pitch <= size * _PITCH_MAX_RATIO):
+            continue
+        if any(abs(pitch - known) <= known * _PITCH_TOLERANCE and known_size == size for known, known_size in found):
+            continue
+        apart = [_cells_apart(step, pitch) for step in steps]
+        if all(apart) and any(cells == 1 and left["text"].strip() and right["text"].strip()
+                              and right["x0"] - left["x1"] > _LAPARAMS["word_margin"] * max(right["width"], right["height"])
+                              for cells, left, right in zip(apart, ordered, ordered[1:], strict=False)):
+            found.append((pitch, size))
+    return found
+
+
+def _fixed_pitch_text(chars: list[dict], pitches: list[tuple[float, float]]) -> str | None:
+    """The text of a line set on one of the page's grids (`pitches`, from `_fixed_pitches`): a space where the line has a
+    space character or leaves a cell empty, and nowhere else. None for any other line.
+
+    Deliberate: a report made for a printer of fixed pitch and drawn in a proportional font puts the middle of every
+    character, the spaces of the line among them, on a grid of 0.6 of the character size. The letters are narrower than
+    their cells, so the gap between two of them passes the criterion for a word gap, and the statement of a bank lays a row
+    of space characters over each line, on a baseline and a grid of its own, whose spaces fall between the letters: a space
+    was read after every letter - 'A c c o u n t No', '8 , 9 2 3 . 0 7'. The line writes its spaces itself, each in a
+    cell; a gap inside a cell is none. Digits written with a space between each two ('1 2 3 4 5 6 7 8') stand on a grid
+    as well, of half the distance, with a space character in every other cell: they keep their spaces, and no two of them
+    are neighbours, so such a line names no grid. Text of a fixed-pitch font fills its cells and is not changed, and text
+    with widened character spacing keeps the widths of its font and stands on no grid (`_letter_spaced_text`)
+    (Pinned by: test_pdf_character_spacing.py::TestTextSetOnAGrid, ::TestGridOfALine)."""
+    if not pitches:
+        return None
+    ordered, steps = _pitch_steps(chars)
+    if sum(1 for char in ordered if char["text"].strip()) < 2:
+        return None
+    size = max(char["size"] for char in ordered)
+    for pitch, pitch_size in pitches:
+        if pitch_size != size:
+            continue
+        apart = [_cells_apart(step, pitch) for step in steps]
+        if all(apart):
+            parts = [ordered[0]["text"]]
+            for cells, char in zip(apart, ordered[1:], strict=True):
+                parts.append((" " if cells > 1 else "") + (char["text"] if char["text"].strip() else " "))
+            return " ".join("".join(parts).split())
+    return None
 
 
 def _letter_spaced_text(chars: list[dict], spacings: list[float]) -> str | None:

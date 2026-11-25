@@ -81,6 +81,8 @@ from opendockit.extractors._pdf_bidi import _PAGE_READING, _RIGHT_TO_LEFT, _numb
 from opendockit.extractors._pdf_chars import (
     _drawn_text,
     _drop_cap,
+    _fixed_pitch_text,
+    _fixed_pitches,
     _gap_parts,
     _joined_late_initials,
     _letter_spaced_text,
@@ -1195,7 +1197,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # test_a_drop_cap_drawn_after_its_lines_is_joined_to_its_word)
     prepared = _joined_late_initials(prepared, lambda line: [char for char in _chars_at_line_level(line, chars, char_tops)
                                                              if line["x0"] - 1 <= char["x0"] <= line["x1"] + 1])
-    spacings = _letter_spacings(list({id(inside): inside for *_, inside in prepared}.values()))  # each identical group of characters once
+    groups = list({id(inside): inside for *_, inside in prepared}.values())  # each identical group of characters once
+    spacings = _letter_spacings(groups)
+    pitches = _fixed_pitches(groups)
 
     lines, line_owners = [], []
     kept_lines: dict[str, list[dict]] = {}  # text → lines already kept (to find copies of a line drawn on top of the same text)
@@ -1226,7 +1230,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
         elif len(text) <= 6 and not _has_letter(text):
             text = _number_set_apart(_text_from_chars(inside)) or text  # '.1' beside an item read from right to left
         if not leftwards:
-            text = _letter_spaced_text(inside, spacings) or text
+            text = _fixed_pitch_text(inside, pitches) or _letter_spaced_text(inside, spacings) or text
         has_copies, shadowed = copy_index.at(line)  # removed characters under the line (`_CopyIndex`)
         if has_copies:
             kept = _text_without_artifacts(line, text, inside, kept_lines, shadowed)

@@ -99,6 +99,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
 - **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
   `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
+- **PDF: text set on a grid is not read with a space after every letter.** A report made for a printer of fixed pitch
+  and drawn in a proportional font read `A c c o u n t No` and `8 , 9 2 3 . 0 7`. On a grid a word ends where the
+  line has a space character or leaves a cell empty.
 - **PDF: a table with shaded cells and an open side keeps its last column.** A table whose right border is drawn on
   the header row alone, with shaded label cells, came out with its last column and its merged cells empty and their
   text as paragraphs under it.
