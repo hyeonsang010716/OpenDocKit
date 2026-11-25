@@ -149,13 +149,47 @@ class TestTextSetOnAGrid:
         assert "1 2 3 4 5 6 7 8 9" in text.split("\n") and "A list of rooms: 1 2 3 4 5 6 7 8 9" in text.split("\n")
         assert "Account No" in text.split("\n")
 
-    def test_digit_in_a_cell_of_text_set_solid_is_not_set_apart(self):
-        """East Asian text is set on a grid of its character size, and a digit of half that width stands in the middle of
-        a cell of its own: the annual report of a company read 'no. 1' with a space on either side of the 1 in a title
-        that has no space character there."""
-        text = _grid_text([(40, 700, "공고제1호비경상손익항목의구분"), (40, 680, "가치가4만원보다낮은임대자산")], pitch=9.0, font=_FONT)
+    def test_text_set_solid_a_size_apart_is_as_before(self):
+        """East Asian text set solid stands a character size apart, and a word processor leaves a quarter of a size on
+        either side of a digit: a single digit between two syllables lands on that grid by chance, a number of two
+        digits does not. Read on a grid, an annual report lost the space beside 7 of its 295 single digits and kept the
+        rest. Such text names no grid."""
+        rows = [(40, 700, "공고제1호비경상손익항목의구분"), (40, 680, "가치가4만원보다낮은임대자산")]
 
-        assert "공고제1호비경상손익항목의구분" in text and "가치가4만원보다낮은임대자산" in text
+        assert _grid_text(rows, pitch=9.0, font=_FONT) == _grid_text(rows, pitch=9.0, font=_FONT, typed=((40, 600, "끝."),))[:-4]
+        assert "제 1 호" in _grid_text(rows, pitch=9.0, font=_FONT)  # as the criterion for a word gap reads it
+
+    def test_syllables_two_cells_wide_among_letters_on_a_grid_are_as_before(self):
+        """A report of fixed pitch in Korean: a syllable takes two cells, so the middles of two syllables side by side are
+        two cells apart with no cell empty. Read on the grid of the Latin lines of the page, every syllable was set apart
+        ('계 좌 번 호'). A line with such a character is not asked."""
+        from io import BytesIO
+
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.pdfgen import canvas
+
+        pdfmetrics.registerFont(UnicodeCIDFont(_FONT))
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(612, 792))
+        pdf.setFont("Helvetica", 9)
+        for index, letter in enumerate("Account No"):
+            if letter != " ":
+                pdf.drawCentredString(40 + index * 5.42, 700, letter)
+        pdf.setFont(_FONT, 9)
+        for index, syllable in enumerate("계좌번호"):
+            pdf.drawCentredString(40 + 5.42 / 2 + index * 10.84, 680, syllable)
+        pdf.showPage()
+        pdf.save()
+
+        lines = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False)).text.split("\n")
+
+        assert "Account No" in lines and "계좌번호" in lines
+
+    def test_row_of_letters_a_size_apart_is_as_before(self):
+        """From eight tenths of the character size on, letters one to a cell are the cells of a row."""
+        assert "ABCDEFGHIJ" not in _grid_text([(40, 700, "ABCDEFGHIJ")], pitch=9.0)
+        assert "ABCDEFGHIJ" in _grid_text([(40, 700, "ABCDEFGHIJ")], pitch=7.0)
 
     def test_page_without_a_long_line_on_a_grid_is_as_before(self):
         """Seven letters show no grid: fewer than the eight a line has to have."""
@@ -171,25 +205,29 @@ class TestGridOfALine:
                own_spaces: bool = True, laid_over: float | None = None, lower: float = 0.6):
         """One character to a cell, `width` wide and centred, the space characters of the line (2.2 wide) in cells of their
         own unless `own_spaces` is off; with `laid_over`, a row of space characters over the line whose grid stands that
-        far to the right of the letters' and whose baseline is `lower` under theirs."""
+        far to the right of the letters' and which is written `lower` higher than they are."""
         chars = [{"text": letter, "x0": start + index * pitch - (width if letter != " " else 2.2) / 2,
                   "x1": start + index * pitch + (width if letter != " " else 2.2) / 2, "size": size,
-                  "width": width if letter != " " else 2.2, "height": size, "top": 314.0, "bottom": 323.0}
+                  "width": width if letter != " " else 2.2, "height": size, "top": 314.0, "bottom": 323.0,
+                  "matrix": (size, 0.0, 0.0, size, start + index * pitch, 470.0)}
                  for index, letter in enumerate(text) if letter != " " or own_spaces]
         if laid_over is not None:
             chars += [{"text": " ", "x0": start + laid_over + index * pitch - 1.1, "x1": start + laid_over + index * pitch + 1.1,
-                       "size": size, "width": 2.2, "height": size, "top": 314.0 + lower, "bottom": 323.0 + lower}
+                       "size": size, "width": 2.2, "height": size, "top": 314.0 - lower, "bottom": 323.0 - lower,
+                       "matrix": (size, 0.0, 0.0, size, start + laid_over + index * pitch, 470.0 + lower)}
                       for index in range(len(text))]
         return chars
 
     @staticmethod
-    def _typed(text: str, *, size: float = 9.0, digit: float = 5.0, space: float = 2.5):
-        """Text written as usual, each character behind the one before: digits of one width, a space character between."""
+    def _typed(text: str, *, size: float = 9.0, digit: float = 5.0, space: float = 2.5, other_font: float = 0.0):
+        """Text written as usual, each character behind the one before: digits of one width, a space character between -
+        of another font with `other_font`, the bottom of its box that far under that of the digits."""
         chars, x = [], 40.0
         for letter in text:
             width = space if letter == " " else digit
+            # the bottom of a box lies under the baseline by the descent of its font: a space set in another font
             chars.append({"text": letter, "x0": x, "x1": x + width, "size": size, "width": width, "height": size, "top": 314.0,
-                          "bottom": 323.0})
+                          "bottom": 323.0 if letter != " " else 323.0 + other_font, "matrix": (size, 0.0, 0.0, size, x, 470.0)})
             x += width
         return chars
 
@@ -203,6 +241,8 @@ class TestGridOfALine:
         from opendockit.extractors._pdf_chars import _fixed_pitches
 
         assert _fixed_pitches([self._chars("Account No  Type")]) == [(pytest.approx(5.42), 9.0)]
+        assert _fixed_pitches([self._chars("Account No  Type", pitch=7.1)]) == [(pytest.approx(7.1), 9.0)]  # under eight tenths
+        assert _fixed_pitches([self._chars("Account No  Type", pitch=3.6, width=2.0)]) == [(pytest.approx(3.6), 9.0)]
         assert _fixed_pitches([self._chars("Account No  Type"), self._chars("Previous Balance")]) == [(pytest.approx(5.42), 9.0)]
 
     @pytest.mark.parametrize(("chars", "why"), [
@@ -211,6 +251,8 @@ class TestGridOfALine:
         ({"text": "Account No  Type", "width": 5.2, "own_spaces": False}, "letters that fill their cells, with empty cells between words"),
         ({"text": "Account No  Type", "width": 5.2}, "letters that fill their cells: no space is read between them"),
         ({"text": "Account No  Type", "pitch": 9.5}, "a pitch wider than the size"),
+        ({"text": "Account No  Type", "pitch": 7.4}, "a pitch over eight tenths of the size"),
+        ({"text": "Account No  Type", "width": 4.82}, "gaps of 0.6pt: under a tenth of the height of the letters"),
         ({"text": "Account No  Type", "pitch": 2.5, "width": 1.0}, "a pitch under three tenths of the size"),
         ({"text": "A c c o u n t N o T"}, "no two letters in neighbouring cells"),
         ({"text": "Ac c o u n t N o T y", "own_spaces": False}, "one step of a single cell, not four"),
@@ -240,8 +282,8 @@ class TestGridOfALine:
         _fixed_pitch_text(no_bottom, [(5.42, 9.0)])
 
     def test_space_characters_of_a_row_laid_over_the_line_are_no_word_gaps(self):
-        """The statement lays a row of space characters over each line, on a grid 1.2pt beside that of the letters and a
-        baseline 0.6pt under theirs: one falls between every two letters."""
+        """The statement lays a row of space characters over each line, on a grid 1.2pt beside that of the letters and
+        written 0.6pt higher: one falls between every two letters."""
         from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
 
         chars = self._chars("Account No  Type of Account", laid_over=1.2)
@@ -249,9 +291,9 @@ class TestGridOfALine:
         assert _fixed_pitches([chars]) == [(pytest.approx(5.42), 9.0)]
         assert _fixed_pitch_text(chars, [(5.42, 9.0)]) == "Account No Type of Account"
 
-    def test_space_characters_on_the_baseline_of_the_letters_are_the_line_s_own(self):
-        """The same blanks on the baseline of the letters, between them and off their grid, are characters of the line:
-        with them it stands on no grid, and nothing is done."""
+    def test_space_characters_written_at_the_height_of_the_letters_are_the_line_s_own(self):
+        """The same blanks written at the height of the letters, between them and off their grid, are characters of the
+        line: with them it stands on no grid, and nothing is done."""
         from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
 
         chars = self._chars("Account No  Type of Account", laid_over=1.2, lower=0.0)
@@ -260,7 +302,82 @@ class TestGridOfALine:
 
         assert _fixed_pitches([chars]) == [] and _fixed_pitch_text(chars, [(5.42, 9.0)]) is None
         assert _fixed_pitches([near]) == [] and _fixed_pitch_text(near, [(5.42, 9.0)]) is None
-        assert _fixed_pitch_text(apart, [(5.42, 9.0)]) == "Account No Type of Account"  # a fifth of a point under: another row
+        assert _fixed_pitch_text(apart, [(5.42, 9.0)]) == "Account No Type of Account"  # a fifth of a point higher: another row
+
+    def test_spaces_of_another_font_are_the_line_s_own(self):
+        """The box of a space set in another font ends up to 0.7pt lower than those of the digits beside it, on one
+        baseline: judged by their boxes, the spaces were taken for a row laid over the line and the digits ran together
+        ('123456789')."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
+
+        for other_font in (0.09, 0.2, 0.69):
+            chars = self._typed("1 2 3 4 5 6 7 8 9", other_font=other_font)
+
+            assert _fixed_pitches([chars]) == []
+            assert _fixed_pitch_text(chars, [(7.5, 9.0)]) is None and _fixed_pitch_text(chars, [(3.75, 9.0)]) == "1 2 3 4 5 6 7 8 9"
+
+    def test_characters_without_a_height_are_all_the_line_s_own(self):
+        """A character the reader put back has no text matrix: nothing says it is of another row."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text
+
+        chars = self._chars("Account No  Type of Account", laid_over=1.2)
+        for char in chars:
+            if not char["text"].strip():
+                del char["matrix"]
+
+        assert _fixed_pitch_text(chars, [(5.42, 9.0)]) is None
+
+    def test_line_whose_first_letter_is_written_higher_keeps_its_spaces(self):
+        """The height of the line is that of most of its letters, not of the first."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text
+
+        chars = self._typed("1 2 3 4 5 6 7 8 9")
+        chars[0]["matrix"] = (9.0, 0.0, 0.0, 9.0, 40.0, 473.0)
+
+        assert _fixed_pitch_text(chars, [(3.75, 9.0)]) == "1 2 3 4 5 6 7 8 9"
+        assert _fixed_pitch_text(chars, [(7.5, 9.0)]) is None  # without their spaces the digits would stand on this one
+
+    def test_line_with_a_character_two_cells_wide_is_not_asked(self):
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
+
+        syllables = self._chars("계좌번호예금종류현재잔액", pitch=10.84, width=9.0)
+        mixed = self._chars("Account No  Type of 합계")
+
+        assert _fixed_pitches([syllables]) == [] and _fixed_pitches([mixed]) == []
+        assert _fixed_pitch_text(syllables, [(5.42, 9.0)]) is None and _fixed_pitch_text(mixed, [(5.42, 9.0)]) is None
+        assert _fixed_pitch_text(self._chars("\uff21\uff22\uff23"), [(5.42, 9.0)]) is None  # full-width Latin letters
+
+    def test_page_names_a_grid_for_each_pitch_and_size_and_eight_at_most(self):
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
+
+        small, large = self._chars("Account No  Type"), self._chars("Account No  Type", size=12.0)
+        wider = self._chars("Account No  Type", pitch=6.6)
+
+        assert _fixed_pitches([small, large, small, wider]) == [(pytest.approx(5.42), 9.0), (pytest.approx(5.42), 12.0),
+                                                                  (pytest.approx(6.6), 9.0)]
+        assert _fixed_pitch_text(self._chars("20", pitch=6.6), [(5.42, 9.0), (5.42, 12.0), (6.6, 9.0)]) == "20"
+        many = [self._chars("Account No  Type", size=9.0 + index / 4) for index in range(12)]
+        assert len(_fixed_pitches(many)) == 8
+
+    def test_pitch_is_the_median_of_the_steps_near_the_smallest_and_the_size_the_largest_of_the_line(self):
+        from opendockit.extractors._pdf_chars import _fixed_pitches
+
+        chars = self._chars("Account No  Type", own_spaces=False)
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text
+
+        for index, offset in enumerate((0.0, 0.4, 0.0, 0.4, 0.0, 0.4, 0.0)):  # steps of 5.82 and 5.02 in turn: 16% apart
+            chars[index]["x0"], chars[index]["x1"] = chars[index]["x0"] + offset, chars[index]["x1"] + offset
+        chars[0]["size"] = 12.0
+
+        assert _fixed_pitches([chars]) == [(pytest.approx(5.42, abs=0.01), 12.0)]
+        assert _fixed_pitch_text(chars, [(5.42, 12.0)]) == "Account No Type" and _fixed_pitch_text(chars, [(5.42, 9.0)]) is None
+
+    @pytest.mark.parametrize(("text", "named"), [("ab cd ef gh i j", True), ("ab cd ef g h i j", False)],
+                             ids=["four-steps-of-one-cell", "three"])
+    def test_four_characters_in_neighbouring_cells_name_a_pitch(self, text, named):
+        from opendockit.extractors._pdf_chars import _fixed_pitches
+
+        assert bool(_fixed_pitches([self._chars(text, own_spaces=False)])) is named
 
     def test_digits_written_with_a_space_between_each_two_keep_their_spaces(self):
         """Digits of one width with a space character between stand on a grid too, of half their distance, a space in

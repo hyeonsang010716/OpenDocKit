@@ -7,6 +7,7 @@ import math
 from operator import itemgetter
 import re
 import statistics
+import unicodedata
 
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _is_mark, _logical, _visual_units
@@ -38,15 +39,17 @@ _SPACING_TOLERANCE = 0.3
 
 # Text set on a grid (`_fixed_pitches`): the middles of the characters of a line, its own space characters among them,
 # stand a whole number of one pitch apart, to within this share of the pitch; the pitch is between these shares of the
-# character size (a printer's ten or twelve to the inch is 0.6 of its size; wider apart than the size, letters are the cells
-# of a row); and a line shows it with this many letters, this many of its characters in neighbouring cells
+# character size (a printer's ten or twelve to the inch is 0.6 to 0.8 of the sizes it is printed in; from the size on,
+# letters are the cells of a row, and East Asian text set solid stands a size apart); and a line shows it with this many
+# letters, this many of its characters in neighbouring cells. A page names at most this many grids
 _PITCH_TOLERANCE = 0.1
 _PITCH_MIN_RATIO = 0.3
-_PITCH_MAX_RATIO = 1.0
+_PITCH_MAX_RATIO = 0.8
 _PITCH_LINE_CHARS = 8
 _PITCH_NEIGHBOURS = 4
-# A space character belongs to a line when its bottom is this near (pt) that of the line's letters: the characters of one
-# row of text stand on one baseline, and a row of blanks laid over the line stands on its own
+_PITCH_GRIDS = 8
+# A space character belongs to a line when it is written at the height of the line's letters, to within this (pt): the
+# characters of one row of text start from one baseline, and a row of blanks laid over the line starts from its own
 _SAME_ROW = 0.1
 
 
@@ -169,19 +172,37 @@ def _letter_spacings(lines: list[list[dict]]) -> list[float]:
 _X0 = itemgetter("x0")
 
 
+def _written_at(char: dict) -> float | None:
+    """The height a character is written at: where its text matrix puts the baseline. None when the character has none
+    (one put back by the reader). The bottom of its box will not do: it lies under the baseline by the descent of the font,
+    so the spaces of a line set in another font than its letters stood up to 0.7pt off them."""
+    matrix = char.get("matrix")
+    return matrix[5] if matrix is not None and len(matrix) >= 6 else None
+
+
+def _is_wide(text: str) -> bool:
+    """Whether the text holds a character East Asian text sets two cells wide (Hangul, Han, kana, full-width forms)."""
+    return any(unicodedata.east_asian_width(character) in "WF" for character in text)
+
+
 def _pitch_steps(chars: list[dict]) -> tuple[list[dict], list[float]]:
-    """The characters of a line from left to right - its letters, and the space characters that stand on their baseline
+    """The characters of a line from left to right - its letters, and the space characters written at their height
     (`_SAME_ROW`) - and the distance from the middle of each to the middle of the next. A space character of another row,
-    laid over the line, is none of the line's."""
-    bottoms = [char["bottom"] for char in chars]
-    if bottoms and bottoms.count(bottoms[0]) == len(bottoms):
-        ordered = sorted(chars, key=_X0)  # one baseline: the usual line
+    laid over the line, is none of the line's. Nothing for a line with a character two cells wide: on the grid of an East
+    Asian report a syllable takes two cells, and the middles of two syllables side by side are two cells apart with no
+    cell empty between them."""
+    heights = [_written_at(char) for char in chars]
+    if heights and heights.count(heights[0]) == len(heights):
+        ordered = sorted(chars, key=_X0)  # one height, or none known: the usual line
     else:
-        letters = [char["bottom"] for char in chars if char["text"].strip()]
+        letters = [height for char, height in zip(chars, heights, strict=True) if char["text"].strip() and height is not None]
         if not letters:
             return [], []
-        bottom = statistics.median(letters)
-        ordered = sorted((char for char in chars if char["text"].strip() or abs(char["bottom"] - bottom) <= _SAME_ROW), key=_X0)
+        height = statistics.median(letters)
+        ordered = sorted((char for char, at in zip(chars, heights, strict=True)
+                          if char["text"].strip() or at is None or abs(at - height) <= _SAME_ROW), key=_X0)
+    if any(_is_wide(char["text"]) for char in ordered):
+        return [], []
     middles = [(char["x0"] + char["x1"]) / 2 for char in ordered]
     return ordered, [right - left for left, right in zip(middles, middles[1:], strict=False)]
 
@@ -195,11 +216,11 @@ def _cells_apart(step: float, pitch: float) -> int:
 
 
 def _fixed_pitches(lines: list[list[dict]]) -> list[tuple[float, float]]:
-    """The (pitch, character size) of the lines of the page that are set on a grid: `_PITCH_LINE_CHARS` letters or more, the
-    middle of each character a whole number of pitches from the one before, the pitch (the median of the distances near the
-    smallest, `_PITCH_NEIGHBOURS` of them or more) between `_PITCH_MIN_RATIO` and `_PITCH_MAX_RATIO` of the character size,
-    and two letters in neighbouring cells so far apart somewhere that a space would be read between them. A short piece on
-    such a page ('20', an amount) is judged with these."""
+    """The (pitch, character size) of the lines of the page that are set on a grid, `_PITCH_GRIDS` at most:
+    `_PITCH_LINE_CHARS` letters or more, the middle of each character a whole number of pitches from the one before, the
+    pitch (the median of the distances near the smallest, `_PITCH_NEIGHBOURS` of them or more) between `_PITCH_MIN_RATIO`
+    and `_PITCH_MAX_RATIO` of the character size, and two letters in neighbouring cells so far apart somewhere that a
+    space would be read between them. A short piece on such a page ('20', an amount) is judged with these."""
     found: list[tuple[float, float]] = []
     for chars in lines:
         if len(chars) < _PITCH_LINE_CHARS:
@@ -224,6 +245,8 @@ def _fixed_pitches(lines: list[list[dict]]) -> list[tuple[float, float]]:
                               and right["x0"] - left["x1"] > _LAPARAMS["word_margin"] * max(right["width"], right["height"])
                               for cells, left, right in zip(apart, ordered, ordered[1:], strict=False)):
             found.append((pitch, size))
+            if len(found) == _PITCH_GRIDS:
+                break
     return found
 
 
@@ -234,12 +257,16 @@ def _fixed_pitch_text(chars: list[dict], pitches: list[tuple[float, float]]) -> 
     Deliberate: a report made for a printer of fixed pitch and drawn in a proportional font puts the middle of every
     character, the spaces of the line among them, on a grid of 0.6 of the character size. The letters are narrower than
     their cells, so the gap between two of them passes the criterion for a word gap, and the statement of a bank lays a row
-    of space characters over each line, on a baseline and a grid of its own, whose spaces fall between the letters: a space
-    was read after every letter - 'A c c o u n t No', '8 , 9 2 3 . 0 7'. The line writes its spaces itself, each in a
-    cell; a gap inside a cell is none. Digits written with a space between each two ('1 2 3 4 5 6 7 8') stand on a grid
-    as well, of half the distance, with a space character in every other cell: they keep their spaces, and no two of them
-    are neighbours, so such a line names no grid. Text of a fixed-pitch font fills its cells and is not changed, and text
-    with widened character spacing keeps the widths of its font and stands on no grid (`_letter_spaced_text`)
+    of space characters over each line, written 0.6pt higher and on a grid of its own, whose spaces fall between the
+    letters: a space was read after every letter - 'A c c o u n t No', '8 , 9 2 3 . 0 7'. The line writes its spaces
+    itself, each in a cell; a gap inside a cell is none. Digits written with a space between each two ('1 2 3 4 5 6 7 8')
+    stand on a grid as well, of half the distance, with a space character in every other cell: they keep their spaces,
+    and no two of them are neighbours, so such a line names no grid. Text of a fixed-pitch font fills its cells and reads
+    as before.
+    Known accepted gap: a line with a character East Asian text sets two cells wide is not asked (`_pitch_steps`), so a
+    report of that kind in Korean reads as before; nor is text a character size apart or more - East Asian text set
+    solid, where the quarter of a size a word processor leaves beside a digit puts a single digit on the grid by chance
+    and no number of two digits; a row of letters that are the cells of a table
     (Pinned by: test_pdf_character_spacing.py::TestTextSetOnAGrid, ::TestGridOfALine)."""
     if not pitches:
         return None
