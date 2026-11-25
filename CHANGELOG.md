@@ -99,6 +99,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
 - **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
   `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
+- **PDF: a table with shaded cells and an open side keeps its last column.** A table whose right border is drawn on
+  the header row alone, with shaded label cells, came out with its last column and its merged cells empty and their
+  text as paragraphs under it.
 - **PDF: a sheet with two pages side by side is read page by page.** A document printed two pages to a sheet was
   read as columns, or left in the order of its text boxes: a heading of the right page came out inside a sentence
   of the left one. The left page is now read to its end, then the right one.

@@ -4,7 +4,7 @@ table grown from shaded bands where no rule is drawn.
 
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Container
-from itertools import pairwise
+from itertools import accumulate, pairwise
 import math
 import statistics
 
@@ -168,6 +168,7 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
     sides_of = _PerTable(_cell_sides)
     # The tables of the result, with what growing a table looks up among them kept up to date (`_Fragments`)
     result = _Fragments(tables, box_of, edges_of, sides_of)
+    regrown: list[object] = []  # the tables found again that are in the result
 
     for table in sorted(tables, key=lambda table: table.bbox[1]):
         if table not in result:
@@ -178,9 +179,23 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         grown = _grown_shaded_table(page, table, result, rules, box_of, edges_of, sides_of)
         new, replaced = grown if grown is not None else (table, [table])
         position = result.remove(replaced)
+        if grown is not None:
+            # One table found twice, with and without its open sides (the ends of its rules a point apart), grows into the
+            # same box twice: kept twice, each is a box around the other and both are dropped (`_real_tables`). The one
+            # with more cells stays - the other is the one that lost its ends (Pinned by: test_pdf_shaded_tables.py::
+            # TestShadedTableOpenAtASide::test_table_found_with_and_without_its_open_side_is_kept_once)
+            same = next((kept for kept in regrown if kept in result
+                         and all(abs(a - b) <= 2 for a, b in zip(box_of(new), box_of(kept), strict=True))), None)
+            if same is not None:
+                if _cell_count(new) <= _cell_count(same):
+                    continue
+                position = result.remove([same])
+                regrown.remove(same)
         if (not _leaves_aligned_rows(page, new, result, shaded, box_of) and not _holds_columns(page, new)
                 or _has_drawn_columns(page, new)):
             result.add(new, position)
+            if grown is not None:
+                regrown.append(new)
     return _with_merged_column_fragments(page, result.ordered(), shades, shaded, box_of, edges_of)
 
 
@@ -1013,11 +1028,64 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
     box = _region_on_page(page, left, top, right, bottom)
     if box is None:
         return None
-    found = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals,
-                                        "explicit_horizontal_lines": horizontals})
+    region = _cropped(page, box)
+    found = region.find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals, "explicit_horizontal_lines": horizontals})
     if len(found) != 1 or len(_column_edges(found[0])) != len(edges):
         return None
+    ends = _end_cells(chain, left, right)
+    if not _holds_the_ends(found[0], ends):
+        # Cells at an end of the table are gone: their sides were no rules of the page (`_open_sided_tables`). Searched once
+        # more with those sides drawn, the table is taken only when it has them all again
+        sides = [_rule_line(x, cell_top, x, cell_bottom) for x, cell_top, cell_bottom in ends]
+        again = region.find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": verticals + sides,
+                                    "explicit_horizontal_lines": horizontals})
+        if len(again) == 1 and len(_column_edges(again[0])) == len(edges) and _holds_the_ends(again[0], ends):
+            found = again
     return found[0], chain
+
+
+def _cell_count(table: object) -> int:
+    return sum(cell is not None for cell in table.cells)
+
+
+def _end_cells(fragments: list[object], left: float, right: float) -> list[tuple[float, float, float]]:
+    """(end, top, bottom) of every cell of `fragments` that stands at their left or right end: the sides a table found
+    again has to have a cell at.
+
+    A table without a border at one side is found with its ends given as borders (`_open_sided_tables`); those are no rules
+    of the page. `_grown_shaded_table` searches the region again from the page's rules, with lines drawn only in the bands
+    it adds, and a table open at the right lost the cells of its last column and every cell that spans to it in all the
+    other rows: their text came out as paragraphs after a table of empty cells (Pinned by: test_pdf_shaded_tables.py::
+    TestShadedTableOpenAtASide)."""
+    return [(x, cell[1], cell[3]) for fragment in fragments for cell in fragment.cells if cell is not None
+            for x, edge in ((left, cell[0]), (right, cell[2])) if abs(edge - x) <= 1]
+
+
+def _holds_the_ends(table: object, ends: list[tuple[float, float, float]]) -> bool:
+    """Whether `table` has, for each of `ends` (`_end_cells`), a cell with a side at that end over the middle of its height:
+    the cell is still there, whole or split into the cells of new rows. The sides of the cells are sorted once for each
+    place, so a table of many rows is not gone through for every end."""
+    spans: dict[int, list[tuple[float, float]]] = {}
+    for cell in table.cells:
+        if cell is not None and all(map(math.isfinite, cell)):
+            for x in (cell[0], cell[2]):
+                spans.setdefault(round(x), []).append((cell[1], cell[3]))
+    reach: dict[int, tuple[list[float], list[float]]] = {}  # place -> the tops of its sides, and the lowest bottom so far
+    for place, sides in spans.items():
+        sides.sort()
+        reach[place] = ([top for top, _ in sides], list(accumulate((bottom for _, bottom in sides), max)))
+    for x, top, bottom in ends:
+        middle = (top + bottom) / 2
+        if not (math.isfinite(x) and math.isfinite(middle)):
+            return False
+        for place in (round(x) - 1, round(x), round(x) + 1):
+            tops, bottoms = reach.get(place, ((), ()))
+            index = bisect_right(tops, middle)
+            if index and bottoms[index - 1] >= middle:
+                break
+        else:
+            return False
+    return True
 
 
 def _nearest_beyond(fragments: _ColumnGroup, spanning: list[float], edge: float, direction: int, reach: float,
