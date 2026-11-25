@@ -1,0 +1,12 @@
+# Line ends (docs/decisions/core.md). Every text file is stored with LF; Git for Windows checks it out with CR LF
+# (core.autocrlf=true is its default), and that is left to each checkout except for the files below.
+* text=auto
+
+# Documents the readers are run on: checked out with the line ends they are stored with, on every system. A document Git
+# takes for binary is never converted; one it takes for text is stored with LF, as it always was.
+examples/samples/** text=auto eol=lf
+benchmarks/cases/** text=auto eol=lf
+
+# Read by a POSIX shell or by Docker, from a Windows checkout too (a container the checkout is mounted into, WSL).
+*.sh text eol=lf
+benchmarks/Dockerfile text eol=lf
