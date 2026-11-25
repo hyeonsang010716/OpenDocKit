@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-11-25
+
+Most of this release comes from real documents rather than the ones the tests build: files attached to the issues of
+other readers, public Hangul samples, and a new report (`evals/changes.py`) that lists what a change does to the text
+of any folder of documents. What they showed is fixed here. In PDF: fonts read by the wrong table (1,261 of the
+glyphs of Arial, the accented letters of a French statement), text set on a grid, two pages on one sheet, a table
+with an open side. In Hangul documents: a table written before the line that introduces it, a caption on the wrong
+side, tracked deletions that stayed, titles hidden by one outline heading. In Word, PowerPoint and Hangul documents:
+a typed `#` read as a heading. Text without a stated charset was read in the wrong Latin code page. Files made to
+take gigabytes of memory or a minute of time are bounded.
+New: LightRAG reads documents with OpenDocKit, and `opendockit FILE -o OUT` writes the same bytes in any shell. The
+benchmark was run again on six tools, kordoc among them, and the READMEs show where OpenDocKit is behind as well.
+One sample output changed: `table.hwp` writes its caption under the table, where the document sets it.
+
 ### Added
 
 - **LightRAG reads documents with OpenDocKit** (`pip install "opendockit[lightrag]"`). LightRAG finds the engine
@@ -1255,7 +1269,8 @@ First public release.
 - `examples/`: sample documents for every format with their converted output.
 - Optional `heic` extra for HEIC/HEIF images (kept out of the default install because its wheels bundle GPL/LGPL codecs).
 
-[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.15...HEAD
+[Unreleased]: https://github.com/hyeonsang010716/OpenDocKit/compare/v0.3.16...HEAD
+[0.3.16]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.16
 [0.3.15]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.15
 [0.3.14]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.14
 [0.3.13]: https://github.com/hyeonsang010716/OpenDocKit/releases/tag/v0.3.13

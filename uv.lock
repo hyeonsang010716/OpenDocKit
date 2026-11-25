@@ -2000,7 +2000,7 @@ wheels = [
 
 [[package]]
 name = "opendockit"
-version = "0.3.15"
+version = "0.3.16"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -2254,16 +2254,16 @@ wheels = [
 
 [[package]]
 name = "pdfplumber"
-version = "0.11.10"
+version = "0.11.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pdfminer-six" },
     { name = "pillow" },
     { name = "pypdfium2" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/56/6f450312ba05a27d7713b73857c1a25100dbda04fbc1331b13fb227a607d/pdfplumber-0.11.10.tar.gz", hash = "sha256:b95b2d28c66efb0a794a83b88c6c6aea5987532a445d20a1cbcfa657022e6e57", size = 102892, upload-time = "2026-06-15T03:31:31.035Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/22/6673c563900b0c69d48d4e7f57db296900375b3c2de776e7527a8fae3735/pdfplumber-0.11.11.tar.gz", hash = "sha256:e38eb7d3a4c822f93067cf6694dcec655f032619f4bd41ebd34f882fc22fbb87", size = 104005, upload-time = "2026-11-21T02:22:00.645Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/9a/07d658e1e7fad860f1c541ab941348125dbdab773be3a0afaf32361866c7/pdfplumber-0.11.10-py3-none-any.whl", hash = "sha256:7741ea81bf165b474b153e6789d10d18e06b6ddcf3ec84289c3ef2fed6802580", size = 60047, upload-time = "2026-06-15T03:31:29.702Z" },
+    { url = "https://files.pythonhosted.org/packages/25/27/0b40cb094fe566445fef76ff5c458b63031baf17c246b40b116d472ce2ac/pdfplumber-0.11.11-py3-none-any.whl", hash = "sha256:81fd7c493ac69a0645a68da49320e4e2cace05d99824439accc7b5b3d955f3bc", size = 60456, upload-time = "2026-11-21T02:21:59.498Z" },
 ]
 
 [[package]]
