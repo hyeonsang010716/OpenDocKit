@@ -349,8 +349,9 @@ class TestGridOfALine:
 
     @pytest.mark.parametrize("text", ["\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467", "\u03b1\u03b2\u03b3\u03b4\u03b5\u03b6\u03b7\u03b8",
                                       "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", "\u0410\u0411\u0412\u0413\u0414\u0415\u0416\u0417",
-                                      "\u203b\u203b \u2460\u2461"],
-                             ids=["circled-numbers", "greek", "pieces-of-a-ruled-line", "cyrillic", "reference-marks"])
+                                      "\u203b\u203b \u2460\u2461", "\u00d7\u00d7\u00d7\u00a7\u00a7\u00b1\u00b1\u00b0\u00b0\u00b7\u00b7"],
+                             ids=["circled-numbers", "greek", "pieces-of-a-ruled-line", "cyrillic", "reference-marks",
+                                  "signs-of-latin-1"])
     def test_characters_a_korean_font_draws_two_cells_wide_are_not_set_apart(self, text):
         """What the standard calls the width of these does not say that a Korean font draws them as wide as a syllable. On
         a page with a grid of half a cell, a line of circled numbers read with a space between each two. Only a line of
@@ -361,6 +362,27 @@ class TestGridOfALine:
 
         assert _fixed_pitch_text(chars, [(5.42, 9.0)]) is None and _fixed_pitches([chars]) == []
         assert _fixed_pitch_text(self._chars("\u00c9t\u00e9 d\u00e9j\u00e0 \u017e\u00e1k"), [(5.42, 9.0)]) == "\u00c9t\u00e9 d\u00e9j\u00e0 \u017e\u00e1k"
+
+    def test_text_turned_upside_down_is_not_read_backwards(self):
+        """Turned by half a circle, the places of the characters run against their reading: read by place, a line came
+        out 'ecnalaB tnerruC'. Its text matrix says it, and the line is not asked."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
+
+        chars = self._chars("Current Balance  8,923.07")[::-1]
+        for index, char in enumerate(chars):  # the first character of the reading stands furthest right
+            char["x0"], char["x1"] = 600.0 - char["x1"], 600.0 - char["x0"]
+            char["matrix"] = (-9.0, 0.0, 0.0, -9.0, char["x1"], 470.0)
+
+        assert _fixed_pitches([chars]) == [] and _fixed_pitch_text(chars, [(5.42, 9.0)]) is None
+
+    def test_glyph_without_a_character_is_none_of_one_cell(self):
+        """The reader writes a glyph its font gives no character for as '(cid:21)': not a character of a cell."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text
+
+        chars = self._chars("Account No  Type")
+        chars[2]["text"] = "(cid:21)"
+
+        assert _fixed_pitch_text(chars, [(5.42, 9.0)]) is None
 
     def test_line_that_is_turned_or_slanted_is_not_asked(self):
         """The text layer over a scan stands a degree or two off, and the height of its text matrix rises from one
@@ -376,7 +398,8 @@ class TestGridOfALine:
 
         assert _fixed_pitch_text(typed, [(7.5, 9.0)]) is None and _fixed_pitch_text(typed, [(3.75, 9.0)]) is None
         assert _fixed_pitch_text(grid, [(5.42, 9.0)]) is None and _fixed_pitches([grid]) == []
-        for matrix in ((9.0, 0.0, 0.2, 9.0), (9.0, 0.2, 0.0, 9.0)):  # one letter in a slanted face; one letter turned
+        # one letter in a slanted face; one turned; one upside down; one mirrored
+        for matrix in ((9.0, 0.0, 0.2, 9.0), (9.0, 0.2, 0.0, 9.0), (-9.0, 0.0, 0.0, 9.0), (9.0, 0.0, 0.0, -9.0)):
             line = self._chars("Account No  Type of Account")
             assert _fixed_pitch_text(line, [(5.42, 9.0)]) == "Account No Type of Account"
             line[3]["matrix"] = (*matrix, line[3]["x0"], 470.0)

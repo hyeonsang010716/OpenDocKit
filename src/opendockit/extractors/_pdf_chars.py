@@ -7,6 +7,7 @@ import math
 from operator import itemgetter
 import re
 import statistics
+import unicodedata
 
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _is_mark, _logical, _visual_units
@@ -179,23 +180,26 @@ def _written_at(char: dict) -> float | None:
     return matrix[5] if matrix is not None and len(matrix) >= 6 else None
 
 
-# The characters a line set on a grid may hold: Basic Latin, Latin-1 and Latin Extended-A and -B
+# The characters a line set on a grid may hold beside those of ASCII: the letters of Latin-1 and of Latin Extended-A and -B
 _ONE_CELL_END = "\u0250"
 
 
 def _is_of_one_cell(text: str) -> bool:
-    """Whether every character of the text is one a report of fixed pitch sets in one cell: a Latin letter, a digit, a mark
-    of punctuation. An East Asian font draws a syllable, a circled number, a Greek or Cyrillic letter, a piece of a ruled
-    line two cells wide, and what the standard calls their width does not say so for all of them."""
-    return max(text, default="") < _ONE_CELL_END
+    """Whether the text is one character a report of fixed pitch sets in one cell: a character of ASCII, or a Latin letter
+    below U+0250. An East Asian font draws a syllable, a circled number, a Greek or Cyrillic letter, a piece of a ruled
+    line two cells wide, and the signs of Latin-1 too (the multiplication sign, the section sign, plus-minus, the degree
+    sign, the middle dot); what the standard calls their width does not say so for all of them. A glyph without a
+    character is written as several ('(cid:21)') and is none."""
+    return len(text) == 1 and (text < "\x80" or text < _ONE_CELL_END and unicodedata.category(text)[0] == "L")
 
 
 def _is_upright(char: dict) -> bool:
-    """Whether the character is written straight, neither turned nor slanted: only then is the height of its text matrix
-    the height of its row. A text layer written over a scan stands a degree or two off, and from one character to the
-    next its height differs by more than rows laid over each other do."""
+    """Whether the character is written straight - not turned, not slanted, not upside down: only then is the height of
+    its text matrix the height of its row, and the order of the places the order of reading. A text layer written over a
+    scan stands a degree or two off, and from one character to the next its height differs by more than rows laid over
+    each other do; text turned by half a circle reads from right to left."""
     matrix = char.get("matrix")
-    return matrix is None or len(matrix) < 6 or (matrix[1] == 0 and matrix[2] == 0)
+    return matrix is None or len(matrix) < 6 or (matrix[1] == 0 and matrix[2] == 0 and matrix[0] > 0 and matrix[3] > 0)
 
 
 def _pitch_steps(chars: list[dict]) -> tuple[list[dict], list[float]]:
