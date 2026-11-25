@@ -996,7 +996,11 @@ class TestRealLibreOffice:
     def test_linked_picture_is_not_fetched_from_the_network(self):
         """A .doc whose picture is a link to a URL. With LibreOffice's default settings, converting it sends requests to that
         address — an address the uploader chose, reached from inside the server's network. The private profile blocks it: no
-        request of any kind arrives, and the document is still converted."""
+        request of any kind arrives, and the document is still converted.
+
+        The requests of the default settings are counted on the conversion `convert` runs (the .doc read, DOCX written), with
+        a bare profile. They were counted while the .doc was made from a DOCX, until LibreOffice 26.2.7 stopped fetching the
+        linked picture of a DOCX: nothing arrived there, while reading the .doc still sent OPTIONS and HEAD."""
         requests: list[str] = []
 
         class Handler(BaseHTTPRequestHandler):
@@ -1020,15 +1024,18 @@ class TestRealLibreOffice:
         thread.start()
         try:
             url = f"http://127.0.0.1:{server.server_address[1]}/linked.png"
-            # Making the .doc is done with a bare profile (the picture is fetched here, which also proves the server answers).
             bare = '<?xml version="1.0" encoding="UTF-8"?>\n<oor:items xmlns:oor="http://openoffice.org/2001/registry"/>\n'
             hardened, legacy._PROFILE_SETTINGS = legacy._PROFILE_SETTINGS, bare
             try:
                 doc = _to_legacy(_docx_with_linked_picture(url), "docx", "doc", "MS Word 97")
+                assert url.encode() in doc or url.encode("utf-16-le") in doc, "the link did not survive into the .doc"
+                requests.clear()  # whether making the .doc asks for the picture depends on the version: not what is measured
+                # The conversion of `extract_doc`, with a bare profile: this is what the private profile has to stop
+                assert legacy._run_soffice(_SOFFICE, doc, "doc", "docx", "MS Word 2007 XML", _NO_LIMIT)
             finally:
                 legacy._PROFILE_SETTINGS = hardened
-            assert url.encode() in doc or url.encode("utf-16-le") in doc, "the link did not survive into the .doc"
-            assert requests, "the test server was never reached while building the input"
+            assert requests, ("LibreOffice with default settings sent no request for the linked picture of the .doc: the private "
+                              "profile is not shown to be what stops it")
             requests.clear()
 
             result = convert(doc, "a.doc")
