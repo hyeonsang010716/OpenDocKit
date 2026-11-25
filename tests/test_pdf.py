@@ -242,15 +242,21 @@ def test_concurrent_pdf_conversion_in_threads_does_not_crash():
 
 
 @pytest.mark.timing
-def test_page_of_thousands_of_scattered_text_pieces_is_read_without_box_grouping():
+def test_page_of_thousands_of_scattered_text_pieces_is_read_without_box_grouping(monkeypatch):
     """pdfminer's text-box grouping (boxes_flow) uses time and memory quadratic in the number of text boxes, so a single page of 4,700
     scattered characters used 54 s and 3.2 GB (scatter-plot labels, drawings). A page with very many text pieces is read without
-    grouping, with a warning."""
+    grouping, with a warning.
+
+    Measured against the same page read with no page grouped at all, on the same machine: about as long now, 45 times as long
+    with the bounds on grouping lifted. A bound of 5 seconds left too little room on a Windows runner."""
     from io import BytesIO
     import random
-    import time
 
     from reportlab.pdfgen import canvas
+
+    from opendockit.extractors import _pdf_pieces
+    from opendockit.extractors import pdf as pdf_module
+    from tests.timing import fastest
 
     rng = random.Random(1)
     buffer = BytesIO()
@@ -262,10 +268,15 @@ def test_page_of_thousands_of_scattered_text_pieces_is_read_without_box_grouping
     pdf.drawString(20, 20, "caption of the scatter plot")
     pdf.save()
 
-    started = time.perf_counter()
-    result = convert(buffer.getvalue(), "a.pdf")
+    data = buffer.getvalue()
+    seconds = fastest(lambda: convert(data, "a.pdf"), runs=2)
+    for module in (pdf_module, _pdf_pieces):
+        monkeypatch.setattr(module, "_MAX_GROUPED_TEXT_PIECES", 0)
+    ungrouped = fastest(lambda: convert(data, "a.pdf"), runs=2)
+    monkeypatch.undo()
+    result = convert(data, "a.pdf")
 
-    assert time.perf_counter() - started < 5, "before the fix this took 13 s and 1 GB"
+    assert seconds < 3 * ungrouped, "before the fix this took 13 s and 1 GB"
     assert "caption of the scatter plot" in result.text
     assert any("reading-order" in warning for warning in result.warnings)
 

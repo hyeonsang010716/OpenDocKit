@@ -510,25 +510,34 @@ class TestManyElementsThatLookUpwardsUnderDeepNesting:
 
 class TestMuchContentOutsideTheCellsOfATable:
     """Text and tables placed inside a table but outside its cells are moved out of it (as a browser does), and they were moved
-    one node at a time, each looking up its position among its siblings: 40,000 stray texts in one table (781KB) took 29 s."""
+    one node at a time, each looking up its position among its siblings: 40,000 stray texts in one table (781KB) took 29 s.
+
+    Each is measured against a page of the same size read on the same machine, with nothing to move: `allowed(8)` left too
+    little room on a Windows runner."""
 
     @pytest.mark.timing
     def test_many_stray_texts_take_linear_time(self):
-        html = "<table>" + "<tr><td>a</td></tr>x" * 40000 + "</table>"
+        """20,000 stray texts take 1.3 times as long as the same table without them, and 9 times as long before."""
+        def page(count: int, stray: str = "x") -> bytes:
+            return ("<table>" + f"<tr><td>a</td></tr>{stray}" * count + "</table>").encode()
 
-        seconds, text = _seconds(html.encode(), "a.html")
+        stray, none = page(20_000), page(20_000, "")
 
-        assert text == "x" * 40000 + "\n\n" + "\n\n".join(["a"] * 40000)
-        assert seconds < allowed(8)
+        assert fastest(lambda: convert(stray, "a.html")) < 4 * fastest(lambda: convert(none, "a.html"))
+        assert convert(page(300), "a.html").text == "x" * 300 + "\n\n" + "\n\n".join(["a"] * 300)
 
     @pytest.mark.timing
     def test_many_stray_tables_take_linear_time(self):
-        html = "<table><tr><td>a</td><td>b</td></tr>" + "<table><tr><td>c</td></tr></table>" * 40000 + "</table>"
+        """40,000 tables inside a table but outside its cells take as long as the same tables after it, which gives the same
+        text (8 times as long before)."""
+        def page(count: int, inside: bool = True) -> bytes:
+            tables = "<table><tr><td>c</td></tr></table>" * count
+            return ("<table><tr><td>a</td><td>b</td></tr>" + (tables + "</table>" if inside else "</table>" + tables)).encode()
 
-        seconds, text = _seconds(html.encode(), "a.html")
+        inside, after = page(40_000), page(40_000, inside=False)
 
-        assert text == "| a | b |\n| --- | --- |\n\n" + "\n\n".join(["c"] * 40000)
-        assert seconds < allowed(8)
+        assert fastest(lambda: convert(inside, "a.html"), runs=2) < 3 * fastest(lambda: convert(after, "a.html"), runs=2)
+        assert convert(page(300), "a.html").text == "| a | b |\n| --- | --- |\n\n" + "\n\n".join(["c"] * 300)
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<p>p</p><table>one<tr><td>a</td><td>b</td></tr>two <b>bold</b><tr><td>c</td><td>d</td></tr>three</table><p>q</p>",
@@ -602,10 +611,14 @@ class TestListItemWithManyUnpairedFenceLines:
     @pytest.mark.timing
     @pytest.mark.parametrize("line", ["```<br>x", "```<br>", "x<br>```", "```<br>x<br>"])
     def test_item_takes_linear_time(self, line):
-        seconds, text = _seconds(("<ul><li>" + line * 40000 + "</li></ul>").encode(), "a.html")
+        """20,000 lines in one item take under 0.7 times as long as 20,000 items of one line each; the first shape took 6
+        times as long before. Measured against those items on the same machine: `allowed(6)` left too little room on a
+        Windows runner."""
+        one_item = ("<ul><li>" + line * 20000 + "</li></ul>").encode()
+        one_each = ("<ul>" + f"<li>{line}</li>" * 20000 + "</ul>").encode()
 
-        assert text.startswith("-")
-        assert seconds < allowed(6)
+        assert fastest(lambda: convert(one_item, "a.html")) < 2 * fastest(lambda: convert(one_each, "a.html"))
+        assert convert(("<ul><li>" + line * 300 + "</li></ul>").encode(), "a.html").text.startswith("-")
 
     @pytest.mark.timing
     def test_many_code_blocks_take_linear_time(self):

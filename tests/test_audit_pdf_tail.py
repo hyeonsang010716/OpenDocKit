@@ -289,7 +289,7 @@ class TestManyPairsWithLongLabels:
 
     _VALUE = "a value that is quite long and goes on and on across the page width, on"
 
-    def _converted(self, rows: int):
+    def _page(self, rows: int) -> bytes:
         height = 200 + rows * 12
 
         def draw(canvas, page):
@@ -298,7 +298,10 @@ class TestManyPairsWithLongLabels:
                 canvas.drawString(50, height - 50 - index * 12, f"one two three four five{index % 10}")
                 canvas.drawString(220, height - 50 - index * 12, f"{self._VALUE} {index % 10}")
 
-        return convert(_pdf(draw, size=(600, height)), "a.pdf", ConvertOptions(page_markers=False))
+        return _pdf(draw, size=(600, height))
+
+    def _converted(self, rows: int):
+        return convert(self._page(rows), "a.pdf", ConvertOptions(page_markers=False))
 
     def test_group_is_not_gone_through_again_for_every_pair(self, monkeypatch):
         looked_at = [0]
@@ -319,6 +322,13 @@ class TestManyPairsWithLongLabels:
 
     @pytest.mark.timing
     def test_many_pairs_are_read_in_the_time_of_their_lines(self, monkeypatch):
+        """The label-value rows of 1,500 pairs take less time than the rest of reading the page (a third of it; 10 seconds
+        before, twice the rest with the question put back). Measured against that rest on the same machine: `allowed(5)`
+        left too little room on a Windows runner."""
+        import math
+
+        from tests.timing import Fastest
+
         spent = [0.0]
         label_value_rows = _pdf_label_values._label_value_rows
 
@@ -330,10 +340,16 @@ class TestManyPairsWithLongLabels:
                 spent[0] += time.perf_counter() - started
 
         replace_everywhere(monkeypatch, "_label_value_rows", timed)
+        data, pairs, rest, timer = self._page(1_500), math.inf, math.inf, Fastest(2)  # 4 seconds a conversion
+        for _ in timer:
+            spent[0] = 0.0
+            with timer:
+                started = time.perf_counter()
+                convert(data, "a.pdf", ConvertOptions(page_markers=False))
+                whole = time.perf_counter() - started
+            pairs, rest = min(pairs, spent[0]), min(rest, whole - spent[0])
 
-        self._converted(1_500)
-
-        assert spent[0] < allowed(5.0)  # 10 seconds before; 1 second now
+        assert 0 < pairs < rest
 
 
 class TestPageNumberShape:

@@ -2353,15 +2353,19 @@ class TestCsvLimitsAndHints:
 
     @pytest.mark.timing
     def test_quoted_very_wide_row_is_cut_quickly(self):
-        import time
+        """A row of 10 million cells whose first and last cells are quoted is cut at the column limit as the same row
+        without quotes is: in 1.8 times its time, 13 times before. Measured against that row on the same machine: a bound of
+        1 second left too little room on a macOS runner."""
+        def row(quote: str) -> bytes:
+            return (f"{quote}메모{quote}," + "1," * 10_000_000 + f"{quote}끝{quote}\n가,나\n").encode()
 
-        data = ('"메모",' + "1," * 10_000_000 + '"끝"\n가,나\n').encode()
+        quoted, plain = row('"'), row("")
 
-        started = time.perf_counter()
-        result = convert(data, "a.csv", ConvertOptions(max_chars=None))
+        def seconds(data: bytes) -> float:
+            return fastest(lambda: convert(data, "a.csv", ConvertOptions(max_chars=None)))
 
-        assert time.perf_counter() - started < 1
-        assert "| 가 | 나 |" in result.text
+        assert seconds(quoted) < 5 * seconds(plain)
+        assert "| 가 | 나 |" in convert(quoted, "a.csv", ConvertOptions(max_chars=None)).text
 
     def test_quoted_cells_within_the_limit_keep_their_delimiters_and_line_breaks(self):
         """Cutting counts only the delimiters outside quotes: a quoted cell spanning lines with commas inside stays whole, and a
