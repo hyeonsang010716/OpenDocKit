@@ -19,6 +19,7 @@ import olefile
 import xlrd
 
 from opendockit.exceptions import CorruptedDocumentError, EncryptedDocumentError
+from opendockit.extractors._codecs import lent_by_windows
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._notation import chars_left
 from opendockit.extractors._ole import OleFile, OleStreams
@@ -283,7 +284,15 @@ def _open_xls_book(stream: bytes) -> xlrd.book.Book:
     """
     options = {"formatting_info": True, "on_demand": True, "logfile": StringIO(), "ragged_rows": True}
     if any(record_id == _BIFF_CODEPAGE for _, record_id, _ in _biff_records(stream)):
-        return xlrd.open_workbook(file_contents=stream, **options)
+        book = xlrd.open_workbook(file_contents=stream, **options)
+        if lent_by_windows(book.encoding):
+            # xlrd names the codec of a code page it has no name for `cpNNN` and stops on the LookupError when Python has
+            # none. From Python 3.14 Windows lends one for any code page it converts, so a workbook with the code page 708 or
+            # 1047 was converted on Windows alone and a corrupted document everywhere else; it fails here as it does there
+            # (Pinned by: test_codecs.py::TestXls).
+            book.release_resources()
+            raise LookupError("The workbook's code page has a codec on Windows only.")
+        return book
     try:
         return xlrd.open_workbook(file_contents=stream, **{**options, "on_demand": False}, encoding_override="cp949")
     except UnicodeDecodeError:

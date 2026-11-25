@@ -25,6 +25,7 @@ import quopri
 import re
 
 from opendockit.exceptions import CorruptedDocumentError
+from opendockit.extractors._codecs import portable_codec
 from opendockit.extractors._encoding import _EVERYDAY_HANGUL, _KOREAN_LEGACY, _WESTERN, _declared_codec, _strict, decode_text
 from opendockit.models import name_in_warning
 
@@ -1322,10 +1323,12 @@ def _latin_labeled_text(chunk: bytes, charset: str | None) -> str:
 
 def _header_codec(charset: str | None) -> str | None:
     """charset of a header piece → the codec to decode with. The superset, as for a declared charset (`_declared_codec`); unknown
-    names and the UTF family as they are."""
+    names and the UTF family as they are. A name Python has no codec for, or only one Windows lends it (`portable_codec`), is
+    None: decoded as an unknown name is (`_header_chunk_text`), on Windows as on every other system — `=?cp20866?…?=` was
+    KOI8-R on Windows under Python 3.14 (Pinned by: test_codecs.py::TestMail)."""
     if charset in (None, "unknown-8bit"):
         return charset
-    return _declared_codec(charset) or charset
+    return _declared_codec(charset) or (charset if portable_codec(charset) else None)
 
 
 def _header_chunk_text(chunk: bytes | str, charset: str | None) -> str:
@@ -1462,6 +1465,10 @@ def _parameter_text(value: str | tuple[str | None, str | None, str]) -> str:
     charset, raw = value[0], bytes(value[2], "latin-1")
     if raw.isascii():
         return text
+    if portable_codec(charset or "us-ascii") is None:
+        # A codec only Windows has decoded the name on Windows alone; elsewhere it is an unknown charset, as here
+        # (Pinned by: test_codecs.py::TestMail::test_attachment_name)
+        return _header_chunk_text(raw, charset or None)
     try:
         raw.decode(charset or "us-ascii")
     except (LookupError, UnicodeError):

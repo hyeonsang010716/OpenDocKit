@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A document reads the same on Windows as elsewhere when it names a code page of Windows.** Windows lends Python
+  codecs that no other system has: the machine's own code pages (`mbcs`, also named `ansi` and `dbcs`, and `oem`),
+  and from Python 3.14 every code page Windows converts, by number. HTML, mail or text declaring `ansi`, an RTF with
+  `\ansicpg51949` or `\ansicpg1`, a mail with `=?cp20866?…?=` were read in them on Windows only — and with `ansi`
+  or `\ansicpg1` in whatever code page that machine had. An XLS with the code page 708 or 1047, and an XLSX whose
+  sheet declares `encoding="cp20866"`, were converted on Windows under Python 3.14 and refused as corrupted
+  everywhere else. Such a name is now one Python does not know, as it always was on Linux and macOS, where nothing
+  changes.
+
 ## [0.3.16] - 2026-11-25
 
 Most of this release comes from real documents rather than the ones the tests build: files attached to the issues of

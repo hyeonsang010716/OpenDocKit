@@ -14,6 +14,7 @@ from functools import lru_cache
 import re
 
 from opendockit.exceptions import CorruptedDocumentError
+from opendockit.extractors._codecs import portable_codec
 from opendockit.extractors._inline import (
     BOLD_OFF,
     BOLD_ON,
@@ -169,13 +170,17 @@ def _page_codec(page: int) -> str | None:
     A code page that does not read letters, digits, backslash and braces as ASCII (EBCDIC: 500, 875, 1026, …) is none: RTF
     is ASCII text, and once a run held one 8-bit byte the whole run, letters included, was decoded as EBCDIC — 'hello'
     became 'ΪΧ%%?'. Only those characters are compared: CP864 draws '%' as '٪' and is still a code page RTF can be in
-    (Pinned by: test_rtf.py::TestCharacters::test_code_page_that_is_not_ascii_compatible_is_ignored)."""
+    (Pinned by: test_rtf.py::TestCharacters::test_code_page_that_is_not_ascii_compatible_is_ignored).
+
+    So is a code page only Windows has a codec for (`portable_codec`): from Python 3.14 Windows converts any code page by its
+    number, so `\\ansicpg20866` was KOI8-R there and `\\ansicpg1` the OEM code page of the machine, and the document's or
+    CP1252 on every other system (Pinned by: test_codecs.py::TestRtf)."""
     if not 0 < page < 100_000:
         return None
+    name = portable_codec(_PAGE_CODECS.get(page) or f"cp{page}")
     try:
-        name = codecs.lookup(_PAGE_CODECS.get(page) or f"cp{page}").name
-        return name if _RTF_ASCII.decode(name) == _RTF_ASCII.decode("ascii") else None
-    except (LookupError, UnicodeDecodeError):
+        return name if name is not None and _RTF_ASCII.decode(name) == _RTF_ASCII.decode("ascii") else None
+    except UnicodeDecodeError:
         return None
 
 

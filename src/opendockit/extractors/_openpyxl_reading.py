@@ -33,6 +33,7 @@ from openpyxl.worksheet.merge import MergeCell, MergeCells
 from openpyxl.xml.constants import SHEET_MAIN_NS
 from openpyxl.xml.functions import iterparse as _openpyxl_iterparse
 
+from opendockit.extractors._codecs import lent_by_windows
 from opendockit.extractors._package import _xml_parser, decimal_int, named_part
 from opendockit.extractors._sheet_format import _format_within_length, _is_date_number_format, _is_elapsed_format
 
@@ -283,6 +284,7 @@ def _tolerant_string_table(original: Callable[..., list], rich: bool) -> Callabl
         if _READING.get() is None:
             return original(source)
 
+        _refuse_a_codec_only_windows_has(source)
         strings: list = []
         table = None  # the root `<sst>`: strings already read are removed from it, so the parsed tree does not grow with the table
         for event, node in _openpyxl_iterparse(source, events=("start", "end")):
@@ -628,6 +630,7 @@ def _native_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, l
 
 def _openpyxl_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, list]]:
     """The rows of the sheet as openpyxl's parser reads them, through the replacements of this module."""
+    _refuse_a_codec_only_windows_has(parser.source)
     data = None  # `<sheetData>`: rows already read are removed from it, so the parsed tree does not grow with the sheet
     merges = None  # `<mergeCells>` of a streamed sheet: emptied the same way, as its merges are not used
     for event, element in _openpyxl_sheet_reader.iterparse(parser.source, events=("start", "end")):
@@ -708,6 +711,27 @@ def _plain_prolog(source: object) -> bool:
         return True
     declared = {name.decode(): value.decode("ascii", "replace") for name, value in _DECLARED.findall(declaration.group())}
     return declared.get("version", "1.0") == "1.0" and declared.get("encoding", "utf-8").lower() in ("utf-8", "utf8")
+
+
+def _refuse_a_codec_only_windows_has(source: object) -> None:
+    """Raise the `LookupError` expat raises on Linux and macOS when the XML declaration of the part names an encoding whose
+    codec only Windows lends Python (`lent_by_windows`).
+
+    openpyxl's parser is expat, which reads an encoding it does not know itself through Python's codecs. A sheet or a string
+    table declaring `encoding="cp20866"` was read as KOI8-R on Windows under Python 3.14 and was a corrupted document on every
+    other system, and one declaring `encoding="ansi"` was read in the machine's own code page on Windows
+    (Pinned by: test_codecs.py::TestSpreadsheetParts). The source is left at its start; one that cannot be rewound is not
+    looked at, as `_plain_prolog` does not look at it."""
+    if not getattr(source, "seekable", lambda: False)():
+        return
+    head = source.read(_PROLOG_PEEK)
+    source.seek(0)
+    declaration = _XML_DECLARATION.match(head.removeprefix(b"\xef\xbb\xbf"))
+    if declaration is None:
+        return
+    encoding = dict(_DECLARED.findall(declaration.group())).get(b"encoding")
+    if encoding is not None and lent_by_windows(encoding.decode("ascii", "replace")):
+        raise LookupError("The part declares an encoding that Python has on Windows only.")
 
 
 def _quick_rows(parser: object, reading: _CellReading) -> Iterator[tuple[int, list]]:

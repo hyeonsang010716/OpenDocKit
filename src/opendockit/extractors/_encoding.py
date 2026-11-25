@@ -10,6 +10,8 @@ import unicodedata
 
 from charset_normalizer import CharsetMatch, CharsetMatches, from_bytes
 
+from opendockit.extractors._codecs import portable_codec
+
 
 _BOMS = (
     (codecs.BOM_UTF8, "utf-8-sig"),
@@ -117,7 +119,8 @@ _DECLARED_CODECS = {"euc_kr": _KOREAN_LEGACY, "windows-949": _KOREAN_LEGACY, "x-
                     "iso8859-1": _WESTERN, "ascii": _WESTERN, "shift_jis": "cp932", "x-sjis": "cp932", "windows-31j": "cp932",
                     "gb2312": "gbk"}
 # Codec names that are not character encodings (escape, idna) or that depend on the runtime environment (mbcs, oem). Not used
-# even when declared.
+# even when declared. The codecs only Windows has are also refused by what a name leads to (`_codecs.portable_codec`): `ansi`
+# and `dbcs` are `mbcs`, and from Python 3.14 `cp20866` and `cp0` are code pages Windows converts.
 _NOT_A_CHARSET = re.compile(r"escape|idna|punycode|undefined|mbcs|oem")
 # Codecs that carry other characters in 7-bit text through escape sequences (ESC, SO, SI; `+…-` for UTF-7). The bytes are pure
 # ASCII, so strict UTF-8 decoding always takes them first — used ahead of UTF-8 only when declared (`decode_text`).
@@ -492,13 +495,17 @@ def _strict(data: bytes, encoding: str) -> str | None:
 
 def _declared_codec(name: str | None) -> str | None:
     """charset name declared by the document → Python codec name. None for unknown names and for the UTF family (already decided
-    by BOM, strict decoding and NUL byte positions)."""
+    by BOM, strict decoding and NUL byte positions), and for a codec only Windows has, which is an unknown name everywhere
+    (`portable_codec`: `<meta charset="ansi">` was read in the machine's ANSI code page on Windows and `charset=cp20866` as
+    KOI8-R on Windows under Python 3.14, and as a charset Python does not know elsewhere — Pinned by:
+    test_codecs.py::TestDeclaredCharset)."""
     label = (name or "").strip().lower()
     if not label or _NOT_A_CHARSET.search(label):
         return None
-    try:
-        codec = _DECLARED_CODECS.get(label) or codecs.lookup(label).name
-    except (LookupError, ValueError):  # a name with a NUL byte in it (`utf-8\x00`) is a ValueError — the whole mail was rejected
+    # A name with a NUL byte in it (`utf-8\x00`) is a ValueError of the lookup — the whole mail was rejected; `portable_codec`
+    # takes it for an unknown name
+    codec = _DECLARED_CODECS.get(label) or portable_codec(label)
+    if codec is None:
         return None
     codec = _DECLARED_CODECS.get(codec, codec)
     return None if codec.startswith("utf") else codec
