@@ -46,6 +46,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   stays an exponent.
 - **HWP, HWPX: a caption is written where the document sets it**, under a table or above it, and the caption of a
   picture as a block of its own; the two readers now agree. A table's caption was always written above it.
+- **HWP, HWPX: a table drawn under the line that introduces it is written after that line.** Hangul keeps the
+  control of a table that is not treated as a character at the start of its paragraph and draws the table by an
+  offset. The table came first and its label after it, at the end of the document for a table of two pages. The
+  offset and the stored lines of the paragraph now say where the table stands.
 - **HWP, HWPX: a table that only frames text is read as that text.** The box around a summary is drawn as a table of
   three rows and columns with the label across its top line; it came out as an HTML table with empty cells.
 - **HWPX converts faster**: the name of an element is remembered by its tag instead of being split each time.

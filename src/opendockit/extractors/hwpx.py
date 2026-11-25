@@ -25,6 +25,7 @@ from opendockit.extractors._hangul import (
     CommentRanges,
     ParagraphPieces,
     SizeHeadings,
+    bottom_of_the_lines,
     click_here_guide,
     command_link,
     decorated_text,
@@ -136,6 +137,34 @@ def _local(element: etree._Element) -> str:
         return name
 
 
+def _offset_under_the_paragraph(table: etree._Element) -> int | None:
+    """How far under the top of its paragraph a table starts, when it is placed from there and takes the whole width (text
+    stands above and below it, not beside it); None for any other table, the usual one that is treated as a character first."""
+    if table.get("textWrap") != "TOP_AND_BOTTOM":
+        return None
+    position = _child(table, "pos")
+    if (position is None or position.get("treatAsChar") != "0" or position.get("vertRelTo") != "PARA"
+            or position.get("vertAlign") != "TOP"):
+        return None
+    try:
+        offset = int(position.get("vertOffset", ""))
+    except ValueError:
+        return None
+    return offset - (1 << 32) if offset >= 1 << 31 else offset  # written unsigned: 4294967234 is 62 above the top
+
+
+def _bottom_of_the_lines(paragraph: etree._Element) -> int | None:
+    """`_hangul.bottom_of_the_lines` of the line segments Hangul stored with a paragraph; None without them."""
+    segments = _child(paragraph, "linesegarray")
+    if segments is None:
+        return None
+    try:
+        return bottom_of_the_lines([(int(segment.get("vertpos", "")), int(segment.get("vertsize", "")))
+                                    for segment in _children(segments, "lineseg")])
+    except ValueError:
+        return None
+
+
 def _children(element: etree._Element, name: str) -> Iterator[etree._Element]:
     return (child for child in element if _local(child) == name)
 
@@ -227,6 +256,9 @@ class HwpxRenderer:
         self._open_clicks: dict[str, tuple[list[str], int, str | None, int]] = {}
         self._clicks_opened = 0
         self.omitted_rows = 0  # rows dropped by the table grid cell limit (`TableGrid.omitted_rows`). Reported as a warning
+        # Paragraph being read that holds a table placed from its top → (how far down its lines end, its tables drawn under
+        # them, which are written after its text). Empty for nearly every paragraph (`_is_set_under_its_paragraph`)
+        self._under: dict[etree._Element, tuple[int | None, list[etree._Element]]] = {}
 
     def render_paragraphs(self, container: etree._Element) -> list[str]:
         """An inner paragraph list (hp:subList etc.). The top-level body calls `render_paragraph` per paragraph."""
@@ -256,7 +288,31 @@ class HwpxRenderer:
                 # Reading inner paragraphs (table, text box) changes these by the time it returns, so set them again per node
                 self._script, self._struck, self._size, self._bold_italic = script, struck, size, bold_italic
                 self._render_object(node, buffer, blocks, flush)
+        if self._under:
+            # The tables drawn under the lines of this paragraph, after its text (`_is_set_under_its_paragraph`)
+            for table in self._under.pop(paragraph, (None, ()))[1]:
+                flush()
+                blocks.append(self._render_table(table))
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
+
+    def _is_set_under_its_paragraph(self, table: etree._Element) -> bool:
+        """Is this table, a child of a run of the paragraph being read, drawn under every line of that paragraph
+        (`_hangul.bottom_of_the_lines`)? It is then kept for the end of the paragraph. The lines are read once for a paragraph."""
+        offset = _offset_under_the_paragraph(table)
+        if offset is None:
+            return False
+        run = table.getparent()
+        paragraph = run.getparent() if run is not None else None
+        if paragraph is None or _local(run) != "run" or _local(paragraph) != "p":
+            return False  # inside an hp:switch or a group: read where it stands
+        kept = self._under.get(paragraph)
+        if kept is None:
+            kept = self._under[paragraph] = (_bottom_of_the_lines(paragraph), [])
+        bottom, tables = kept
+        if bottom is None or offset < bottom:
+            return False
+        tables.append(table)
+        return True
 
     def _render_object(self, node: etree._Element, buffer: list[str], blocks: list[str],
                        flush: Callable[[], None]) -> None:
@@ -272,6 +328,8 @@ class HwpxRenderer:
             # (Pinned by: test_hwp.py::TestStrikethrough).
             buffer.extend(emphasis_pieces(mark_strike(text) if self._struck else text, *self._bold_italic))
         elif name == "tbl":
+            if self._is_set_under_its_paragraph(node):
+                return  # written once the text of the paragraph is (`render_paragraph`)
             flush()
             blocks.append(self._render_table(node))
         elif name in _TEXT_MARKS:

@@ -30,6 +30,7 @@ from opendockit.extractors._hangul import (
     CommentRanges,
     ParagraphPieces,
     SizeHeadings,
+    bottom_of_the_lines,
     click_here_guide,
     command_link,
     decorated_text,
@@ -92,6 +93,7 @@ _CHAR_SHAPE_SUPERSCRIPT, _CHAR_SHAPE_SUBSCRIPT = 1 << 15, 1 << 16
 _CHAR_SHAPE_STRIKEOUT_SHIFT, _CHAR_SHAPE_STRIKEOUT_MASK = 18, 0x7
 _CHAR_SHAPE_STRIKEOUT_SHAPE_SHIFT, _CHAR_SHAPE_STRIKEOUT_SHAPE_MASK = 26, 0xF
 _STRIKEOUT_LINE_SHAPES = range(11)
+TAG_PARA_LINE_SEG = _HWPTAG_BEGIN + 53
 TAG_CTRL_HEADER = _HWPTAG_BEGIN + 55
 TAG_LIST_HEADER = _HWPTAG_BEGIN + 56
 TAG_TABLE = _HWPTAG_BEGIN + 61
@@ -499,6 +501,10 @@ class HwpRenderer:
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
         if not self._memo_depth:
             self._memo_ranges.add(" ")  # between paragraphs of a comment range that spans several paragraphs
+        # Tables drawn under the lines of the paragraph, written after its text (`_hangul.bottom_of_the_lines`), and how far
+        # down those lines end (False: not read yet)
+        under: list[Record] | None = None
+        bottom: int | None | bool = False
 
         for part in parts:
             if isinstance(part, str):
@@ -523,6 +529,15 @@ class HwpRenderer:
             if kind == "secd" and len(control.payload) >= 20:
                 (self._outline_numbering,) = struct.unpack_from("<H", control.payload, 18)
             elif kind == "tbl ":
+                offset = _offset_under_the_paragraph(control)
+                if offset is not None:
+                    if bottom is False:
+                        bottom = _bottom_of_the_lines(paragraph)
+                    if bottom is not None and offset >= bottom:
+                        if under is None:
+                            under = []
+                        under.append(control)
+                        continue
                 flush()
                 blocks.append(self._render_table(control))
             elif kind in ("fn  ", "en  "):
@@ -566,6 +581,10 @@ class HwpRenderer:
                 buffer.append(f" {value} " if value else "")
             elif kind.startswith("%"):
                 self._start_field(kind, control, buffer)
+        if under is not None:
+            for control in under:
+                flush()
+                blocks.append(self._render_table(control))
         self._read_memos(paragraph)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
@@ -1088,6 +1107,38 @@ def _smallest_text_size(payload: bytes, pairs: list[tuple[int, int]], sizes: lis
 _CELL_BORDER_FILL_OFFSET = 32
 # The units of a paragraph text that are no content: the paragraph end, a line break, the blanks
 _BLANK_UNITS = "\r\n \u3000\u00a0\x1e\x1f"
+
+
+# The common attributes of an object, the UINT32 behind the control ID ([HWP 5.0] table 70; the same bits as the attributes
+# of hp:pos and textWrap in the HWPX twins of the samples): treated as a character, what the vertical offset is measured
+# from (2: the paragraph), from which side of it (0: the top), and how text passes (1: above and below only)
+_AS_CHARACTER = 0x1
+_VERTICAL_FROM = (3, 0x3, 2)
+_VERTICAL_SIDE = (5, 0x7, 0)
+_TEXT_WRAP = (21, 0x7, 1)
+_LINE_SEGMENT_BYTES = 36
+
+
+def _offset_under_the_paragraph(table: Record) -> int | None:
+    """How far under the top of its paragraph a table starts, when it is placed from there and takes the whole width (text
+    stands above and below it, not beside it); None for any other table, the usual one that is treated as a character first."""
+    if len(table.payload) < 12:
+        return None
+    attributes, offset = struct.unpack_from("<Ii", table.payload, 4)
+    if attributes & _AS_CHARACTER or any(attributes >> shift & mask != value for shift, mask, value in
+                                         (_VERTICAL_FROM, _VERTICAL_SIDE, _TEXT_WRAP)):
+        return None
+    return offset
+
+
+def _bottom_of_the_lines(paragraph: Record) -> int | None:
+    """`_hangul.bottom_of_the_lines` of the line segments Hangul stored with a paragraph (PARA_LINE_SEG: 36 bytes a line, the
+    vertical position at byte 4 and the height at byte 8); None without them."""
+    segments = next((child for child in paragraph.children if child.tag == TAG_PARA_LINE_SEG), None)
+    if segments is None:
+        return None
+    return bottom_of_the_lines(struct.unpack_from("<ii", segments.payload, start + 4)
+                               for start in range(0, len(segments.payload) - _LINE_SEGMENT_BYTES + 1, _LINE_SEGMENT_BYTES))
 
 
 def _holds_content(paragraphs: list[Record]) -> bool:
