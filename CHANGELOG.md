@@ -52,6 +52,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **PDF: a stream behind an ASCII85 filter no longer takes forty times its size to decode.** A 10 MB file took
+  405 MB and takes 134 MB; the bytes decoded are the same. A stream of white space behind the filter no longer takes
+  time that grows with the square of its length (80,000 spaces: 12 s, now 2 ms).
 - **PDF: one string of a million glyphs no longer takes gigabytes.** A string is one token however long, so a
   1.5 KB file whose one string held a million glyphs took 20 s and 2.5 GB, and thirty million more than 3 GB. What
   pdfminer reads of a page is bounded where it reads it — the length of a string, the glyphs drawn and kept, the
@@ -120,6 +123,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
   note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
   list item is outlined lost their headline. Titles by size and outline headings are both headings now.
+- **A typed `#` or `>` behind something invisible is text too** (PDF, HWP, HWPX, PPTX, DOCX). The mark was escaped
+  only where it stood first in the line as read. Behind what cleaning takes away — the spaces a line of code is
+  indented with after a line break, a zero-width space, a private-use character — and after a line separator
+  (U+2028) it was first in the line of the output all the same, and a heading or a quote: `    # comment` in a
+  listing, and a comment line of a real Word document typed behind a private-use character.
 - **DOCX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`). The comment of a command
   (`# Point to your OLS config`) came out as a heading and `> 21 days` as a quote. ODT, RTF, HTML and EPUB write the
   two marks as typed, on purpose: half of the ODT and RTF files found with such a line were typed as Markdown.

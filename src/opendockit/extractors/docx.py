@@ -591,7 +591,7 @@ class _DocxRenderer:
         # and a slide (`markdown.escape_block_marks`): the comment of a command (`# Point to your OLS config`) came out as a
         # heading and `> 21 days` as a quote. Of 300 real documents, 5 hold such a line. Not in a cell: a row of a table is
         # one line that starts with `|`, or HTML, where a backslash is a backslash (Pinned by: test_docx_typed_marks.py).
-        if not self._grids and (text[:1] in "#>" or "\n" in text):
+        if not self._grids and ("#" in text or ">" in text):
             text = escape_block_marks(text)
 
         def written(block: str) -> str:

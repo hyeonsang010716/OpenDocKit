@@ -729,7 +729,7 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     # of a table is one line that starts with `|`, or HTML, where a backslash is a backslash. Known accepted gap: a cell
     # written as paragraphs (a layout box, a frame) and the text after a table inside its paragraph are as they were
     # (Pinned by: test_hwp_typed_marks.py).
-    written = text if in_cell or (text[:1] not in "#>" and "\n" not in text) else escape_block_marks(text)
+    written = text if in_cell or ("#" not in text and ">" not in text) else escape_block_marks(text)
     if size and size_headings is not None and (not in_cell or boxed) and mark != "-" and _size_heading_text(plain, boxed=boxed):
         heading_head = paragraph_head(mark, level, in_cell=False, heading=True) + check
         return size_headings.candidate(head + written, heading_head + (text if heading_text is None else heading_text()), size)
