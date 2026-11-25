@@ -697,20 +697,33 @@ def _cell_lines(value: str) -> list[str]:
     return [line for line in lines if line]
 
 
-# A line start Markdown reads as the mark of a block: `#` … `######` and a space (a heading) or `>` (a quote)
-_BLOCK_MARK_START = re.compile(r"^(?:#{1,6}(?=\s|$)|>)", re.MULTILINE)
-_BLOCK_MARKS = ("#", ">")
+# A line start Markdown reads as the mark of a block: `#` … `######` and a space (a heading) or `>` (a quote). The line is
+# the line of the cleaned text: it starts after a line break or a character cleaning makes one (`_LINE_BREAK_CONTROLS`), and
+# what stands between that start and the mark may be gone once cleaned. Only a character that is no letter, digit, mark or
+# break can be (`clean_characters` removes no letter and no digit); whether it is gone is asked of the cleaning itself.
+_LINE_BREAKS = "\n\r\x0b\x0c\x85\u2028\u2029"
+_BLOCK_MARK_START = re.compile(rf"(?<![^{_LINE_BREAKS}])([^\w#>{_LINE_BREAKS}]*)(#{{1,6}}(?=\s|$)|>)")
+
+
+def _escaped_block_mark(match: re.Match[str]) -> str:
+    before = match.group(1)
+    if before and clean_characters(before).strip():
+        return match.group(0)  # something stays in front of the mark: it does not start the line
+    return f"{before}\\{match.group(2)}"
 
 
 def escape_block_marks(text: str) -> str:
     """Text a document holds, whose lines start with a heading or quote mark, with those marks escaped (`\\#`, `\\>`). The
     text of a document is text, never structure: the row of a form in a PDF, '# DNA replications' (a count column), became a
     heading (Pinned by: test_pdf_headings.py::TestBodyTextMarks), and each line of a manual that shows what is typed at a
-    prompt, `# arch -k`, 273 headings (Pinned by: test_hwp_typed_marks.py). A text that starts with neither mark and is one
-    line is given back as it is, without a search."""
-    if not text.startswith(_BLOCK_MARKS) and "\n" not in text:
+    prompt, `# arch -k`, 273 headings (Pinned by: test_hwp_typed_marks.py). A mark starts its line also behind what cleaning
+    takes away, and was a heading there all the same: the spaces a line of code is indented with after a line break
+    (`    # comment`), a private-use character no glyph is known for, a zero-width space
+    (Pinned by: test_typed_marks_behind_cleaning.py). A text that holds neither mark is given back as it is, without a
+    search."""
+    if "#" not in text and ">" not in text:
         return text
-    return _BLOCK_MARK_START.sub(lambda match: "\\" + match.group(0), text)
+    return _BLOCK_MARK_START.sub(_escaped_block_mark, text)
 
 
 def _clean_cell(value: str) -> str:

@@ -48,7 +48,7 @@ class TestEscapeBlockMarks:
         assert escape_block_marks(text) == expected
 
     @pytest.mark.parametrize("text", [
-        "", "plain", "#hashtag", "####### seven", "a # b", "a > b", " # indented", "1 > 0\nx #1", "<tag>", "- item", "1. item", "$x$",
+        "", "plain", "#hashtag", "####### seven", "a # b", "a > b", "1 > 0\nx #1", "<tag>", "- item", "1. item", "$x$",
     ])
     def test_everything_else_is_as_it_was(self, text):
         assert escape_block_marks(text) == text
