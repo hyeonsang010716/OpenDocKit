@@ -51,6 +51,10 @@ _ALTERNATING_WORK = 1_000_000
 _CENTRED_TOLERANCE_RATIO = 0.03
 # Rows with lines side by side inside one column that make it hold a table (`_has_lines_side_by_side`)
 _SIDE_BY_SIDE_ROWS_MIN = 2
+# Two pages printed side by side on one sheet (`_two_pages_on_a_sheet`): the empty band at the middle is at least this share of
+# the two outer margins together - the inner margins of the two pages - and each half holds at least this many lines
+_SHEET_GAP_RATIO = 0.75
+_SHEET_HALF_LINES_MIN = 3
 
 
 def _read_columns_in_turn(page: _Page) -> None:
@@ -75,6 +79,10 @@ def _read_columns_in_turn(page: _Page) -> None:
     """
     if page.simple:
         return
+    middle = _two_pages_on_a_sheet(page)
+    if middle is not None:
+        page.lines = [*(line for line in page.lines if line.x1 <= middle), *(line for line in page.lines if line.x0 >= middle)]
+        return
     wide = page.width * _TABLE_CELL_MAX_RATIO
     mixed = [sorted(pair, key=lambda line: line.x0) for pair in zip(page.lines, page.lines[1:], strict=False)
              if _is_beside(*pair) and min(line.x1 - line.x0 for line in pair) >= wide]
@@ -97,6 +105,43 @@ def _read_columns_in_turn(page: _Page) -> None:
             ordered += [*left, *right, line]
             left, right = [], []
     page.lines = [*ordered, *left, *right, *(line for line in page.lines if line.top >= below_top)]
+
+
+def _two_pages_on_a_sheet(page: _Page) -> float | None:
+    """The middle of a sheet that holds two pages side by side, None for any other page.
+
+    A document printed two pages to a sheet (a press release of Hangul, A4 turned on its side with two A5 pages) is two
+    pages, not two columns: the left one is read to its end, then the right one. The rules for columns look for text
+    below both columns and for headings over them, and where they did not apply the order was the layout analysis's own,
+    which pairs the boxes nearest to each other across the gap: a heading of the right page came out in the middle of a
+    sentence of the left one (Pinned by: test_pdf_reading_order.py::TestTwoPagesOnASheet).
+    Kept narrow (Deliberate): the visible area is wider than it is high; every line, table, picture, rule and filled band
+    stands wholly left or wholly right of its middle; each half holds `_SHEET_HALF_LINES_MIN` lines or more; and the band
+    left empty at the middle is centred on it and at least `_SHEET_GAP_RATIO` of the two outer margins together - each
+    half has its own margins on both sides, where two columns of one page share the page's margins and stand close. Of
+    1,646 PDFs, 116 pages wider than high have words on both sides of the middle; nothing crosses it on 17, and 16 of
+    those, all of six Korean releases, have such a band (79pt for outer margins of 40 and 38)."""
+    x0, top, x1, bottom = page.view
+    if not x1 - x0 > bottom - top:
+        return None
+    middle = (x0 + x1) / 2
+    lines = [(line.x0, line.x1) for line in page.lines]
+    others = [*((table.x0, table.x1) for table in page.tables), *((figure[0], figure[2]) for figure in page.figures),
+              *((left, right) for _, left, right in page.rules), *((left, right) for _, _, left, right in page.bands)]
+    lefts = [span for span in lines if span[1] <= middle]
+    rights = [span for span in lines if span[0] >= middle]
+    if len(lefts) + len(rights) != len(lines) or min(len(lefts), len(rights)) < _SHEET_HALF_LINES_MIN:
+        return None
+    if any(not (right <= middle or left >= middle) for left, right in others):
+        return None
+    lefts += [span for span in others if span[1] <= middle]
+    rights += [span for span in others if span[0] >= middle]
+    left_end, right_start = max(right for _, right in lefts), min(left for left, _ in rights)
+    outer = min(left for left, _ in lefts) - x0 + x1 - max(right for _, right in rights)
+    if not (outer > 0 and right_start - left_end >= outer * _SHEET_GAP_RATIO
+            and abs((left_end + right_start) / 2 - middle) <= (x1 - x0) * _CENTRED_TOLERANCE_RATIO):
+        return None
+    return middle
 
 
 def _below_columns_read_line_by_line(page: _Page, left_end: float, right_start: float) -> float:

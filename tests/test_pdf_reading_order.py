@@ -1156,3 +1156,177 @@ class TestRightColumnReadFirst:
         marks = ["왼쪽 단 1번 문단 1번째", "왼쪽 단 3번 문단 5번째", "오른쪽 단 1번 문단 1번째", "오른쪽 단 3번 문단 5번째"]
         order = [text.index(mark) for mark in marks]
         assert order == sorted(order)
+
+
+class TestTwoPagesOnASheet:
+    """A press release printed two pages to a sheet: A4 on its side, each half a page with its own margins (40pt outside,
+    a band of 79pt at the middle). The layout analysis pairs the boxes nearest to each other across the band, and where
+    three such pairs stood side by side the column rules took the sheet for a list read row by row and left it: a heading
+    of the right page came out in the middle of a sentence of the left one. Two pages are read one after the other."""
+
+    @staticmethod
+    def _line(side: str, row: int, *, x0: float | None = None, x1: float | None = None):
+        from opendockit.extractors._pdf_model import _Line
+
+        left, right = (40.0, 382.0) if side == "L" else (461.0, 803.0)
+        top = 60.0 + row * 22
+        return _Line(top=top, bottom=top + 11, x0=left if x0 is None else x0, x1=right if x1 is None else x1, text=f"{side}{row}",
+                     size=11)
+
+    @classmethod
+    def _page(cls, lines=None, *, size=(841.0, 595.0), view=None, **fields):
+        from opendockit.extractors._pdf_model import _Page
+
+        if lines is None:
+            # The order the layout analysis gave the second sheet: runs of each page, and between them a line of the left
+            # page paired with the short heading at its height on the right one. Three such pairs made it a list of rows
+            order = [("L", 0), ("R", 0), *(("L", row) for row in range(1, 9)), *(("R", row) for row in range(1, 9)), ("L", 9),
+                     ("R", 9), *(("L", row) for row in range(10, 15)), *(("R", row) for row in range(10, 13)), ("L", 15), ("R", 13)]
+            lines = [cls._line(side, row, x1=620.0 if (side, row) in (("R", 0), ("R", 9), ("R", 13)) else None) for side, row in order]
+        return _Page(number=1, width=size[0], height=size[1], lines=list(lines), tables=[], has_images=False,
+                     view=view or (0.0, 0.0, size[0], size[1]), **fields)
+
+    @staticmethod
+    def _read(page) -> str:
+        from opendockit.extractors._pdf_reading_order import _read_columns_in_turn
+
+        _read_columns_in_turn(page)
+        return " ".join(line.text for line in page.lines)
+
+    _IN_TURN = " ".join([*(f"L{row}" for row in range(16)), *(f"R{row}" for row in range(14))])
+
+    def test_left_page_is_read_to_its_end_before_the_right_one(self):
+        page = self._page()
+        mixed = " ".join(line.text for line in page.lines)
+
+        assert mixed.startswith("L0 R0 L1") and self._read(page) == self._IN_TURN
+
+    def test_order_inside_each_page_stays_as_it_was_read(self):
+        """The lines of a page are not sorted by height: the layout analysis knows their order."""
+        lines = [self._line("L", 2), self._line("R", 1), self._line("L", 0), self._line("R", 0), self._line("L", 1), self._line("R", 2)]
+
+        assert self._read(self._page(lines)) == "L2 L0 L1 R1 R0 R2"
+
+    def test_sheet_placed_away_from_the_origin_is_measured_in_its_visible_area(self):
+        lines = [self._line(side, row, x0=x0 + 300, x1=x1 + 300)
+                 for side, x0, x1 in (("L", 40.0, 382.0), ("R", 461.0, 803.0)) for row in range(4)]
+        lines = [lines[index] for index in (0, 4, 1, 5, 2, 6, 3, 7)]
+
+        assert self._read(self._page(lines, size=(1141.0, 595.0), view=(300.0, 0.0, 1141.0, 595.0))) == "L0 L1 L2 L3 R0 R1 R2 R3"
+
+    def _is_a_sheet(self, page) -> bool:
+        from opendockit.extractors._pdf_reading_order import _two_pages_on_a_sheet
+
+        return _two_pages_on_a_sheet(page) is not None
+
+    def _halves(self, rows: int = 4, **right) -> list:
+        return [*(self._line("L", row) for row in range(rows)), *(self._line("R", row, **right) for row in range(rows))]
+
+    def test_page_higher_than_wide_is_no_sheet(self):
+        assert self._is_a_sheet(self._page(self._halves()))
+        assert not self._is_a_sheet(self._page(self._halves(), size=(841.0, 842.0)))
+        assert not self._is_a_sheet(self._page(self._halves(), size=(841.0, 841.0)))
+
+    def test_visible_area_higher_than_wide_is_no_sheet(self):
+        assert not self._is_a_sheet(self._page(self._halves(), view=(0.0, 0.0, 841.0, 900.0)))
+
+    @pytest.mark.parametrize("crossing", ["line", "line-touching", "table", "figure", "rule", "band"])
+    def test_anything_across_the_middle_makes_one_page_of_it(self, crossing):
+        from opendockit.extractors._pdf_model import _Table
+
+        lines = self._halves()
+        fields = {}
+        if crossing == "line":
+            lines.append(self._line("L", 6, x0=300.0, x1=560.0))
+        elif crossing == "line-touching":
+            lines.append(self._line("L", 6, x0=300.0, x1=421.0))
+        elif crossing == "figure":
+            fields["figures"] = [(300.0, 400.0, 560.0, 500.0, 1.0)]
+        elif crossing == "rule":
+            fields["rules"] = [(300.0, 40.0, 803.0)]
+        elif crossing == "band":
+            fields["bands"] = [(300.0, 320.0, 300.0, 560.0)]
+        page = self._page(lines, **fields)
+        if crossing == "table":
+            page.tables.append(_Table(top=400.0, text="| a | b |", bottom=500.0, x0=300.0, x1=560.0))
+
+        assert not self._is_a_sheet(page)
+
+    def test_table_picture_rule_and_band_inside_a_half_leave_it_a_sheet(self):
+        from opendockit.extractors._pdf_model import _Table
+
+        page = self._page(self._halves(), figures=[(60.0, 400.0, 300.0, 500.0, 1.0)], rules=[(300.0, 461.0, 803.0)],
+                          bands=[(300.0, 320.0, 40.0, 382.0)])
+        page.tables.append(_Table(top=400.0, text="| a | b |", bottom=500.0, x0=470.0, x1=800.0))
+
+        assert self._is_a_sheet(page)
+
+    @pytest.mark.parametrize(("left_rows", "right_rows", "sheet"), [(3, 3, True), (2, 5, False), (5, 2, False), (0, 5, False)])
+    def test_each_half_holds_three_lines_or_more(self, left_rows, right_rows, sheet):
+        lines = [*(self._line("L", row) for row in range(left_rows)), *(self._line("R", row) for row in range(right_rows))]
+
+        assert self._is_a_sheet(self._page(lines)) is sheet
+
+    @pytest.mark.parametrize(("left_end", "right_start", "sheet"), [
+        (382.0, 461.0, True), (391.5, 450.0, True), (392.0, 450.0, False), (410.0, 431.0, False), (300.0, 461.0, False),
+        (382.0, 541.0, False),
+    ], ids=["as-printed", "three-quarters-of-the-outer-margins", "a-little-less", "columns-of-one-page", "band-left-of-the-middle",
+            "band-right-of-the-middle"])
+    def test_band_at_the_middle_is_as_wide_as_the_margins_of_two_pages_and_centred(self, left_end, right_start, sheet):
+        """Outer margins of 40 and 38: two pages leave 58.5 or more between them; two columns of one page stand 21 apart."""
+        lines = [*(self._line("L", row, x1=left_end) for row in range(4)), *(self._line("R", row, x0=right_start) for row in range(4))]
+
+        assert self._is_a_sheet(self._page(lines)) is sheet
+
+    def test_text_that_starts_at_the_edge_of_the_sheet_has_no_margins_to_compare(self):
+        lines = [*(self._line("L", row, x0=0.0) for row in range(4)), *(self._line("R", row, x1=841.0) for row in range(4))]
+
+        assert not self._is_a_sheet(self._page(lines))
+
+    def test_line_whose_place_is_no_number_makes_one_page_of_it(self):
+        lines = self._halves()
+        lines[2].x1 = float("nan")
+
+        assert not self._is_a_sheet(self._page(lines))
+
+    def test_columns_of_one_page_are_still_read_by_the_rules_for_columns(self):
+        """A page wider than high with two columns close together: the lines across the gutter that pair up are put in turn
+        by the rule for columns, as before."""
+        lines = [self._line(side, row, **({"x1": 410.0} if side == "L" else {"x0": 431.0})) for row in range(6) for side in "LR"]
+
+        assert not self._is_a_sheet(self._page(lines))
+        assert self._read(self._page(lines)) == " ".join([*(f"L{row}" for row in range(6)), *(f"R{row}" for row in range(6))])
+
+    def test_page_read_without_places_is_left_alone(self):
+        page = self._page(simple=True)
+        mixed = " ".join(line.text for line in page.lines)
+
+        assert self._read(page) == mixed
+
+    def test_sheet_built_as_a_document_is_read_page_by_page(self):
+        """The same through the whole reader: two frames with their own margins on a sheet of A4 on its side."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.pdfgen import canvas
+        from reportlab.platypus import Frame, Paragraph
+
+        pdfmetrics.registerFont(UnicodeCIDFont(_FONT))
+        body = ParagraphStyle("body", fontName=_FONT, fontSize=11, leading=17, wordWrap="CJK", spaceAfter=14)
+        head = ParagraphStyle("head", fontName=_FONT, fontSize=13, leading=19, spaceBefore=6, spaceAfter=10)
+        left = [("왼쪽 첫째 문단은 순경이 수색대대에서 작전을 경험하고 국민의 안전을 지키는 일의 무게와 책임을 배웠다고 말한 내용이다.", body),
+                ("왼쪽 소제목", head), ("왼쪽 둘째 문단은 여러 종목의 운동선수 출신 졸업생들이 경찰관으로 거듭났다는 내용이다.", body)]
+        right = [("오른쪽 소제목", head), ("오른쪽 첫째 문단은 가족의 뒤를 이어 경찰의 길을 선택한 졸업생들도 눈길을 끌었다는 내용이다.", body),
+                 ("오른쪽 둘째 문단은 신임 경찰관들이 전국 각지의 치안 최일선에 배치된다는 내용이다.", body)]
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(841.89, 595.28))
+        for x, story in ((40.0, left), (461.0, right)):
+            Frame(x, 40, 341.5, 515, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0).addFromList(
+                [Paragraph(text, style) for text, style in story], pdf)
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf").text
+
+        order = [text.index(part) for part in ("왼쪽 첫째", "왼쪽 소제목", "왼쪽 둘째", "오른쪽 소제목", "오른쪽 첫째", "오른쪽 둘째")]
+        assert order == sorted(order)

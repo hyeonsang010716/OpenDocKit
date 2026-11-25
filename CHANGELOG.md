@@ -99,6 +99,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
 - **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
   `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
+- **PDF: a sheet with two pages side by side is read page by page.** A document printed two pages to a sheet was
+  read as columns, or left in the order of its text boxes: a heading of the right page came out inside a sentence
+  of the left one. The left page is now read to its end, then the right one.
 - **PDF: accented letters of a Type 1 font that brings its own encoding.** A font embedded as CFF with no
   `/Encoding` was read with the standard one, not with the encoding of the font program: a French bank statement
   read `ProtØgØ` for `Protégé` and `ClientŁle` for `Clientèle`, 27 wrong letters a page.
