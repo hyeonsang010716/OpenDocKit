@@ -736,6 +736,28 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     return head + written
 
 
+def bottom_of_the_lines(lines: Iterable[tuple[int, int]]) -> int | None:
+    """How far under the top of its first line a paragraph's last line ends, from the (vertical position, height) of each line
+    as Hangul stored them; None without a line, or when a line stands higher than the one before it (the paragraph goes on in
+    another column or on another page, where the positions start again).
+
+    A table that takes the whole width (text above and below it only), is placed from the top of its paragraph and starts at
+    or under this bottom is drawn under the text of the paragraph, wherever its control stands among the characters. Hangul
+    puts the control of such a table at the start, so the table was written first and the line that introduces it after it -
+    at the far end of a table of two pages (Pinned by: test_hwp_floating_tables.py::TestTableSetUnderTheLinesOfItsParagraph).
+    Known accepted gap: a table that starts between two lines of its paragraph stays where its control is; no document seen
+    has one."""
+    top = previous = bottom = None
+    for position, height in lines:
+        if top is None:
+            top = previous = position
+        if position < previous or height < 0:
+            return None
+        bottom = position - top + height
+        previous = position
+    return bottom
+
+
 class ParagraphPieces:
     """The blocks of one paragraph: its text pieces, and the tables and text boxes that stand between them.
 
