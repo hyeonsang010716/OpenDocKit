@@ -59,9 +59,9 @@ def _hwp_table(level: int, offset: int, placed: tuple = _UNDER, texts: tuple[str
     return record(TAG_CTRL_HEADER, level, header) + record(TAG_TABLE, level + 1, struct.pack("<IHH", 0, 2, 2) + b"\x00" * 10) + cells
 
 
-def _hwp_lines(*lines: tuple[int, int]) -> bytes:
+def _hwp_lines(*lines: tuple[int, int], level: int = 1) -> bytes:
     """PARA_LINE_SEG: 36 bytes a line; the height of the line at byte 8 is not the height of its text at byte 12."""
-    return builder.hwp_record(_TAG_PARA_LINE_SEG, 1, b"".join(struct.pack("<iiiiiiiiI", 0, position, height, 99999, 0, 0, 0, 0, 0)
+    return builder.hwp_record(_TAG_PARA_LINE_SEG, level, b"".join(struct.pack("<iiiiiiiiI", 0, position, height, 99999, 0, 0, 0, 0, 0)
                                                                for position, height in lines))
 
 
@@ -201,6 +201,95 @@ class TestTableSetUnderTheLinesOfItsParagraph:
         assert text.index(_LABEL + "[^1]") < text.index("1년[^2]")
         assert text.index("[^1]: 글의 주") < text.index("[^2]: 표의 주")
 
+    def test_other_table_that_starts_higher_keeps_every_table_where_its_control_is(self, monkeypatch):
+        """A table at the top of the paragraph pushes the line under itself, and the stored position of that line is then not
+        the top the offsets are measured from: a second table 5,600 under the top stands above the line, not under it."""
+        other = ("항목", "값", "예산", "3억")
+        expected = f"{_OTHER}\n\n{_TABLE}\n\n{_LABEL}"
+
+        assert _hwpx(_hwpx_table(0, texts=other), _hwpx_table(5600), _text(_LABEL), lines=_hwpx_lines((9496, 1000))) == expected
+        assert _hwp(monkeypatch, (..., ..., _LABEL), _hwp_table(1, 0, texts=other), _hwp_table(1, 5600),
+                    lines=_hwp_lines((9496, 1000))) == expected
+
+    @pytest.mark.parametrize("wrap", ["TOP_AND_BOTTOM", "SQUARE", "IN_FRONT_OF_TEXT"])
+    def test_hwpx_picture_or_shape_placed_in_the_paragraph_keeps_the_table_where_its_control_is(self, wrap):
+        for name in ("pic", "rect", "container"):
+            other = (f'<hp:{name} textWrap="{wrap}"><hp:pos treatAsChar="0" vertRelTo="PARA" vertAlign="TOP" vertOffset="0"/>'
+                     f"</hp:{name}>")
+
+            text = _hwpx(other, _hwpx_table(5200), _text(_LABEL), lines=_hwpx_lines((9496, 1000)))
+
+            assert text.index("구분") < text.index(_LABEL), name
+
+    def test_hwpx_picture_treated_as_a_character_does_not_keep_the_table(self):
+        picture = '<hp:pic><hp:pos treatAsChar="1" vertRelTo="PARA" vertAlign="TOP" vertOffset="0"/></hp:pic>'
+
+        text = _hwpx(_hwpx_table(2548), picture, _text(_LABEL), lines=_hwpx_lines((3930, 1500)))
+
+        assert text.index(_LABEL) < text.index("구분")
+
+    def test_hwpx_switch_in_the_paragraph_keeps_the_table_where_its_control_is(self):
+        """What a switch holds is not looked at: it may be an object that pushes the line."""
+        switch = "<hp:switch><hp:case><hp:t>가</hp:t></hp:case></hp:switch>"
+
+        assert _hwpx(_hwpx_table(2548), switch, _text(_LABEL), lines=_hwpx_lines((3930, 1500))).startswith(_TABLE)
+
+    def test_hwp_drawing_object_placed_in_the_paragraph_keeps_the_table_where_its_control_is(self, monkeypatch):
+        floating = builder.hwp_record(TAG_CTRL_HEADER, 1, "gso "[::-1].encode("latin-1") + struct.pack("<Ii", 2 << 3 | 1 << 21, 0))
+        as_character = builder.hwp_record(TAG_CTRL_HEADER, 1, "gso "[::-1].encode("latin-1") + struct.pack("<Ii", 1, 0))
+        short = builder.hwp_record(TAG_CTRL_HEADER, 1, "gso "[::-1].encode("latin-1"))
+        text = ((11, "gso "), ..., _LABEL)
+
+        assert _hwp(monkeypatch, text, floating, _hwp_table(1, 2548), lines=_hwp_lines((3930, 1500))) == f"{_TABLE}\n\n{_LABEL}"
+        assert _hwp(monkeypatch, text, short, _hwp_table(1, 2548), lines=_hwp_lines((3930, 1500))) == f"{_TABLE}\n\n{_LABEL}"
+        assert _hwp(monkeypatch, text, as_character, _hwp_table(1, 2548), lines=_hwp_lines((3930, 1500))) == f"{_LABEL}\n\n{_TABLE}"
+
+    def test_hwpx_table_without_the_word_on_being_a_character_stays_first(self):
+        table = _hwpx_table(2548).replace('treatAsChar="0" ', "")
+
+        assert _hwpx(table, _text(_LABEL), lines=_hwpx_lines((3930, 1500))) == f"{_TABLE}\n\n{_LABEL}"
+
+    def test_hwp_control_of_just_the_attributes_and_the_offset_is_read(self, monkeypatch):
+        table = _hwp_table(1, 2548)
+        size = struct.unpack_from("<I", table)[0] >> 20
+        short = builder.hwp_record(TAG_CTRL_HEADER, 1, table[4:16]) + table[4 + size:]
+
+        assert _hwp(monkeypatch, (..., _LABEL), short, lines=_hwp_lines((3930, 1500))) == f"{_LABEL}\n\n{_TABLE}"
+
+    def test_lines_of_a_cell_are_not_the_lines_of_the_paragraph(self):
+        """The cells of a table carry line segments of their own: the paragraph's are the ones that are its own child."""
+        table = _hwpx_table(2548).replace("</hp:run></hp:p></hp:subList>", "</hp:run>" + _hwpx_lines((0, 100)) + "</hp:p></hp:subList>")
+
+        assert _hwpx(table, _text(_LABEL)) == f"{_TABLE}\n\n{_LABEL}"
+        assert _hwpx(table, _text(_LABEL), lines=_hwpx_lines((3930, 9000))) == f"{_TABLE}\n\n{_LABEL}"
+        assert _hwpx(table, _text(_LABEL), lines=_hwpx_lines((3930, 1500))) == f"{_LABEL}\n\n{_TABLE}"
+
+    def test_hwp_table_under_the_text_of_a_cell_is_written_after_it_there_too(self, monkeypatch):
+        """The request for proposals is an HWP file: the paragraph, its lines and its table are a level deeper."""
+        record = builder.hwp_record
+        cell = (record(TAG_LIST_HEADER, 2, builder.hwp_cell(1, 1)) + record(TAG_PARA_HEADER, 2, builder.hwp_para_header())
+                + record(TAG_PARA_TEXT, 3, builder.hwp_text((11, "tbl "), "ㅇ 기본 산출물 목록")) + _hwp_lines((7000, 1000), level=3)
+                + _hwp_table(3, 1465))
+        plain = b"".join(record(TAG_LIST_HEADER, 2, builder.hwp_cell(index // 2, index % 2))
+                         + record(TAG_PARA_HEADER, 2, builder.hwp_para_header()) + record(TAG_PARA_TEXT, 3, builder.hwp_text(text))
+                         for index, text in enumerate(("번호", "내용", "1")))
+        outer = (record(TAG_CTRL_HEADER, 1, builder.hwp_ctrl("tbl ")) + record(TAG_TABLE, 2, struct.pack("<IHH", 0, 2, 2) + b"\x00" * 10)
+                 + plain + cell)
+        section = (record(TAG_PARA_HEADER, 0, _para_header(0, 0)) + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl "))) + outer)
+
+        text = convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+
+        assert text.index("ㅇ 기본 산출물 목록") < text.index("구분") < text.index("1년")
+
+    def test_comment_on_the_text_no_longer_takes_in_the_table(self):
+        """The range of a comment is the text written between its two ends: the table is written after them now."""
+        memo = ('<hp:ctrl><hp:fieldBegin id="1" type="MEMO"><hp:subList><hp:p><hp:run><hp:t>확인</hp:t></hp:run></hp:p></hp:subList>'
+                '</hp:fieldBegin></hp:ctrl>{}<hp:ctrl><hp:fieldEnd beginIDRef="1"/></hp:ctrl>')
+
+        text = _hwpx(memo.format(_hwpx_table(2548) + _text(_LABEL)), lines=_hwpx_lines((3930, 1500)))
+
+        assert f'"{_LABEL}"' in text and "구분 내용" not in text.split(_TABLE)[1]
+
     def test_hwpx_table_inside_a_switch_is_read_where_it_stands(self):
         """Only a table that is a child of a run of the paragraph is kept for its end. One inside an hp:switch is read with
         its branch - also when the switch carries line segments of its own, which would have had it kept for a paragraph that
@@ -231,6 +320,10 @@ class TestBottomOfTheLines:
         assert _hangul.bottom_of_the_lines([]) is None
         assert _hangul.bottom_of_the_lines([(60000, 1500), (2000, 1500)]) is None
         assert _hangul.bottom_of_the_lines([(3930, -1)]) is None
+        assert _hangul.bottom_of_the_lines([(100, 10), (300, 10), (200, 10)]) is None   # lower than the one before, not than the first
+
+    def test_line_of_no_height_is_a_line(self):
+        assert _hangul.bottom_of_the_lines([(3930, 0)]) == 0
 
     def test_lines_are_read_once_for_all_the_tables_of_a_paragraph(self, monkeypatch):
         """Many tables in one paragraph of many lines: the lines are not read again for each table."""

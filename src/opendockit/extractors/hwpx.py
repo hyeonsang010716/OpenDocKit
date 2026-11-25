@@ -165,6 +165,31 @@ def _bottom_of_the_lines(paragraph: etree._Element) -> int | None:
         return None
 
 
+def _bottom_where_tables_stand_under(paragraph: etree._Element) -> int | None:
+    """The bottom of the lines of a paragraph, when a table that starts at or under it is drawn under its text; None when
+    that cannot be said. It cannot when the paragraph holds any other object that is not treated as a character - a picture,
+    a shape, a table that starts higher: such an object pushes the first line down, and the stored position of that line is
+    then not the top the offsets are measured from. Objects inside an hp:switch are not looked at, so one keeps the order
+    of the file too."""
+    bottom = _bottom_of_the_lines(paragraph)
+    if bottom is None:
+        return None
+    for run in _children(paragraph, "run"):
+        for node in run:
+            name = _local(node)
+            if name == "t":
+                continue
+            if name == "switch":
+                return None
+            position = _child(node, "pos")
+            if position is None or position.get("treatAsChar") == "1":
+                continue
+            offset = _offset_under_the_paragraph(node) if name == "tbl" else None
+            if offset is None or offset < bottom:
+                return None
+    return bottom
+
+
 def _children(element: etree._Element, name: str) -> Iterator[etree._Element]:
     return (child for child in element if _local(child) == name)
 
@@ -307,7 +332,7 @@ class HwpxRenderer:
             return False  # inside an hp:switch or a group: read where it stands
         kept = self._under.get(paragraph)
         if kept is None:
-            kept = self._under[paragraph] = (_bottom_of_the_lines(paragraph), [])
+            kept = self._under[paragraph] = (_bottom_where_tables_stand_under(paragraph), [])
         bottom, tables = kept
         if bottom is None or offset < bottom:
             return False

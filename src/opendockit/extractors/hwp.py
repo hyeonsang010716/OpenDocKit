@@ -532,7 +532,7 @@ class HwpRenderer:
                 offset = _offset_under_the_paragraph(control)
                 if offset is not None:
                     if bottom is False:
-                        bottom = _bottom_of_the_lines(paragraph)
+                        bottom = _bottom_where_tables_stand_under(paragraph)
                     if bottom is not None and offset >= bottom:
                         if under is None:
                             under = []
@@ -1139,6 +1139,29 @@ def _bottom_of_the_lines(paragraph: Record) -> int | None:
         return None
     return bottom_of_the_lines(struct.unpack_from("<ii", segments.payload, start + 4)
                                for start in range(0, len(segments.payload) - _LINE_SEGMENT_BYTES + 1, _LINE_SEGMENT_BYTES))
+
+
+# The controls that begin with the common attributes of an object: a table, a drawing object, an equation, a form object
+_PLACED_OBJECTS = frozenset(("tbl ", "gso ", "eqed", "form"))
+
+
+def _bottom_where_tables_stand_under(paragraph: Record) -> int | None:
+    """The bottom of the lines of a paragraph, when a table that starts at or under it is drawn under its text; None when
+    that cannot be said. It cannot when the paragraph holds any other object that is not treated as a character - a picture,
+    a shape, a table that starts higher: such an object pushes the first line down, and the stored position of that line is
+    then not the top the offsets are measured from."""
+    bottom = _bottom_of_the_lines(paragraph)
+    if bottom is None:
+        return None
+    for control in paragraph.children:
+        if control.tag != TAG_CTRL_HEADER or ctrl_id(control) not in _PLACED_OBJECTS:
+            continue
+        if len(control.payload) >= 8 and control.payload[4] & _AS_CHARACTER:
+            continue
+        offset = _offset_under_the_paragraph(control) if ctrl_id(control) == "tbl " else None
+        if offset is None or offset < bottom:
+            return None
+    return bottom
 
 
 def _holds_content(paragraphs: list[Record]) -> bool:
