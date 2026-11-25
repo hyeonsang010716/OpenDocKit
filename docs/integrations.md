@@ -1,6 +1,6 @@
 # Integrations
 
-OpenDocKit's result can be handed straight to LangChain, to LlamaIndex, to LightRAG, to Open WebUI, or to an agent through the Model Context Protocol.
+OpenDocKit's result can be handed straight to LangChain, to LlamaIndex, to LightRAG, to Dify, to Open WebUI, or to an agent through the Model Context Protocol.
 Each integration is an optional extra: none of them is installed, or imported, unless you ask for it.
 
 ```bash
@@ -11,8 +11,9 @@ pip install "opendockit[mcp]"           # the opendockit-mcp server
 pip install "opendockit[open-webui]"    # the opendockit-open-webui document loader
 ```
 
-They all cut a document the same way and use the same metadata, so an index built with one cites the same pages as an
-index built with another.
+The loaders of LangChain and LlamaIndex, the Dify plugin and the Open WebUI loader cut a document the same way and use
+the same metadata, so an index built with one cites the same pages as an index built with another. LightRAG is given
+the whole document and cuts it itself.
 
 ## One piece per file, or per page / slide / sheet
 
@@ -31,7 +32,7 @@ in the metadata.
 | `format` | `pdf`, `docx`, `hwp`, … (detected from the content) |
 | `title`, `author`, `page_count`, `slide_count`, `sheet_count`, `encoding`, … | What the document says about itself, when it does |
 | `section_kind`, `section_index`, `section_title` | In `sections` mode: `page` / `slide` / `sheet`, its number from 1, and its title when it has one. A page, sheet or slide without text is left out (a slide that is only a title is kept), so the numbers can have gaps |
-| `warnings` | One line per warning the converter raised (a hidden sheet left out, a scanned page without text, …). Absent when there are none |
+| `warnings` | One line per warning the converter raised (a hidden sheet left out, a scanned page without text, …): the first 200 of a document, then one line that counts the rest. Absent when there are none |
 | `exceeded` | `True` when `max_chars` stopped the conversion. Absent otherwise |
 
 Every value is a string, an integer or a boolean, because vector stores reject anything else. The LlamaIndex reader
@@ -93,6 +94,11 @@ CSV and TSV. It stores the whole document as Markdown, without page markers. A s
 marks it failed with a sentence that says so; send scans to an engine that reads images. What the converter skipped or
 approximated is kept with the document (`parse_warnings`). `.doc` and `.ppt` need LibreOffice on the machine.
 
+The engine takes no options. It stores a document of up to 10,000,000 characters whole; a longer one is marked failed,
+not stored in part. It converts in a thread of LightRAG's process, as LightRAG's own local engines do, so the memory
+and time limits of `IsolatedConverter` ([server.md](server.md)) do not apply to it: send it documents from people you
+trust.
+
 Used as a library, without its server, LightRAG loads the engines of other packages when asked to:
 
 ```python
@@ -103,7 +109,7 @@ load_third_party_parsers()
 
 ## Options and errors
 
-Both take `options=ConvertOptions(...)` ([options.md](options.md)) — `max_chars`, `keep_links`, `include_speaker_notes`
+The LangChain loader and parser and the LlamaIndex reader take `options=ConvertOptions(...)` ([options.md](options.md)) — `max_chars`, `keep_links`, `include_speaker_notes`
 and the rest work as they do for `convert`. A file that cannot be converted raises the same `ConversionError` subclasses
 `convert_file` raises; the adapters skip nothing silently. (`SimpleDirectoryReader` itself prints and skips a file that
 fails unless you pass `raise_on_error=True`.) A file that converts but has no text to hand on — a scanned PDF, an empty
@@ -141,7 +147,7 @@ is listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 
 - **The answer is bounded.** One call returns at most `max_chars` characters of the document (100,000 unless the agent
   asks for more or the server is started with `--max-chars`), followed by a short note and the converter's warnings when
-  there are any. A longer document is cut there, and the note tells the agent to read the outline and ask for `sections` — or, for a
+  there are any (the first 20, the rest counted). A longer document is cut there, and the note tells the agent to read the outline and ask for `sections` — or, for a
   document without pages, slides or sheets (a DOCX, an HTML page), to raise `max_chars`, as the outline says too.
 - **Which files it may read.** Without `--root`, any file the user running the server can read. With `--root DIR`
   (repeatable; or the `OPENDOCKIT_MCP_ROOTS` environment variable, separated like `PATH`) only files under those

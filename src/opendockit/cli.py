@@ -1,6 +1,6 @@
 """Command-line entry point for trying a conversion.
 
-    opendockit <file> [--count | --json] [--describe [--model NAME]]
+    opendockit <file> [--count | --json] [--describe [--model NAME]] [-o OUT]
     opendockit --version
 
 `--describe` has an OpenAI vision model describe the images (this costs money). The key is read from the `OPENAI_API_KEY`

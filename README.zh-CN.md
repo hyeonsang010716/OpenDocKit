@@ -173,6 +173,19 @@ opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等�
 
 [![hyeonsang010716/OpenDocKit MCP server](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit/badges/score.svg)](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit)
 
+### LightRAG
+
+两者都安装后，[LightRAG](https://github.com/HKUDS/LightRAG) 会自行发现解析引擎 `opendockit`，无需编写代码。用路由规则指定交给它的文档：
+
+```bash
+pip install "opendockit[lightrag]"
+export LIGHTRAG_PARSER="hwp:opendockit,hwpx:opendockit,doc:opendockit,ppt:opendockit,xls:opendockit"
+```
+
+有了这条规则，LightRAG 就能接收其本地引擎无法读取的韩文 HWP 文档和旧版 Office 格式。加上 `pdf:opendockit` 或
+`docx:opendockit`，这些文档也会转换为保留表格和标题的 Markdown。
+详见 [docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md#lightrag)。
+
 ### Hermes Agent
 
 OpenDocKit 已收录于 [Hermes Agent 插件目录](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)。目录中的每个插件都经过 Hermes 维护者审核，并固定到一个提交：

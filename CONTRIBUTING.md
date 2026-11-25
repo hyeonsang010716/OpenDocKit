@@ -12,7 +12,7 @@ git clone https://github.com/hyeonsang010716/OpenDocKit.git
 cd OpenDocKit
 uv sync                      # creates .venv with runtime, vision and development dependencies
 uv run pytest -n auto -m "not timing"   # the bulk of the tests in parallel, under a minute
-uv run pytest -m timing                  # ~380 tests that measure time, one at a time, about 5 minutes
+uv run pytest -m timing                  # ~400 tests that measure time, one at a time, about 5 minutes
 uv run ruff check            # lint
 uv run opendockit some.pdf   # try a real document
 ```
@@ -60,7 +60,7 @@ src/opendockit/
 ├── cli.py           the `opendockit` command (`__main__.py`: `python -m opendockit`)
 ├── mcp_server.py    the `opendockit-mcp` command: an MCP server with two tools
 ├── open_webui.py    the `opendockit-open-webui` command: Open WebUI's external content extraction engine
-├── integrations/    the LangChain loader and the LlamaIndex reader
+├── integrations/    the LangChain loader, the LlamaIndex reader and the LightRAG parser engine
 └── extractors/      one module per format: (bytes, ConvertOptions) -> Extraction; `_name.py` modules are stages and shared pieces
 tests/               one or more test modules per format; builder.py creates sample documents in memory
 docs/                user documentation
@@ -69,6 +69,7 @@ examples/            sample documents and their conversions (`examples/run_examp
 benchmarks/          the comparison with other converters and its results
 claude-plugin/, hermes-plugin/, dify-plugin/   plugins that run the MCP server or the converter in those applications
 packages/opendockit-mcp/                       the `opendockit-mcp` launcher package
+packages/opendockit-xlsx-core/                 the optional native reader of large XLSX sheets
 ```
 
 Dependency direction: extractors import only `markdown`, `models`, `exceptions` and the shared helpers of
@@ -139,6 +140,8 @@ together; a test compares their code, links, figures and structure. Everything e
 
 ## Releasing (maintainers)
 
-1. Update `version` in `pyproject.toml` and move the `Unreleased` entries in `CHANGELOG.md` under the new version.
+1. Update `version` in `pyproject.toml`, in `packages/opendockit-mcp/` (`pyproject.toml` with its pin, `server.json`)
+   and in `dify-plugin/` (`manifest.yaml`, `requirements.txt`) — the tests compare them — and move the `Unreleased`
+   entries in `CHANGELOG.md` under the new version.
 2. Tag the commit `vX.Y.Z` and push the tag. The release workflow builds and publishes to PyPI and the MCP Registry,
    then makes the GitHub release from the version's `CHANGELOG.md` section. A tag without one stops before publishing.

@@ -28,6 +28,8 @@ This page is a summary for people building an upload screen on top of OpenDocKit
   - conversion stopped because the character limit was exceeded;
   - an image file was not read because `extract_images` or `decode_images` is off;
   - RTF and embedded Word document fragments in DOCX imported content (altChunk) could not be converted.
+
+  A document lists the first 200 warnings of its reader; one more line counts the rest.
 - `metadata`: title, author, page count, sheet count, encoding (only when present).
 
 ### Notation
@@ -229,6 +231,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - Legacy `.ppt` is converted when the server has LibreOffice installed (with a warning that the document went through LibreOffice); otherwise it gives `unsupported_format` → advise "save as PPTX and upload".
 - A pptx saved in Strict Open XML format gives `unsupported_format` → advise "save again as a normal PowerPoint Presentation (.pptx)".
 - Shapes themselves (arrows, diagram shapes) are not extracted as pictures. Only the text inside shapes remains.
+- An abnormal file that lists the same slide several times has that slide read once (warning).
 - Shapes hidden in the Selection Pane are not included (hidden slides are still output, with `(hidden)` after the slide title).
 - Equations inside slide titles and speaker notes are not converted (only the plain text remains).
 - Table cells and shapes with invalid attribute values (a shape whose position is text, ink annotations and the like) and slides without a part are skipped, with a warning that gives the slide number. A file in which other parts (layout, notes, chart, document properties) are broken still has its slides read.
@@ -301,7 +304,7 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 
 - A file with stray NUL characters is read if the rest is UTF-8 or CP949 text (single NULs are removed; a run of NULs padding a column becomes spaces, keeping the columns of a fixed-width export). If other control characters are present too, it is taken as binary and gives `unsupported_format`.
 - A partly broken file, such as CP949 whose last character is cut off, has only the broken place replaced with `�`, with a warning.
-- English and Western European text containing curly quotes and accents is read as Windows-1252. Japanese (Shift_JIS, EUC-JP) and Chinese (GB2312) text files can be misread as CP949.
+- English and Western European text containing curly quotes and accents is read as Windows-1252, and text whose accented letters fit one language of another Latin code page (Polish in Windows-1250 or ISO 8859-2) in that one; short text with few accents is guessed and can be misread ([limitations.md](limitations.md)). Japanese (Shift_JIS, EUC-JP) and Chinese (GB2312) text files can be misread as CP949.
 - Form feed (`\f`) and vertical tab (`\v`) characters come out as line breaks. UTF-32 with a BOM is read; UTF-32 without a BOM gives `unsupported_format`.
 
 ## 9. Image files (JPG · PNG · WEBP · GIF · BMP · TIFF · AVIF · HEIC)
@@ -337,5 +340,5 @@ OpenDocument spreadsheets (`.ods`) follow the same rules for sheets, several tab
 - Password-protected OpenDocument files and EPUBs protected by DRM give `encrypted_document`.
 - OpenDocument single-file XML (`.fodt`, `.fods`, `.fodp`) and other OpenDocument kinds (drawings, formulas, databases) give `unsupported_format`.
 - OpenDocument: text placed only on master slides, form controls and OLE objects other than charts and formulas are not converted. A row repeated a very large number of times is written a bounded number of times, with a warning.
-- RTF: equations, comments and text in symbol fonts are not read; letter and roman list numbers are written as `1.`, `2.`. A table keeps at most 500,000 cells (warning). A file cut off in the middle is converted up to the cut (warning).
+- RTF: equations and comments are not read, and text in a symbol font comes out as Latin letters or is dropped ([limitations.md](limitations.md)); letter and roman list numbers are written as `1.`, `2.`. A table keeps at most 500,000 cells (warning). A file cut off in the middle is converted up to the cut (warning).
 - EPUB: footnotes stay where the chapter has them; remote pictures are never fetched; a chapter over 32 MB is skipped, and pictures over 20 MB each or 64 MB per book keep only their alt text (warnings). **On Windows, EPUB shares the HTML limitation** for chapters over 256 KB, described in [limitations.md](limitations.md#platforms).

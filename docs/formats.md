@@ -71,7 +71,7 @@ Section unit: the whole document. Macro-enabled documents (.docm) and templates 
 - Form fields (check boxes, drop-downs).
 - Ruby text.
 - Word enclosed characters (EQ fields → ㉑, ☑ and so on).
-- Characters in symbol fonts (Symbol, Wingdings) → Unicode.
+- Characters in symbol fonts (Symbol, Wingdings, Wingdings 2 and 3, Webdings) → Unicode.
 - Imported content (`w:altChunk` holding HTML, XHTML, MHT or plain text) is read in place.
 - Legacy WordArt text (body only).
 - The preview picture of an OLE object; when there is none, `[OLE object]` plus a warning.
@@ -145,7 +145,9 @@ Section unit: the whole document. Design notes: [decisions/hwp.md](decisions/hwp
 - Headers that hold words (a form's number and title) are written once before the body, without their pictures; page
   numbers and footers only with `include_headers_footers`.
 - Tables with merged cells.
-- Captions of tables, pictures and equations, including their automatic numbers.
+- Captions of tables, pictures and equations, including their automatic numbers, under or above the object as the
+  document sets them.
+- A table that only frames text (the box around a summary) is written as that text.
 - Text boxes.
 - Footnotes.
 - **Equations → LaTeX**.
@@ -171,6 +173,9 @@ Block structure:
 - Per-level lists of Google Docs exports and `mso-list` level paragraphs of Word-saved .htm files become nested lists.
 - Block quotes are marked down to 20 levels; paragraphs inside are separated by one empty `>` line.
 - Strikethrough becomes `~~text~~`.
+- A note reference — a raised link of one to four digits into the page, or a link marked as a note reference — is
+  written `[1]`, so that it does not run into the number before it (`1,200[1]`). A raised number that is no link stays
+  an exponent (`10^6`). The note stays where the page has it.
 
 Tables:
 
@@ -265,7 +270,8 @@ mbox:
 
 Section unit: the whole document. Design notes: [decisions/encoding.md](decisions/encoding.md).
 
-- Encoding detection: UTF-8, CP949, UTF-16 (including UTF-16 without a BOM) and Windows-1252.
+- Encoding detection: UTF-8, CP949, UTF-16 (including UTF-16 without a BOM), Windows-1252 and, where the accented
+  letters of a text fit one language, the other Latin code pages ([limitations.md](limitations.md)).
 - Whitespace of the original is preserved.
 - Stray NUL characters are removed.
 - Terminal control codes in TXT (color `ESC[31m`, window-title OSC, character set `ESC(B` and so on) are removed.
@@ -387,6 +393,9 @@ Design notes: [decisions/detect.md](decisions/detect.md).
 - All text is normalized to **NFC**. This prevents decomposed Hangul (from macOS and HWP) from becoming a different string in search and embeddings.
 - Latin ligatures (`ﬁ`, `ﬂ` and so on) are expanded.
 - NFKC is not used, so characters such as ①, ㈜ and ² are left as they are.
+- Characters nobody sees are removed: zero-width and direction marks, the soft hyphen between two letters, private-use
+  characters and the tag characters of plane 14 (U+E0020–E007F). A zero-width joiner stays where a script or an emoji
+  needs it.
 
 ### Tables
 
