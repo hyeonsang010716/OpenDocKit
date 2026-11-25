@@ -51,6 +51,14 @@ _ALTERNATING_WORK = 1_000_000
 _CENTRED_TOLERANCE_RATIO = 0.03
 # Rows with lines side by side inside one column that make it hold a table (`_has_lines_side_by_side`)
 _SIDE_BY_SIDE_ROWS_MIN = 2
+# Two pages printed side by side on one sheet (`_two_pages_on_a_sheet`): the empty band at the middle is at least this share of
+# the two outer margins together - the inner margins of the two pages - and each half holds at least this many lines
+_SHEET_GAP_RATIO = 0.75
+_SHEET_HALF_LINES_MIN = 3
+# and the sheet has the proportions of a sheet of the A or B series (1 to the square root of 2), whose half is a page of
+# that series, within this share: A4 as PDFs round it is within 0.4%, and a slide set to 'A4 paper' (780 by 540) is 2.1% off
+_SHEET_PROPORTION = math.sqrt(2)
+_SHEET_PROPORTION_TOLERANCE = 0.01
 
 
 def _read_columns_in_turn(page: _Page) -> None:
@@ -75,6 +83,11 @@ def _read_columns_in_turn(page: _Page) -> None:
     """
     if page.simple:
         return
+    middle = _two_pages_on_a_sheet(page)
+    if middle is not None:
+        page.lines = [*(line for line in page.lines if line.x1 <= middle), *(line for line in page.lines if line.x0 >= middle)]
+        page.two_pages = True
+        return
     wide = page.width * _TABLE_CELL_MAX_RATIO
     mixed = [sorted(pair, key=lambda line: line.x0) for pair in zip(page.lines, page.lines[1:], strict=False)
              if _is_beside(*pair) and min(line.x1 - line.x0 for line in pair) >= wide]
@@ -97,6 +110,48 @@ def _read_columns_in_turn(page: _Page) -> None:
             ordered += [*left, *right, line]
             left, right = [], []
     page.lines = [*ordered, *left, *right, *(line for line in page.lines if line.top >= below_top)]
+
+
+def _two_pages_on_a_sheet(page: _Page) -> float | None:
+    """The middle of a sheet that holds two pages side by side, None for any other page.
+
+    A document printed two pages to a sheet (a press release of Hangul, A4 turned on its side with two A5 pages) is two
+    pages, not two columns: the left one is read to its end, then the right one. The rules for columns look for text
+    below both columns and for headings over them, and where they did not apply the order was the layout analysis's own,
+    which pairs the boxes nearest to each other across the gap: a heading of the right page came out in the middle of a
+    sentence of the left one (Pinned by: test_pdf_reading_order.py::TestTwoPagesOnASheet).
+    Kept narrow (Deliberate): the visible area has the proportions of a sheet of the A or B series on its side (1 to the
+    square root of 2, so that its half is a page of the series; a slide and a sheet of Letter are not asked);
+    every line, table, picture, rule and filled band stands wholly left or wholly right of its middle; each half holds
+    `_SHEET_HALF_LINES_MIN` lines or more; and the band left empty at the middle is centred on it and at least
+    `_SHEET_GAP_RATIO` of the two outer margins together - each half has its own margins on both sides, where two
+    columns of one page share the page's margins and stand close. A page that is turned (/Rotate) or read without
+    places has no visible area to measure in (`_Page.text_view`) and is left to the rules for columns.
+    Known accepted gap: a page of that shape which is one page - two columns set far apart with nothing across the
+    middle, rows of a list read across it, text under both columns - is read half by half too."""
+    if page.text_view is None:
+        return None
+    x0, top, x1, bottom = page.text_view
+    if not (bottom > top and abs((x1 - x0) / (bottom - top) - _SHEET_PROPORTION) <= _SHEET_PROPORTION * _SHEET_PROPORTION_TOLERANCE):
+        return None
+    middle = (x0 + x1) / 2
+    lines = [(line.x0, line.x1) for line in page.lines]
+    others = [*((table.x0, table.x1) for table in page.tables), *((figure[0], figure[2]) for figure in page.figures),
+              *((left, right) for _, left, right in page.rules), *((left, right) for _, _, left, right in page.bands)]
+    lefts = [span for span in lines if span[1] <= middle]
+    rights = [span for span in lines if span[0] >= middle]
+    if len(lefts) + len(rights) != len(lines) or min(len(lefts), len(rights)) < _SHEET_HALF_LINES_MIN:
+        return None
+    if any(not (right <= middle or left >= middle) for left, right in others):
+        return None
+    lefts += [span for span in others if span[1] <= middle]
+    rights += [span for span in others if span[0] >= middle]
+    left_end, right_start = max(right for _, right in lefts), min(left for left, _ in rights)
+    outer = min(left for left, _ in lefts) - x0 + x1 - max(right for _, right in rights)
+    if not (outer > 0 and right_start - left_end >= outer * _SHEET_GAP_RATIO
+            and abs((left_end + right_start) / 2 - middle) <= (x1 - x0) * _CENTRED_TOLERANCE_RATIO):
+        return None
+    return middle
 
 
 def _below_columns_read_line_by_line(page: _Page, left_end: float, right_start: float) -> float:
@@ -587,7 +642,7 @@ def _read_alternating_sides_in_turn(page: _Page) -> None:
     over all of them again, so 20,000 such lines took 20 seconds here, of 21 for their 56 KB page (Pinned by:
     test_pdf_reading_order.py::TestManyLinesBesideColumns).
     """
-    if page.simple:
+    if page.simple or page.two_pages:
         return
     lines = page.lines  # Modified in place
     index = 1
