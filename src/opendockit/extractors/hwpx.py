@@ -165,15 +165,18 @@ def _bottom_of_the_lines(paragraph: etree._Element) -> int | None:
         return None
 
 
-def _bottom_where_tables_stand_under(paragraph: etree._Element) -> int | None:
-    """The bottom of the lines of a paragraph, when a table that starts at or under it is drawn under its text; None when
-    that cannot be said. It cannot when the paragraph holds any other object that is not treated as a character - a picture,
-    a shape, a table that starts higher: such an object pushes the first line down, and the stored position of that line is
-    then not the top the offsets are measured from. Objects inside an hp:switch are not looked at, so one keeps the order
-    of the file too."""
+def _bottom_where_tables_stand_under(paragraph: etree._Element, spacing_above: int | None) -> int | None:
+    """How far under the top of a paragraph its lines end, when a table that starts at or under there is drawn under its
+    text; None when that cannot be said. An offset is measured from the top of the paragraph before its spacing above, and
+    the lines are stored under that spacing, so it is added (`_load_spacings_above`; None when the shape of the paragraph
+    does not say it). It cannot be said when the paragraph holds any other object that is not treated as a character - a
+    picture, a shape, a table that starts higher: such an object pushes the first line down, and the stored position of
+    that line is then not under the top by the spacing alone. Objects inside an hp:switch are not looked at, so one keeps
+    the order of the file too."""
     bottom = _bottom_of_the_lines(paragraph)
-    if bottom is None:
+    if bottom is None or spacing_above is None:
         return None
+    bottom += spacing_above
     for run in _children(paragraph, "run"):
         for node in run:
             name = _local(node)
@@ -211,12 +214,17 @@ class HwpxRenderer:
                  load_part: Callable[[str], bytes | None] | None = None, scripts: dict[str, str] | None = None,
                  struck: frozenset[str] = frozenset(), sizes: dict[str, int] | None = None,
                  emphasis: dict[str, tuple[bool, bool]] | None = None,
-                 boxed_fills: Callable[[], dict[str, bool]] | None = None) -> None:
+                 boxed_fills: Callable[[], dict[str, bool]] | None = None,
+                 spacings_above: Callable[[], dict[str, int]] | None = None) -> None:
         self._styles = styles
         # Border fill id → whether it draws all four sides of a cell, read from the header the first time a table is looked
         # at as a frame (`_is_frame`): most documents never ask
         self._load_boxed_fills = boxed_fills
         self._boxed_fills: dict[str, bool] | None = None
+        # Paragraph shape id → the spacing above a paragraph of it, read from the header the first time a table placed from the
+        # top of its paragraph is met (`_is_set_under_its_paragraph`): most documents never ask
+        self._load_spacings_above = spacings_above
+        self._spacings_above: dict[str, int] | None = None
         # Character shape id → (bold, italic) for the shapes that have either (`_load_emphasis`; empty without `keep_emphasis`),
         # and that of the run being read
         self._emphasis = emphasis or {}
@@ -332,7 +340,10 @@ class HwpxRenderer:
             return False  # inside an hp:switch or a group: read where it stands
         kept = self._under.get(paragraph)
         if kept is None:
-            kept = self._under[paragraph] = (_bottom_where_tables_stand_under(paragraph), [])
+            if self._spacings_above is None:
+                self._spacings_above = self._load_spacings_above() if self._load_spacings_above is not None else {}
+            kept = self._under[paragraph] = (
+                _bottom_where_tables_stand_under(paragraph, self._spacings_above.get(paragraph.get("paraPrIDRef", ""))), [])
         bottom, tables = kept
         if bottom is None or offset < bottom:
             return False
@@ -996,7 +1007,7 @@ def extract_hwpx(data: bytes, options: ConvertOptions) -> Extraction:
         renderer = HwpxRenderer(styles, options, extraction, load_binary, _load_paragraph_heads(header), load_part,
                                 _load_scripts(header), _load_struck_shapes(header), _load_char_sizes(header),
                                 _load_emphasis(header) if options.keep_emphasis else None,
-                                lambda: _load_boxed_fills(header))
+                                lambda: _load_boxed_fills(header), lambda: _load_spacings_above(header))
         blocks = []
         tracked = _tracks_deletions(header)
         sections = _section_order(package, names, extraction.warnings)
@@ -1336,6 +1347,30 @@ def _load_char_sizes(header: etree._Element | None) -> dict[str, int]:
             if height > 0:
                 sizes[node.get("id", "")] = height
     return sizes
+
+
+def _load_spacings_above(header: etree._Element | None) -> dict[str, int]:
+    """Paragraph shape (hh:paraPr) id → the spacing above a paragraph of it (hc:prev of its hh:margin), in the unit of the
+    line segments. Hangul writes the margin twice, in the two branches of an hp:switch: the hp:case holds the spacing, the
+    hp:default twice that (the value HWP stores). Of the paragraphs of the Korean releases and the samples whose two values
+    differ, the first line of all 156 that could be measured stands under the last line before it by the value of the case,
+    of none by that of the default. A margin outside a switch is taken as it is, and a shape that gives the spacing in
+    another unit, or as no number, is left out: nothing is said of where a table of such a paragraph stands."""
+    if header is None:
+        return {}
+    spacings: dict[str, int] = {}
+    for shape in header.iter("{*}paraPr"):
+        found: dict[str, str | None] = {}
+        for spacing in shape.iter("{*}prev"):
+            branch = next((name for name in map(_local, spacing.iterancestors()) if name in ("case", "default", "paraPr")), "paraPr")
+            found.setdefault(branch, spacing.get("value") if spacing.get("unit", "HWPUNIT") == "HWPUNIT" else None)
+        value = found["case"] if "case" in found else found["paraPr"] if "paraPr" in found else found.get("default", "0")
+        try:
+            if value is not None:
+                spacings[shape.get("id", "")] = max(int(value), 0)
+        except ValueError:
+            continue
+    return spacings
 
 
 def _load_boxed_fills(header: etree._Element | None) -> dict[str, bool]:

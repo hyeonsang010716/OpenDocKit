@@ -11,7 +11,16 @@ import pytest
 from opendockit import convert
 from opendockit.extractors import _hangul
 from tests import builder
-from tests.test_hwp import TAG_CTRL_HEADER, TAG_LIST_HEADER, TAG_PARA_HEADER, TAG_PARA_TEXT, TAG_TABLE, _fake_hwp, _para_header
+from tests.test_hwp import (
+    TAG_CTRL_HEADER,
+    TAG_LIST_HEADER,
+    TAG_PARA_HEADER,
+    TAG_PARA_SHAPE,
+    TAG_PARA_TEXT,
+    TAG_TABLE,
+    _fake_hwp,
+    _para_header,
+)
 
 
 _TAG_PARA_LINE_SEG = 16 + 53
@@ -39,9 +48,40 @@ def _hwpx_lines(*lines: tuple[int | str, int | str]) -> str:
                                          for position, height in lines) + "</hp:linesegarray>"
 
 
-def _hwpx(*pieces: str, lines: str = "") -> str:
+_HC = 'xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core"'
+
+
+def _hwpx_margin(above: int | str, unit: str = "HWPUNIT") -> str:
+    return f'<hh:margin><hc:prev {_HC} value="{above}" unit="{unit}"/></hh:margin>'
+
+
+def _hwpx_shape(identifier: str, case: int | str, default: int | str) -> str:
+    """A paragraph shape as Hangul writes it: the margin in both branches of a switch, the value HWP stores in the second."""
+    return (f'<hh:paraPr id="{identifier}"><hp:switch><hp:case>{_hwpx_margin(case)}</hp:case>'
+            f"<hp:default>{_hwpx_margin(default)}</hp:default></hp:switch></hh:paraPr>")
+
+
+# Paragraph shapes by id: no spacing above; 1,500 above (3,000 in the branch that holds the value of HWP); written without a
+# switch; in the second branch only; in another unit; as no number; without a margin
+_HWPX_SHAPES = ("<hh:paraProperties>" + _hwpx_shape("0", 0, 0) + _hwpx_shape("1", 1500, 3000)
+                + f'<hh:paraPr id="2">{_hwpx_margin(700)}</hh:paraPr>'
+                + f'<hh:paraPr id="3"><hp:switch><hp:default>{_hwpx_margin(900)}</hp:default></hp:switch></hh:paraPr>'
+                + f'<hh:paraPr id="4"><hp:switch><hp:case>{_hwpx_margin(0, "CHAR")}</hp:case>'
+                  f"<hp:default>{_hwpx_margin(0)}</hp:default></hp:switch></hh:paraPr>"
+                + f'<hh:paraPr id="5">{_hwpx_margin("x")}</hh:paraPr>' + '<hh:paraPr id="6"/>' + _hwpx_shape("7", -400, -800)
+                + "</hh:paraProperties>")
+
+
+def _hwpx_document(body: str) -> str:
+    data = builder.zip_with(builder.hwpx_bytes(body), edit={
+        "Contents/header.xml": lambda xml: xml.replace("</hh:refList>", _HWPX_SHAPES + "</hh:refList>")})
+    return convert(data, "a.hwpx").text
+
+
+def _hwpx(*pieces: str, lines: str = "", shape: str | None = "0") -> str:
     """One paragraph: its tables and texts in the order of the file, and the line segments Hangul stored."""
-    return convert(builder.hwpx_bytes(f"<hp:p><hp:run>{''.join(pieces)}</hp:run>{lines}</hp:p>"), "a.hwpx").text
+    reference = "" if shape is None else f' paraPrIDRef="{shape}"'
+    return _hwpx_document(f"<hp:p{reference}><hp:run>{''.join(pieces)}</hp:run>{lines}</hp:p>")
 
 
 def _text(text: str) -> str:
@@ -65,12 +105,27 @@ def _hwp_lines(*lines: tuple[int, int], level: int = 1) -> bytes:
                                                                for position, height in lines))
 
 
-def _hwp(monkeypatch, text: tuple, *controls: bytes, lines: bytes = b"") -> str:
+def _hwp_shape(stored_above: int, size: int = 54) -> bytes:
+    """PARA_SHAPE: attribute 1, then six INT32s - the margins, the indent, the spacing above (stored doubled) and below, the
+    line spacing."""
+    return (struct.pack("<I6i", 0, 0, 0, 0, stored_above, 0, 0) + b"\x00" * 26)[:size]
+
+
+# Paragraph shapes by id: no spacing above; 1,500 above, stored as 3,000; a record cut before its spacing; a spacing below nothing
+_HWP_SHAPES = b"".join(builder.hwp_record(TAG_PARA_SHAPE, 0, shape) for shape in (_hwp_shape(0), _hwp_shape(3000), _hwp_shape(0, 16),
+                                                                                  _hwp_shape(-800)))
+
+
+def _hwp_document(monkeypatch, section: bytes) -> str:
+    return convert(_fake_hwp(monkeypatch, sections=[section], docinfo_extra=_HWP_SHAPES), "a.hwp").text
+
+
+def _hwp(monkeypatch, text: tuple, *controls: bytes, lines: bytes = b"", shape: int = 0) -> str:
     """One paragraph: its text with a table control for each `...`, the line segments, and the tables."""
     parts = [(11, "tbl ") if part is ... else part for part in text]
-    section = (builder.hwp_record(TAG_PARA_HEADER, 0, _para_header(0, 0)) + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text(*parts))
-               + lines + b"".join(controls))
-    return convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+    section = (builder.hwp_record(TAG_PARA_HEADER, 0, _para_header(shape, 0))
+               + builder.hwp_record(TAG_PARA_TEXT, 1, builder.hwp_text(*parts)) + lines + b"".join(controls))
+    return _hwp_document(monkeypatch, section)
 
 
 class TestTableSetUnderTheLinesOfItsParagraph:
@@ -186,10 +241,10 @@ class TestTableSetUnderTheLinesOfItsParagraph:
 
     def test_heading_of_the_paragraph_goes_on_its_text_not_on_a_line_before_the_table(self):
         """An outline paragraph: its mark is for the text, which now comes first."""
-        body = (f'<hp:p styleIDRef="2"><hp:run>{_hwpx_table(2548)}{_text("수상작 목록")}</hp:run>{_hwpx_lines((3930, 1500))}</hp:p>'
+        body = (f'<hp:p paraPrIDRef="0" styleIDRef="2"><hp:run>{_hwpx_table(2548)}{_text("수상작 목록")}</hp:run>{_hwpx_lines((3930, 1500))}</hp:p>'
                 "<hp:p><hp:run><hp:t>다음 문단</hp:t></hp:run></hp:p>")
 
-        assert convert(builder.hwpx_bytes(body), "a.hwpx").text == f"# 수상작 목록\n\n{_TABLE}\n\n다음 문단"
+        assert _hwpx_document(body) == f"# 수상작 목록\n\n{_TABLE}\n\n다음 문단"
 
     def test_note_of_the_text_takes_its_number_before_a_note_in_the_table(self):
         """Notes are numbered in the order they are written."""
@@ -200,6 +255,35 @@ class TestTableSetUnderTheLinesOfItsParagraph:
 
         assert text.index(_LABEL + "[^1]") < text.index("1년[^2]")
         assert text.index("[^1]: 글의 주") < text.index("[^2]: 표의 주")
+
+    @pytest.mark.parametrize(("offset", "after"), [(3000, True), (2999, False), (1500, False)],
+                             ids=["under-the-spacing-and-the-line", "one-unit-into-the-line", "inside-the-spacing"])
+    def test_spacing_above_the_paragraph_stands_between_its_top_and_its_line(self, monkeypatch, offset, after):
+        """A label with 1,500 above it: the offset of the table counts from the top of the paragraph, the line is stored
+        1,500 under that top and is 1,500 high. A table 2,000 under the top reaches into the line, and Hangul puts the line
+        under it. HWPX names the spacing in the first branch of a switch and twice that in the second; HWP stores it doubled."""
+        expected = f"{_LABEL}\n\n{_TABLE}" if after else f"{_TABLE}\n\n{_LABEL}"
+
+        assert _hwpx(_hwpx_table(offset), _text(_LABEL), lines=_hwpx_lines((49680, 1500)), shape="1") == expected
+        assert _hwp(monkeypatch, (..., _LABEL), _hwp_table(1, offset), lines=_hwp_lines((49680, 1500)), shape=1) == expected
+
+    @pytest.mark.parametrize(("shape", "offset", "after"), [
+        ("2", 2200, True), ("2", 2199, False), ("3", 2400, True), ("3", 2399, False), ("6", 1500, True), ("7", 1500, True),
+        ("7", 1499, False), ("4", 9000, False), ("5", 9000, False), ("99", 9000, False), (None, 9000, False),
+    ], ids=["without-a-switch", "without-a-switch-into-the-line", "second-branch-only", "second-branch-only-into-the-line",
+            "no-margin", "below-nothing", "below-nothing-into-the-line", "another-unit", "no-number", "no-such-shape", "no-shape-named"])
+    def test_hwpx_spacing_above_is_read_where_the_shape_of_the_paragraph_gives_it(self, shape, offset, after):
+        """Without a spacing that can be read, nothing is said of where the table stands."""
+        expected = f"{_LABEL}\n\n{_TABLE}" if after else f"{_TABLE}\n\n{_LABEL}"
+
+        assert _hwpx(_hwpx_table(offset), _text(_LABEL), lines=_hwpx_lines((3930, 1500)), shape=shape) == expected
+
+    @pytest.mark.parametrize(("shape", "offset", "after"), [(2, 9000, False), (9, 9000, False), (3, 1500, True), (3, 1499, False)],
+                             ids=["record-cut-before-the-spacing", "no-such-shape", "below-nothing", "below-nothing-into-the-line"])
+    def test_hwp_spacing_above_is_read_where_the_shape_of_the_paragraph_gives_it(self, monkeypatch, shape, offset, after):
+        expected = f"{_LABEL}\n\n{_TABLE}" if after else f"{_TABLE}\n\n{_LABEL}"
+
+        assert _hwp(monkeypatch, (..., _LABEL), _hwp_table(1, offset), lines=_hwp_lines((3930, 1500)), shape=shape) == expected
 
     def test_other_table_that_starts_higher_keeps_every_table_where_its_control_is(self, monkeypatch):
         """A table at the top of the paragraph pushes the line under itself, and the stored position of that line is then not
@@ -277,7 +361,7 @@ class TestTableSetUnderTheLinesOfItsParagraph:
                  + plain + cell)
         section = (record(TAG_PARA_HEADER, 0, _para_header(0, 0)) + record(TAG_PARA_TEXT, 1, builder.hwp_text((11, "tbl "))) + outer)
 
-        text = convert(_fake_hwp(monkeypatch, sections=[section]), "a.hwp").text
+        text = _hwp_document(monkeypatch, section)
 
         assert text.index("ㅇ 기본 산출물 목록") < text.index("구분") < text.index("1년")
 
@@ -292,20 +376,20 @@ class TestTableSetUnderTheLinesOfItsParagraph:
 
     def test_hwpx_table_inside_a_switch_is_read_where_it_stands(self):
         """Only a table that is a child of a run of the paragraph is kept for its end. One inside an hp:switch is read with
-        its branch - also when the switch carries line segments of its own, which would have had it kept for a paragraph that
-        never comes and written nowhere."""
-        switch = f"<hp:switch><hp:case>{_hwpx_table(2548)}</hp:case>{_hwpx_lines((3930, 1500))}</hp:switch>"
+        its branch - also when the switch carries line segments and the name of a shape of its own, which would have had it
+        kept for a paragraph that never comes and written nowhere."""
+        switch = f"<hp:switch paraPrIDRef=\"0\"><hp:case>{_hwpx_table(2548)}</hp:case>{_hwpx_lines((3930, 1500))}</hp:switch>"
 
         assert _hwpx(switch, _text(_LABEL), lines=_hwpx_lines((3930, 1500))) == f"{_TABLE}\n\n{_LABEL}"
 
     def test_table_under_the_text_of_a_cell_is_written_after_it_there_too(self):
         """A request for proposals: the list of deliverables is a table inside a cell, under the line that names it."""
-        inner = f"<hp:p><hp:run>{_hwpx_table(1465)}{_text('ㅇ 기본 산출물 목록')}</hp:run>{_hwpx_lines((7000, 1000))}</hp:p>"
+        inner = f"<hp:p paraPrIDRef=\"0\"><hp:run>{_hwpx_table(1465)}{_text('ㅇ 기본 산출물 목록')}</hp:run>{_hwpx_lines((7000, 1000))}</hp:p>"
         cell = builder._hwpx_cell(1, 1, "X").replace("<hp:p><hp:run><hp:t>X</hp:t></hp:run></hp:p>", inner)
         body = ('<hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2"><hp:tr>' + builder._hwpx_cell(0, 0, "번호") + builder._hwpx_cell(0, 1, "내용")
                 + "</hp:tr><hp:tr>" + builder._hwpx_cell(1, 0, "1") + cell + "</hp:tr></hp:tbl></hp:run></hp:p>")
 
-        text = convert(builder.hwpx_bytes(body), "a.hwpx").text
+        text = _hwpx_document(body)
 
         assert text.index("ㅇ 기본 산출물 목록") < text.index("구분") < text.index("1년")
 
