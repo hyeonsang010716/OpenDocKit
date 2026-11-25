@@ -28,8 +28,10 @@ jobs:
       - run: uv run ruff check
 
   test:
-    # The timing tests run one at a time and take most of the job; 20 minutes was nearly used up (about 15 in November 2026)
-    timeout-minutes: 40
+    # The timing tests run one at a time and take most of the job: 20 minutes was nearly used up (about 15 in November 2026),
+    # and 40 left 7 to spare on Windows once they measured against the same runner (21.5 minutes for them alone), less
+    # than a slow LibreOffice install on Ubuntu has taken (18 to 22 minutes)
+    timeout-minutes: 50
     name: test (py${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -100,7 +102,7 @@ jobs:
         run: uv run --no-sync pytest -n auto -m "not timing"
 
   minimum-dependencies:
-    timeout-minutes: 40
+    timeout-minutes: 50  # it runs the timing tests too (see `test`)
     # Runs the suite against the oldest versions allowed by pyproject.toml, so the declared lower bounds stay true.
     runs-on: ubuntu-latest
     steps:

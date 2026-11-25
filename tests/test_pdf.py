@@ -269,10 +269,10 @@ def test_page_of_thousands_of_scattered_text_pieces_is_read_without_box_grouping
     pdf.save()
 
     data = buffer.getvalue()
-    seconds = fastest(lambda: convert(data, "a.pdf"))
+    seconds = fastest(lambda: convert(data, "a.pdf"), runs=2)
     for module in (pdf_module, _pdf_pieces):
         monkeypatch.setattr(module, "_MAX_GROUPED_TEXT_PIECES", 0)
-    ungrouped = fastest(lambda: convert(data, "a.pdf"))
+    ungrouped = fastest(lambda: convert(data, "a.pdf"), runs=2)
     monkeypatch.undo()
     result = convert(data, "a.pdf")
 

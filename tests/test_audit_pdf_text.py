@@ -993,7 +993,7 @@ class TestCopiesOfStackedText:
                 checking[0] += time.perf_counter() - started
 
         monkeypatch.setattr(pdf_module._CopyIndex, "at", timed)
-        data, check, rest, timer = self._stacked_form(1_500, 30), math.inf, math.inf, Fastest()
+        data, check, rest, timer = self._stacked_form(1_500, 30), math.inf, math.inf, Fastest(2)  # 25 times the room
         for _ in timer:
             checking[0] = 0.0
             with timer:
