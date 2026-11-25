@@ -30,6 +30,7 @@ from opendockit.extractors._hangul import (
     CommentRanges,
     ParagraphPieces,
     SizeHeadings,
+    bottom_of_the_lines,
     click_here_guide,
     command_link,
     decorated_text,
@@ -92,6 +93,7 @@ _CHAR_SHAPE_SUPERSCRIPT, _CHAR_SHAPE_SUBSCRIPT = 1 << 15, 1 << 16
 _CHAR_SHAPE_STRIKEOUT_SHIFT, _CHAR_SHAPE_STRIKEOUT_MASK = 18, 0x7
 _CHAR_SHAPE_STRIKEOUT_SHAPE_SHIFT, _CHAR_SHAPE_STRIKEOUT_SHAPE_MASK = 26, 0xF
 _STRIKEOUT_LINE_SHAPES = range(11)
+TAG_PARA_LINE_SEG = _HWPTAG_BEGIN + 53
 TAG_CTRL_HEADER = _HWPTAG_BEGIN + 55
 TAG_LIST_HEADER = _HWPTAG_BEGIN + 56
 TAG_TABLE = _HWPTAG_BEGIN + 61
@@ -362,6 +364,8 @@ class ParagraphHeads:
 
     shapes: list[tuple[int, int, int]] = field(default_factory=list)
     margins: list[int] = field(default_factory=list)
+    # The spacing above a paragraph of each shape, in the unit of the line segments; None where the record does not hold it
+    spacings_above: list[int | None] = field(default_factory=list)
     numberings: list[list[NumberLevel]] = field(default_factory=list)
     bullet_count: int = 0
 
@@ -499,6 +503,9 @@ class HwpRenderer:
         blocks, buffer, flush = pieces.blocks, pieces.buffer, pieces.flush
         if not self._memo_depth:
             self._memo_ranges.add(" ")  # between paragraphs of a comment range that spans several paragraphs
+        # None until a table that is not treated as a character is met. Then: how far under the top of the paragraph its
+        # lines end (`_bottom_where_tables_stand_under`), and behind it the tables drawn under them, written after its text
+        under: list | None = None
 
         for part in parts:
             if isinstance(part, str):
@@ -523,6 +530,18 @@ class HwpRenderer:
             if kind == "secd" and len(control.payload) >= 20:
                 (self._outline_numbering,) = struct.unpack_from("<H", control.payload, 18)
             elif kind == "tbl ":
+                # Nearly every table is treated as a character: one bit says so, and nothing more is read of it
+                if len(control.payload) >= 12 and not control.payload[4] & _AS_CHARACTER:
+                    offset = _offset_under_the_paragraph(control)
+                    if offset is not None:
+                        if under is None:
+                            shape_id = struct.unpack_from("<H", paragraph.payload, 8)[0] if len(paragraph.payload) >= 10 else -1
+                            spacings = self._heads.spacings_above
+                            under = [_bottom_where_tables_stand_under(
+                                paragraph, spacings[shape_id] if 0 <= shape_id < len(spacings) else None)]
+                        if under[0] is not None and offset >= under[0]:
+                            under.append(control)
+                            continue
                 flush()
                 blocks.append(self._render_table(control))
             elif kind in ("fn  ", "en  "):
@@ -566,6 +585,10 @@ class HwpRenderer:
                 buffer.append(f" {value} " if value else "")
             elif kind.startswith("%"):
                 self._start_field(kind, control, buffer)
+        if under is not None:
+            for control in under[1:]:
+                flush()
+                blocks.append(self._render_table(control))
         self._read_memos(paragraph)
         return pieces.finish(lambda: self._paragraph_head(paragraph), in_cell=bool(self._cell_depth))
 
@@ -1090,6 +1113,64 @@ _CELL_BORDER_FILL_OFFSET = 32
 _BLANK_UNITS = "\r\n \u3000\u00a0\x1e\x1f"
 
 
+# The common attributes of an object, the UINT32 behind the control ID ([HWP 5.0] table 70; the same bits as the attributes
+# of hp:pos and textWrap in the HWPX twins of the samples): treated as a character, what the vertical offset is measured
+# from (2: the paragraph), from which side of it (0: the top), and how text passes (1: above and below only)
+_AS_CHARACTER = 0x1
+_VERTICAL_FROM = (3, 0x3, 2)
+_VERTICAL_SIDE = (5, 0x7, 0)
+_TEXT_WRAP = (21, 0x7, 1)
+_LINE_SEGMENT_BYTES = 36
+_PARA_SHAPE_SPACING_ABOVE = 16  # the fourth of the six INT32s behind attribute 1 of PARA_SHAPE
+
+
+def _offset_under_the_paragraph(table: Record) -> int | None:
+    """How far under the top of its paragraph a table that is not treated as a character starts, when it is placed from there
+    and takes the whole width (text stands above and below it, not beside it); None for any other."""
+    if len(table.payload) < 12:
+        return None
+    attributes, offset = struct.unpack_from("<Ii", table.payload, 4)
+    if any(attributes >> shift & mask != value for shift, mask, value in (_VERTICAL_FROM, _VERTICAL_SIDE, _TEXT_WRAP)):
+        return None
+    return offset
+
+
+def _bottom_of_the_lines(paragraph: Record) -> int | None:
+    """`_hangul.bottom_of_the_lines` of the line segments Hangul stored with a paragraph (PARA_LINE_SEG: 36 bytes a line, the
+    vertical position at byte 4 and the height at byte 8); None without them."""
+    segments = next((child for child in paragraph.children if child.tag == TAG_PARA_LINE_SEG), None)
+    if segments is None:
+        return None
+    return bottom_of_the_lines(struct.unpack_from("<ii", segments.payload, start + 4)
+                               for start in range(0, len(segments.payload) - _LINE_SEGMENT_BYTES + 1, _LINE_SEGMENT_BYTES))
+
+
+# The controls that begin with the common attributes of an object: a table, a drawing object, an equation, a form object
+_PLACED_OBJECTS = frozenset(("tbl ", "gso ", "eqed", "form"))
+
+
+def _bottom_where_tables_stand_under(paragraph: Record, spacing_above: int | None) -> int | None:
+    """How far under the top of a paragraph its lines end, when a table that starts at or under there is drawn under its
+    text; None when that cannot be said. An offset is measured from the top of the paragraph before its spacing above, and
+    the lines are stored under that spacing, so it is added (None when the shape of the paragraph does not say it). It
+    cannot be said when the paragraph holds any other object that is not treated as a character - a picture, a shape, a
+    table that starts higher: such an object pushes the first line down, and the stored position of that line is then not
+    under the top by the spacing alone."""
+    bottom = _bottom_of_the_lines(paragraph)
+    if bottom is None or spacing_above is None:
+        return None
+    bottom += spacing_above
+    for control in paragraph.children:
+        if control.tag != TAG_CTRL_HEADER or ctrl_id(control) not in _PLACED_OBJECTS:
+            continue
+        if len(control.payload) >= 8 and control.payload[4] & _AS_CHARACTER:
+            continue
+        offset = _offset_under_the_paragraph(control) if ctrl_id(control) == "tbl " else None
+        if offset is None or offset < bottom:
+            return None
+    return bottom
+
+
 def _holds_content(paragraphs: list[Record]) -> bool:
     """Whether the paragraphs of a table cell hold anything besides blanks: a character, or a control (any other unit below
     32, and the record of one). Told from the records before the cell is read, and on the side of content
@@ -1400,9 +1481,13 @@ def parse_paragraph_heads(doc_info: list[Record]) -> ParagraphHeads:
                     level = deep if _LAST_ATTRIBUTE_LEVEL < deep <= 9 else level
                 heads.shapes.append(((properties >> 23) & 0x3, level, numbering_id))
                 heads.margins.append(struct.unpack_from("<i", payload, 4)[0])
+                # The spacing above is stored doubled: halved, it is what the first line of 268 paragraphs of the samples
+                # stands under the line before it by, and whole it is that of none
+                heads.spacings_above.append(max(struct.unpack_from("<i", payload, _PARA_SHAPE_SPACING_ABOVE)[0] // 2, 0))
             else:
                 heads.shapes.append((0, 0, 0))
                 heads.margins.append(0)
+                heads.spacings_above.append(None)
         elif record.tag == TAG_NUMBERING:
             heads.numberings.append(_numbering_levels(payload))
         elif record.tag == TAG_BULLET:
