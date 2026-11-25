@@ -334,6 +334,9 @@ class _Page:
     letter_shapes: int = 0
     # The lines of the page are laid out from right to left (`_pdf_bidi._page_reading`).
     leftwards: bool = False
+    # A sheet that holds two pages side by side, its lines put in the order of the two pages
+    # (`_pdf_reading_order._two_pages_on_a_sheet`). `_read_alternating_sides_in_turn` leaves it alone.
+    two_pages: bool = False
     # The tables the structure tree of a tagged PDF states on this page (`_pdf_tagged_tables._TaggedTable`), with the text and
     # the box of each cell. Made into tables where the page agrees with them (`_extract_tagged_tables`).
     tagged: list = field(default_factory=list)
