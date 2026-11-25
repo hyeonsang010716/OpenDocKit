@@ -960,7 +960,7 @@ def _render_text_frame(text_frame: object, as_bullets: bool, list_styles: list[o
             if first.isalnum():
                 lines.append(line)
             elif clean_characters(line).strip():
-                lines.append(escape_block_marks(line) if first in "#>" else line)
+                lines.append(escape_block_marks(line) if "#" in line or ">" in line else line)
         level = _paragraph_level(paragraph)
         bullet = _bullet(paragraph._p, level, list_styles)
         is_numbered = bullet is not None and bullet.tag == f"{{{_DRAWING}}}buAutoNum"
