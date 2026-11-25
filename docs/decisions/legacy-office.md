@@ -26,7 +26,7 @@ Guaranteed by this library:
 - The profile LibreOffice starts with asks for: macros disabled, no trusted macro location, links not updated, untrusted linked content blocked, HTTP and HTTPS sent to a proxy that does not exist.
 
 Measured, on LibreOffice 26.2 (macOS): a picture linked by URL causes no request at all with this profile (it causes three with the default profile).
-Measured again on LibreOffice 26.2.6 and 26.2.7 (Ubuntu 26.04): reading the .doc with the default profile sends OPTIONS and HEAD to the address, and nothing with this profile. From 26.2.7 LibreOffice no longer asks for the linked picture of a DOCX with any profile, so the test counts the requests of the default profile on the conversion `convert` runs (the .doc read, DOCX written), not on the making of its .doc.
+Measured again on LibreOffice 26.2.6 and 26.2.7 (Ubuntu 26.04): reading the .doc with the default profile sends OPTIONS and HEAD to the address, and nothing with this profile. From 26.2.7 LibreOffice no longer asks for the linked picture of a DOCX, with the default profile or with this one, so the test counts the requests of the default profile on the conversion `convert` runs (the .doc read, DOCX written), not on the making of its .doc.
 
 Not guaranteed:
 

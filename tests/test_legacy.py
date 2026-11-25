@@ -1031,11 +1031,12 @@ class TestRealLibreOffice:
                 assert url.encode() in doc or url.encode("utf-16-le") in doc, "the link did not survive into the .doc"
                 requests.clear()  # whether making the .doc asks for the picture depends on the version: not what is measured
                 # The conversion of `extract_doc`, with a bare profile: this is what the private profile has to stop
-                assert legacy._run_soffice(_SOFFICE, doc, "doc", "docx", "MS Word 2007 XML", _NO_LIMIT)
+                assert legacy._run_soffice(_SOFFICE, doc, "doc", "docx", _WORD_FILTER, _NO_LIMIT)
             finally:
                 legacy._PROFILE_SETTINGS = hardened
-            assert requests, ("LibreOffice with default settings sent no request for the linked picture of the .doc: the private "
-                              "profile is not shown to be what stops it")
+            assert any("/linked.png" in request for request in requests), (
+                "LibreOffice with default settings sent no request for the linked picture of the .doc: the private profile is "
+                "not shown to be what stops it")
             requests.clear()
 
             result = convert(doc, "a.doc")
