@@ -55,6 +55,9 @@ _SIDE_BY_SIDE_ROWS_MIN = 2
 # the two outer margins together - the inner margins of the two pages - and each half holds at least this many lines
 _SHEET_GAP_RATIO = 0.75
 _SHEET_HALF_LINES_MIN = 3
+# and the sheet has the proportions of a sheet of the A series, whose half is a page of that series, within this share
+_SHEET_PROPORTION = math.sqrt(2)
+_SHEET_PROPORTION_TOLERANCE = 0.02
 
 
 def _read_columns_in_turn(page: _Page) -> None:
@@ -82,6 +85,7 @@ def _read_columns_in_turn(page: _Page) -> None:
     middle = _two_pages_on_a_sheet(page)
     if middle is not None:
         page.lines = [*(line for line in page.lines if line.x1 <= middle), *(line for line in page.lines if line.x0 >= middle)]
+        page.two_pages = True
         return
     wide = page.width * _TABLE_CELL_MAX_RATIO
     mixed = [sorted(pair, key=lambda line: line.x0) for pair in zip(page.lines, page.lines[1:], strict=False)
@@ -115,14 +119,19 @@ def _two_pages_on_a_sheet(page: _Page) -> float | None:
     below both columns and for headings over them, and where they did not apply the order was the layout analysis's own,
     which pairs the boxes nearest to each other across the gap: a heading of the right page came out in the middle of a
     sentence of the left one (Pinned by: test_pdf_reading_order.py::TestTwoPagesOnASheet).
-    Kept narrow (Deliberate): the visible area is wider than it is high; every line, table, picture, rule and filled band
-    stands wholly left or wholly right of its middle; each half holds `_SHEET_HALF_LINES_MIN` lines or more; and the band
-    left empty at the middle is centred on it and at least `_SHEET_GAP_RATIO` of the two outer margins together - each
-    half has its own margins on both sides, where two columns of one page share the page's margins and stand close. Of
-    1,646 PDFs, 116 pages wider than high have words on both sides of the middle; nothing crosses it on 17, and 16 of
-    those, all of six Korean releases, have such a band (79pt for outer margins of 40 and 38)."""
-    x0, top, x1, bottom = page.view
-    if not x1 - x0 > bottom - top:
+    Kept narrow (Deliberate): the visible area has the proportions of a sheet of the A series on its side (1 to the
+    square root of 2, so that its half is a page of the series; a slide and a sheet of another series are not asked);
+    every line, table, picture, rule and filled band stands wholly left or wholly right of its middle; each half holds
+    `_SHEET_HALF_LINES_MIN` lines or more; and the band left empty at the middle is centred on it and at least
+    `_SHEET_GAP_RATIO` of the two outer margins together - each half has its own margins on both sides, where two
+    columns of one page share the page's margins and stand close. A page that is turned (/Rotate) or read without
+    places has no visible area to measure in (`_Page.text_view`) and is left to the rules for columns.
+    Known accepted gap: a page of that shape which is one page - two columns set far apart with nothing across the
+    middle, rows of a list read across it, text under both columns - is read half by half too."""
+    if page.text_view is None:
+        return None
+    x0, top, x1, bottom = page.text_view
+    if not (bottom > top and abs((x1 - x0) / (bottom - top) - _SHEET_PROPORTION) <= _SHEET_PROPORTION * _SHEET_PROPORTION_TOLERANCE):
         return None
     middle = (x0 + x1) / 2
     lines = [(line.x0, line.x1) for line in page.lines]
@@ -632,7 +641,7 @@ def _read_alternating_sides_in_turn(page: _Page) -> None:
     over all of them again, so 20,000 such lines took 20 seconds here, of 21 for their 56 KB page (Pinned by:
     test_pdf_reading_order.py::TestManyLinesBesideColumns).
     """
-    if page.simple:
+    if page.simple or page.two_pages:
         return
     lines = page.lines  # Modified in place
     index = 1
@@ -744,7 +753,7 @@ def _read_lone_lines_in_place(page: _Page) -> None:
     test_pdf_forms_and_amounts.py::TestFarRightAmounts). A subheading at the top spanning only the right column (two
     columns whose left column starts lower) is not moved.
     """
-    if page.simple or not 2 <= len(page.lines) <= _LONE_LINE_MAX_LINES:
+    if page.simple or page.two_pages or not 2 <= len(page.lines) <= _LONE_LINE_MAX_LINES:
         return
     lines = page.lines  # Modified in place
     tables = [(table.top, table.bottom, table.x0, table.x1) for table in page.tables]
@@ -801,7 +810,7 @@ def _read_sidebar_first(page: _Page) -> None:
     margin) is still body → sidebar.
     """
     lines = page.lines
-    if page.simple or page.tables or page.figures or len(lines) < 6:
+    if page.simple or page.two_pages or page.tables or page.figures or len(lines) < 6:
         return
     split = next((index for index in range(1, len(lines)) if lines[index].x0 < lines[index - 1].x0 - _TABLE_ROW_TOLERANCE), None)
     if split is None or split < 3 or len(lines) - split < 3:
