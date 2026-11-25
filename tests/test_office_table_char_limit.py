@@ -688,16 +688,49 @@ class TestChartValuesPastTheLimit:
 
     @pytest.mark.timing
     @pytest.mark.parametrize("scatter", [False, True])
-    def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter):
-        """Stopped at the limit, a chart of 200,000 points takes a fraction of the time of the same chart drawn to its end
-        (about a quarter for bars, two fifths for scatter); drawn to the end under the limit too, it took as long. Measured
-        against that full conversion of the same file, so the speed and load of the machine do not matter."""
+    def test_chart_of_many_points_is_not_rendered_to_the_end(self, scatter, monkeypatch):
+        """Stopped at the limit, a chart of 200,000 points is drawn in a fraction of the time of the same chart drawn to its
+        end (a sixteenth for bars, a sixth for scatter, up to 0.3 on a Windows runner); drawn to the end under the limit too,
+        it took as long. Measured against the full drawing of the same file, so the speed and load of the machine do not
+        matter.
+
+        Only the drawing of the chart is timed (`render_chart`), without the reading of its points, which are read to the end
+        either way (the cut is made in the rows written). The whole conversion, timed before, also holds reading the file:
+        three quarters of the stopped conversion on a macOS runner, which passed the bound of 0.7 now and then."""
+        import math
+
+        from opendockit.extractors import _charts
+        from opendockit.extractors import pptx as pptx_module
+        from tests.timing import Fastest
+
+        reading, drawing = [0.0], [0.0]
+
+        def timed(function, spent):
+            def call(*args, **kwargs):
+                started = time.perf_counter()
+                try:
+                    return function(*args, **kwargs)
+                finally:
+                    spent[0] += time.perf_counter() - started
+            return call
+
+        monkeypatch.setattr(_charts, "_points", timed(_charts._points, reading))
+        monkeypatch.setattr(pptx_module, "render_chart", timed(pptx_module.render_chart, drawing))
         data = _pptx_with_big_chart(200_000, scatter=scatter)
 
-        def best(limit: int | None) -> float:
-            return fastest(lambda: convert(data, "a.pptx", ConvertOptions(max_chars=limit)), runs=2)
+        def drawn(limit: int | None) -> float:
+            best, timer = math.inf, Fastest()
+            for _ in timer:
+                reading[0] = drawing[0] = 0.0
+                with timer:
+                    convert(data, "a.pptx", ConvertOptions(max_chars=limit))
+                best = min(best, drawing[0] - reading[0])
+            return best
 
-        assert best(_LIMIT) < best(None) * 0.7
+        stopped, full = drawn(_LIMIT), drawn(None)
+
+        assert full > 0  # the chart was drawn through `render_chart`, so the drawing was timed
+        assert stopped < full * 0.5
 
 
 def _chart_of_own_points(series: int, points: int, *, shared: bool = False) -> str:

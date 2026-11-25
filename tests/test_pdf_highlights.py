@@ -400,23 +400,29 @@ class TestManyHighlightedLines:
 
     @pytest.mark.timing
     def test_each_line_looks_only_at_the_words_near_it(self):
+        """The highlights are told apart in less time than pdfplumber takes to read the page (0.4 of it; 7 times it before).
+        Measured against that reading on the same machine: a bound of 4 seconds failed on a slow Windows runner, and four
+        times the lines against the lines, tried instead, left too little room on a Linux runner."""
         from io import BytesIO
-        import time
 
         import pdfplumber
 
         from opendockit.extractors._pdf_table_filters import _without_highlights
+        from tests.timing import fastest
 
-        with pdfplumber.open(BytesIO(self._page(4000))) as document:
-            first = document.pages[0]
-            objects = (first.chars, first.rects)  # parsing time is not measured
+        data = self._page(4000)
 
-            started = time.perf_counter()
-            left = _without_highlights(first)
-            elapsed = time.perf_counter() - started
+        def read() -> None:
+            with pdfplumber.open(BytesIO(data)) as document:
+                document.pages[0].chars, document.pages[0].rects
 
+        reading = fastest(read)
+        with pdfplumber.open(BytesIO(data)) as document:
+            page = document.pages[0]
+            objects = (page.chars, page.rects)  # parsing time is not measured
+            left = _without_highlights(page)
             assert len(objects[1]) == 8000 and len(left.rects) == 0  # the highlights of every line are removed
-        assert elapsed < 4  # 15 seconds before
+            assert fastest(lambda: _without_highlights(page)) < 1.5 * reading
 
 
 def _table_with_shaded_header(line_shading: bool, between: bool = False) -> bytes:
@@ -545,7 +551,7 @@ class TestShadingInsideShadedCells:
             with pdfplumber.open(BytesIO(page_pdf(count))) as document:
                 page = document.pages[0]
                 page.rects  # noqa: B018 — pdfplumber's own reading is not measured
-                return fastest(lambda: _without_nested_fills(page))
+                return fastest(lambda: _without_nested_fills(page), runs=10)  # a millisecond or so: one slow run is not enough
 
         small, large = (seconds(250), seconds(1_000)) if shape == "nested in two colours" else (seconds(1_000), seconds(4_000))
         assert large < small * 8

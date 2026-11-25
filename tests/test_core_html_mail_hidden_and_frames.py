@@ -363,7 +363,7 @@ class TestRawTextElementsLeftOpen:
         """Every raw text element of the page goes through the work list of the pass, closed ones too; taking each from the front
         of a list shifted the whole list, quadratic in their number (400,000 `<xmp>` spent 10.8 s in the pass)."""
         def seconds(count: int) -> float:
-            timer = Fastest()
+            timer = Fastest(6)  # tens of milliseconds: the fastest of three was passed once on a macOS runner
             for _ in timer:
                 soup = BeautifulSoup("<p>" + "<xmp>v</xmp>" * count + "</p>", "lxml")
                 with timer:

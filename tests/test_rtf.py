@@ -987,11 +987,15 @@ class TestHostileInput:
     @pytest.mark.timing
     def test_tables_opened_and_closed_for_every_cell_take_linear_time(self):
         """80,000 cells of a top-level table, each opening 15 nested tables and closing them again (2.5 MB): 11 seconds and
-        1.8 GB before the nested tables of one table were counted."""
+        1.8 GB before the nested tables of one table were counted.
+
+        Measured against the same 80,000 cells without a table inside them, read on the same machine: under 2 times as long
+        now, 11 to 12 times before. A bound of 5 seconds failed on a slow Windows runner."""
         data = rb"{\rtf1\ansi " + rb"\itap16 x\nestcell\itap1 \cell " * 80_000 + rb"\row}"
-        started = time.perf_counter()
+        plain = rb"{\rtf1\ansi " + rb"\intbl x\cell " * 80_000 + rb"\row}"
+
+        assert fastest(lambda: convert(data, "a.rtf")) < 5 * fastest(lambda: convert(plain, "a.rtf"))
         result = convert(data, "a.rtf")
-        assert time.perf_counter() - started < 5
         assert result.warnings == ["A table holds more than 10,000 tables inside it; the tables after that were left out."]
 
     @pytest.mark.timing

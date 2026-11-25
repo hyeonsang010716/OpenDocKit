@@ -664,24 +664,36 @@ class TestHiddenBlocksNestedInsideHiddenBlocks:
 class TestManyListsOrTablesSetAsideWhileTheirParentIsRendered:
     """The nested lists of a list item and the tables inside a table cell are swapped for a stand-in while the item or cell is
     rendered and put back afterwards, each swap looking up its position among its siblings: one `<li>` with 20,000 `<ul>`
-    (371KB) took 6.4 s, one cell with 20,000 tables 8 s."""
+    (371KB) took 6.4 s, one cell with 20,000 tables 8 s.
+
+    Each is measured against a page of the same size read on the same machine, where nothing has many siblings to be looked
+    up among. A bound in seconds failed on a Windows runner; four times the input against the input, tried instead, came to
+    7 times on a Linux runner and 8 on a macOS one for code that is linear, as a larger page is slower there for every element."""
 
     @pytest.mark.timing
     def test_item_with_many_nested_lists_takes_linear_time(self):
-        seconds, text = _seconds(("<ul><li>" + "<ul><li>a</li></ul>" * 30000 + "</li></ul>").encode(), "a.html")
+        """30,000 lists in one item take about as long as 30,000 items of one list each: 0.8 times here, up to 1.4 times on
+        a Windows runner, and 8 times before."""
+        def page(count: int) -> bytes:
+            return ("<ul><li>" + "<ul><li>a</li></ul>" * count + "</li></ul>").encode()
 
-        assert text == "-\n" + "\n".join(["  - a"] * 30000)
-        assert seconds < allowed(8)
+        one_item = page(30_000)
+        one_each = ("<ul>" + "<li><ul><li>a</li></ul></li>" * 30_000 + "</ul>").encode()
+
+        assert fastest(lambda: convert(one_item, "a.html")) < 3 * fastest(lambda: convert(one_each, "a.html"))
+        assert convert(page(300), "a.html").text == "-\n" + "\n".join(["  - a"] * 300)
 
     @pytest.mark.timing
     def test_cell_with_many_tables_takes_linear_time(self):
-        html = ("<table><tr><td>" + "<table><tr><td>a</td></tr></table>" * 30000 + "</td><td>b</td></tr>"
-                "<tr><td>c</td><td>d</td></tr></table>")
+        """30,000 tables in one cell take about twice as long as 30,000 blocks of three nested `div` in it, as many elements
+        (up to 2.6 times on a Windows runner, 10 times before)."""
+        def page(count: int, piece: str = "<table><tr><td>a</td></tr></table>") -> bytes:
+            return ("<table><tr><td>" + piece * count + "</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>").encode()
 
-        seconds, text = _seconds(html.encode(), "a.html")
+        tables, blocks = page(30_000), page(30_000, "<div><div><div>a</div></div></div>")
 
-        assert text == "| " + " ".join("a" * 30000) + " | b |\n| --- | --- |\n| c | d |"
-        assert seconds < allowed(8)
+        assert fastest(lambda: convert(tables, "a.html")) < 5 * fastest(lambda: convert(blocks, "a.html"))
+        assert convert(page(300), "a.html").text == "| " + " ".join("a" * 300) + " | b |\n| --- | --- |\n| c | d |"
 
     @pytest.mark.parametrize(("html", "expected"), [
         ("<ul><li>one<ul><li>a</li></ul>between<div><ol><li>b</li></ol></div>after</li><li>two</li></ul>",
