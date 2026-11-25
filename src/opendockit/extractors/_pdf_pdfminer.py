@@ -18,9 +18,10 @@ import struct
 import unicodedata
 import zlib
 
+from pdfminer import ascii85 as pdfminer_ascii85
 from pdfminer import layout as pdfminer_layout
-from pdfminer import pdffont
-from pdfminer.ascii85 import ascii85decode, asciihexdecode
+from pdfminer import pdffont, pdftypes
+from pdfminer.ascii85 import asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import EncodingDB, name2unicode
 from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
@@ -112,6 +113,62 @@ _INFLATE_CHUNK = 1 << 20  # amount inflated at a time when measuring size (only 
 _LINE_GROUPING_WORK = 20_000_000
 # Code points the `cmap` tables of the embedded TrueType fonts of one document may name in all (`_unicode_map_of_the_font`).
 _DOCUMENT_CMAP_CODES = 12_000_000
+
+
+# ASCII85 data is decoded this many characters at a time (a multiple of the five that make four bytes).
+_ASCII85_PIECE = 5 * 65_536
+_ASCII85_WHITE_SPACE = b" \t\n\r\x0b"  # what the standard library's decoder passes over
+_ASCII85_ZEROS = ord("z")  # the abbreviation of four zero bytes: one character where five stand otherwise
+_ASCII85_AROUND_A_MARK = b" \t\n\r\x0b\x0c"  # the white space of the library's patterns for the marks of the start and the end
+
+
+def _ascii85_body(data: bytes) -> bytes:
+    """The data without the marks of its start (`<~` or `~`) and its end (`~>` or `~`), as pdfminer's `start_re` and `end_re`
+    leave it. Those patterns begin with white space of any length, so a search that fails is tried again from every
+    character of a run: 80,000 spaces behind the filter took 12 s. This reads each end once (Pinned by:
+    test_pdf_resource_limits.py::TestAscii85InPieces::test_marks_are_taken_off_as_the_patterns_of_the_library_do)."""
+    start = data.lstrip(_ASCII85_AROUND_A_MARK)
+    if start[:1] == b"<":
+        start = start[1:].lstrip(_ASCII85_AROUND_A_MARK)
+    if start[:1] == b"~":
+        data = start[1:].lstrip(_ASCII85_AROUND_A_MARK)
+    end = data.rstrip(_ASCII85_AROUND_A_MARK)
+    if end[-1:] == b">":
+        end = end[:-1].rstrip(_ASCII85_AROUND_A_MARK)
+    if end[-1:] == b"~":
+        data = end[:-1].rstrip(_ASCII85_AROUND_A_MARK)
+    return data
+
+
+def ascii85decode(data: bytes) -> bytes:
+    """pdfminer's `ascii85decode`, with the data decoded a piece at a time.
+
+    The decoder of the standard library is written in Python and holds some forty bytes for each one it reads: a file of
+    10 MB behind the filter took 405 MB to convert and now takes 134 MB, one of 31 MB 1,077 MB and now 250 MB. Five characters
+    stand for four bytes, and `z` alone for four zero bytes, so data cut where a five ends decodes to the same bytes piece
+    by piece: a piece ends where the characters before it that are not `z` come to a multiple of five. Data the library
+    raises on raises in the piece that holds the fault, and data with a `y` (which the library raises on) or no longer
+    than a piece is decoded whole as before (Pinned by: test_pdf_resource_limits.py::TestAscii85InPieces)."""
+    body = _ascii85_body(data)
+    if len(body) <= _ASCII85_PIECE or b"y" in body:
+        return pdfminer_ascii85.a85decode(body)
+    body = body.translate(None, _ASCII85_WHITE_SPACE)
+    pieces, at, length = [], 0, len(body)
+    while at < length:
+        end = min(at + _ASCII85_PIECE, length)
+        if end < length:
+            over = (end - at - body.count(b"z", at, end)) % 5   # characters of a five that is cut
+            while over:
+                end -= 1
+                over -= body[end] != _ASCII85_ZEROS
+            if end == at:
+                return pdfminer_ascii85.a85decode(body)   # fewer than five characters before a `z`: the library raises
+        pieces.append(pdfminer_ascii85.a85decode(body[at:end]))
+        at = end
+    return b"".join(pieces)
+
+
+pdftypes.ascii85decode = ascii85decode  # `PDFStream.decode` looks the function up in its module
 
 
 @dataclass(slots=True)
