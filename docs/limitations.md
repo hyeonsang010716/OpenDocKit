@@ -20,7 +20,8 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **A worker costs more on Windows.** There is no fork server to preload this package into, so every file pays a full
   interpreter start and `import opendockit` — measured on Windows 11 at 0.2 s for a small text file on Python 3.12 and
   0.3 s on 3.14, against a few milliseconds elsewhere — and then the import of the reader its format needs (a DOCX
-  0.1 s more). It is the price of a fresh worker per file there, and it does not apply to `convert` itself. The time
+  0.1 s more). macOS and the BSDs under gevent or eventlet spawn each worker too, about 0.1 s a file
+  ([server.md](server.md)). It is the price of a fresh worker per file there, and it does not apply to `convert` itself. The time
   limit counts it, so a `timeout` of a few seconds leaves that much less for the conversion.
 - **Building an `IsolatedConverter` on Windows needs a `__main__` guard.** Workers are started by spawning a new interpreter
   that re-imports the program, so a converter made at module level builds converters without end. Make it inside
@@ -35,7 +36,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 
 ## Integrations
 
-- **LangChain, LlamaIndex and the MCP server convert offline.** Pictures and scanned pages stay placeholders; to have them
+- **Every integration converts offline** (LangChain, LlamaIndex, LightRAG, the MCP server, Dify, Open WebUI). Pictures and scanned pages stay placeholders; to have them
   described, convert with a describer yourself ([integrations.md](integrations.md)).
 - **The MCP server** speaks stdio only. Without `--root` it reads any file its user can read, and where `--root` is given,
   the folder is checked again as the file is opened on POSIX but only around the open on Windows, which narrows the moment
@@ -107,7 +108,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   unreadable structure) keeps the order pdfium gives it.
 - **Vertical writing** (pages set in WMode 1 fonts): characters are scattered one by one and the column order (right to left) is not kept.
 - **Lines drawn separately per font.** A PDF that draws Hangul and digits on the same baseline as separate runs per font (Cairo output and the like) is read as one line by re-collecting the characters in x order. Characters drawn on top of each other (fake bold, overlapping text boxes) are not merged.
-- **A 2-up imposition PDF that places each page as a Form XObject**: lines at the same height on the left and right pages are joined into one line.
+- **Two pages on one sheet.** A sheet of the A or B series on its side that holds two pages side by side is read page by page, the left page to its end and then the right. On a sheet of other proportions (Letter, Tabloid), or where each page is placed as a Form XObject, lines at the same height of the two pages can still be joined into one line.
 - **A PDF exported from slides** comes out as scattered fragments of text boxes and diagrams (reading order is right, but "label — value" relations are split into lines). If the original PPTX exists, uploading it preserves the structure.
 - **Removal of repeated headers** targets the margins (10% of the visible area's height) and the top and bottom two rows of the page.
   - For margin lines that differ only by a number from page to page, digits are ignored only in page-number-shaped tokens ('3', '3/10', '3쪽', '2024-01-05'), so value lines such as '소계 12건', '실지급액: 3,450,000' or '증감률 6.8%' are kept.
@@ -141,6 +142,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **A page with more than 500,000 drawing elements** (including the same Form XObject drawn over and over), **or with forms nested deeper than 32 levels**, is not read (empty page) and gives a warning. Merely opening such a page uses several GB.
 - **A PDF that pdfminer cannot open and is read by plain pdfium extraction** cannot have the decompression limit and the drawing-element limit applied before a page is opened (the character limit is still kept page by page).
 - **Abnormally large ranges in a font's glyph-width or ToUnicode tables** (malicious files that expand to tens of GB) are partly cut, with a warning.
+- **A page with one string of more than 2 MB, more than 250,000 glyphs or more than 2 million characters of text** is read as text only, like a page past the time budget. A page whose font gives one character code more than 64 characters is read by pdfminer alone, or not at all, and is then listed with the pages not read. A page of millions of glyphs in short strings is not bounded: convert files nobody vouches for in `IsolatedConverter` ([server.md](server.md)).
 - **Broken content streams.** When the content stream of a page with no text or pictures at all cannot be decoded (damaged compression), a warning says the content could not be decoded. The content of that page cannot be recovered.
 - pdfminer logs a WARNING such as `Could not get FontBBox…` for each piece of broken font information. This does not affect the result; if the server log is noisy, lower it with `logging.getLogger("pdfminer").setLevel(logging.ERROR)`.
 
@@ -212,7 +214,7 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
   up to the cut, with a warning. A table keeps at most 500,000 cells; the cells after that are left out with a warning.
   After 50,000 runs of formatting in one paragraph the rest of it is written without bold, italic or links. Groups
   nested deeper than 500 levels and pictures after the 10,000th are left out, each with a warning.
-- **EPUB**: DRM-protected books cannot be read. Footnotes stay where the chapter has them instead of becoming `[^n]`.
+- **EPUB**: DRM-protected books cannot be read. Footnotes stay where the chapter has them instead of becoming `[^n]`; a reference to one is written `[n]`.
   Pictures inside an inline `<svg>` wrapper, `srcset` / `<picture>` alternatives and SVG pictures are not extracted, and
   remote pictures are never fetched. Spine pages that are SVG or plain images (some fixed-layout books and comics) are
   left out with a warning. A contents page that is an ordinary chapter is kept as a list of titles. A missing or damaged

@@ -173,6 +173,20 @@ With `mode="sections"` each page, slide or sheet is its own Document, with its n
 
 [![hyeonsang010716/OpenDocKit MCP server](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit/badges/score.svg)](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit)
 
+### LightRAG
+
+[LightRAG](https://github.com/HKUDS/LightRAG) finds the parser engine `opendockit` by itself once both are installed;
+no code is needed. A routing rule says which documents it reads:
+
+```bash
+pip install "opendockit[lightrag]"
+export LIGHTRAG_PARSER="hwp:opendockit,hwpx:opendockit,doc:opendockit,ppt:opendockit,xls:opendockit"
+```
+
+With that rule LightRAG accepts Hangul documents and the old Office formats, which its local engines do not read. Add
+`pdf:opendockit` or `docx:opendockit` to have those arrive as Markdown with their tables and headings. See
+[docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md#lightrag).
+
 ### Hermes Agent
 
 OpenDocKit is listed in the [Hermes Agent plugin catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog), where every plugin is reviewed by the Hermes

@@ -176,6 +176,20 @@ opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이
 
 [![hyeonsang010716/OpenDocKit MCP server](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit/badges/score.svg)](https://glama.ai/mcp/servers/hyeonsang010716/OpenDocKit)
 
+### LightRAG
+
+[LightRAG](https://github.com/HKUDS/LightRAG)는 둘이 함께 설치되어 있으면 파서 엔진 `opendockit`을 스스로 찾습니다. 코드는
+필요 없고, 어떤 문서를 맡길지는 라우팅 규칙으로 정합니다.
+
+```bash
+pip install "opendockit[lightrag]"
+export LIGHTRAG_PARSER="hwp:opendockit,hwpx:opendockit,doc:opendockit,ppt:opendockit,xls:opendockit"
+```
+
+이 규칙을 주면 LightRAG의 로컬 엔진이 읽지 못하는 한글 문서와 구형 Office 형식을 LightRAG가 받습니다. `pdf:opendockit`이나
+`docx:opendockit`을 더하면 그 문서들도 표와 제목이 살아 있는 Markdown으로 들어갑니다.
+[docs/integrations.md](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/integrations.md#lightrag)를 참고하세요.
+
 ### Hermes Agent
 
 OpenDocKit은 [Hermes Agent 플러그인 카탈로그](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)에 등록되어 있습니다. 이 카탈로그의 플러그인은 모두 Hermes

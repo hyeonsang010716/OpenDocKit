@@ -12,7 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `opendockit` by itself when both are installed, and a routing rule such as
   `LIGHTRAG_PARSER="hwp:opendockit,hwpx:opendockit,doc:opendockit"` sends documents to it: Hangul documents and the
   old Office formats, which LightRAG's local engines do not read, and any other document whose tables and headings
-  should arrive as Markdown. Nothing changes for a document that is not sent to it
+  should arrive as Markdown. A document is stored whole, up to 10,000,000 characters; a scan and a longer document
+  are marked failed with a sentence that says why. Nothing changes for a document that is not sent to it
   ([docs/integrations.md](docs/integrations.md#lightrag)).
 - **`opendockit FILE -o OUT`** writes the output to OUT instead of standard output: the same bytes, UTF-8 with LF line
   ends, whatever the shell. Windows PowerShell 5.1 re-encodes what a program prints, and under cp949, the Korean
@@ -27,6 +28,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   cuts, flips and overwrites real documents — the file, a part of a ZIP package, a stream of an HWP file — and converts
   each copy in a worker: none may end it, hang or raise anything but a conversion error. 47,193 damaged copies of the
   public samples did none of these.
+- **A scorecard for text without a stated charset** (`evals/encodings.py`, the `Encodings` workflow): each text is
+  written in the code pages of its language and read back, 12,348 samples of one language and 35,336 with a foreign
+  name or sign among them. A change fails when a sample that was read right is read wrong.
 
 ### Changed
 
@@ -41,15 +45,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **ODS: a date is written from its stored value, as for XLSX.** A date cell was written as the sheet shows it:
   `05/01/24`, the fifth of January in one locale and the first of May in another. It is now `2024-01-05`, by the rule of
   the XLSX reader. A workbook of sixteen date formats saved as ODS gives the same table as its XLSX.
-- **HTML, EPUB: a note reference is written `[n]`.** The digits of a raised note link ran into what stood before them:
-  `1,200` and note 1 read `1,2001`, and `GDP 2.5` and note 4 read `2.5^4`, an exponent. A raised number that is no link
-  stays an exponent.
+- **HTML, EPUB: a note reference is written `[n]`.** A raised note link read as an exponent (`GDP 2.5` and note 4:
+  `2.5^4`), and the digits of a link marked as a note reference without being raised ran into what stood before them
+  (`1,200` and note 1: `1,2001`). A raised number that is no link stays an exponent.
 - **HWP, HWPX: a caption is written where the document sets it**, under a table or above it, and the caption of a
   picture as a block of its own; the two readers now agree. A table's caption was always written above it.
 - **HWP, HWPX: a table drawn under the line that introduces it is written after that line.** Hangul usually keeps
   the control of a table that is not treated as a character before the first character of its paragraph and draws
-  the table by an offset. The table came first and its label after it, at the end of the document for a table of two pages. The
-  offset and the stored lines of the paragraph now say where the table stands.
+  the table by an offset. The table came first and its label after it, at the end of the document for a table of two
+  pages. The offset and the stored lines of the paragraph now say where the table stands.
 - **HWP, HWPX: a table that only frames text is read as that text.** The box around a summary is drawn as a table of
   three rows and columns with the label across its top line; it came out as an HTML table with empty cells.
 - **HWPX converts faster**: the name of an element is remembered by its tag instead of being split each time.
@@ -64,13 +68,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   pdfminer reads of a page is bounded where it reads it — the length of a string, the glyphs drawn and kept, the
   text they stand for — and a page past it is read with simple extraction. A page whose font gives one code more
   than 64 characters (4,000 of them, drawn 4,000 times, took more than 3 GB in under a second) is not opened by
-  pdfium. What a glyph may stand for there is lowered, not closed, and a page of millions of glyphs in short strings
-  is still not bounded: convert files nobody vouches
-  for in `IsolatedConverter`.
+  pdfium: pdfminer reads it alone, and a page it gives up too is listed with the pages not read. What a glyph may
+  stand for there is lowered, not closed, and a page of millions of glyphs in short strings is still not bounded:
+  convert files nobody vouches for in `IsolatedConverter`.
 - **Characters nobody sees are removed in plane 14 too.** The tag characters U+E0020–E007F mirror ASCII and are drawn
   by nothing: a sentence written in them inside a DOCX, a text file or an HTML page came through whole, read by a
   language model and by no reader of the document. They are removed with the other invisible characters, but for the
-  two uses that are writing (a flag sequence, a variation selector after an ideograph).
+  two uses that are writing (a flag sequence, a variation selector after an ideograph). The format controls
+  U+206A–206F, the unassigned U+2065 and the interlinear annotation marks U+FFF9–FFFB, which nothing draws either,
+  go with them.
 - **A result lists the first 200 warnings of a reader and counts the rest.** A 532 KB deck whose slide list held
   200,000 entries gave 200,001 warnings, 11.3 MB of them, which the LangChain and LlamaIndex loaders copy into the
   metadata of every piece.
@@ -79,83 +85,81 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
-- **macOS: `IsolatedConverter` under gevent or eventlet no longer loses a conversion.** Those libraries make every socket
-  non-blocking, the forkserver's too, and on macOS and the BSDs a socket it accepts is then non-blocking as well: a worker
-  asked for at a busy moment made the forkserver die, so the file being converted failed and the next one was refused
-  (two Dify requests at once on macOS: 2 runs in 100 under load). There, and only there, each worker is spawned: about
-  0.1 s for a file instead of a few ms. Linux, the Dify runtime, keeps its forkserver.
-
-- **Windows: a document at a path of 260 characters or more is read.** Without LongPathsEnabled — off by default —
-  such a path was "File not found" on the command line, a `FileNotFoundError` from `convert_file` and "No file at
-  that path." from the MCP server, for a file that was there: a document deep in a synchronised folder with long
-  names. A root of the MCP server may be that long as well.
-- **Windows: a file another program holds open is said to be.** The command line said the file might be a folder or
-  lack a permission, and the MCP server only that it could not be read.
-- **Mail: a message that declares one boundary and writes another is read.** Its parts were not found, and the
-  body came out as the delimiter line, the headers of the part and pages of base64. The parts are now split at the
-  delimiter the body opens with, and only where no line that was shown is passed over: a body with a part the reader
-  neither reads nor reports, a sentence among the headers of a part, text around a uuencoded block, or lines of words
-  behind base64 stays text.
-- **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
-- **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
-  `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
 - **PDF: text set on a grid is not read with a space after every letter.** A report made for a printer of fixed pitch
   and drawn in a proportional font read `A c c o u n t No` and `8 , 9 2 3 . 0 7`. On a grid a word ends where the
   line has a space character or leaves a cell empty.
 - **PDF: a table with shaded cells and an open side keeps its last column.** A table whose right border is drawn on
   the header row alone, with shaded label cells, came out with its last column and its merged cells empty and their
   text as paragraphs under it.
-- **PDF: a sheet with two pages side by side is read page by page.** A document printed two pages to a sheet was
-  read as columns, or left in the order of its text boxes: a heading of the right page came out inside a sentence
-  of the left one. The left page is now read to its end, then the right one.
+- **PDF: a sheet with two pages side by side is read page by page.** A document printed two pages to an A4 or A3
+  sheet was read as columns, or left in the order of its text boxes: a heading of the right page came out inside a
+  sentence of the left one. The left page is now read to its end, then the right one.
 - **PDF: accented letters of a Type 1 font that brings its own encoding.** A font embedded as CFF with no
   `/Encoding` was read with the standard one, not with the encoding of the font program: a French bank statement
-  read `ProtØgØ` for `Protégé` and `ClientŁle` for `Clientèle`, 27 wrong letters a page.
-- **Text, HTML, CSV and mail without a stated charset: accented letters of Western text.** A short text in a
-  Latin code page was read in whichever one made it look like the cleanest English: an Italian mail as
-  Windows-1258 (`martedì` lost its `ì` to a mark on the `d`), Spanish as a DOS code page (`reuni¾n`), Polish in ISO
-  8859-2 as Windows-1252 (`obecno¶æ`). Where two or more accented letters fit the alphabet of one language and the
-  text reads no other way, that code page is taken; everything else is guessed as before. Of 12,348 samples in 60
-  languages in Windows and ISO code pages 8,709 are read right, from 8,210, and none that was right is wrong now.
+  read `ProtØgØ` for `Protégé` and `ClientŁle` for `Clientèle`, 27 wrong letters a page. A glyph such a font names
+  as no text (an old-style figure at the code of `Ł`) has no character now, and the warning of a character without
+  a mapping says so.
 - **PDF: the characters of an embedded TrueType font without a `ToUnicode` map.** The font's own character table was
   read wrongly past its first segment: of the 2,691 glyphs Arial names, 1,261 came out as another character, and
   `25°C ± 2, price £ 10` read `25±C¡²¡2,¡price¡¤¡10`.
+- **Text, HTML, CSV and mail without a stated charset: accented letters of Western text.** A short text in a
+  Latin code page was read in whichever one made it look like the cleanest English: an Italian bulletin as
+  Windows-1258 (`martedì` lost its `ì` to a mark on the `d`), Spanish as a DOS code page (`reuni¾n`), Polish in ISO
+  8859-2 as Windows-1252 (`obecno¶æ`). Where the accented letters of a text fit the alphabet of one language and
+  the text reads no other way, that code page is taken; everything else is guessed as before, a text whose accents
+  are letters of two alphabets (`ì ù é`, Italian and Czech) among it. Of 12,348 samples in 60 languages, each
+  written in the code pages of its language, 8,709 are read right, from 8,210, and none that was right is wrong now.
+- **Mail: a message that declares one boundary and writes another is read.** Its parts were not found, and the
+  body came out as the delimiter line, the headers of the part and pages of base64. The parts are now split at the
+  delimiter the body opens with, and only where no line that was shown is passed over: a body with a part the reader
+  neither reads nor reports, a sentence among the headers of a part, text around a uuencoded block, or lines of words
+  behind base64 stays text.
+- **DOCX, PPTX, HWP, HWPX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`), as in a PDF. The
+  comment of a command in a Word document (`# Point to your OLS config`) came out as a heading and `> 21 days` as a
+  quote; `> 750 mln` on a slide was a quote; a Hangul manual that shows what is typed at a prompt (`# arch -k`) had
+  273 headings of its own lines. The mark is text behind something invisible too — the spaces a line of code is
+  indented with after a line break, a zero-width space, a private-use character, a line separator (U+2028) — in
+  these formats and in a PDF. ODT, RTF, HTML and EPUB write the two marks as typed, on purpose: half of the ODT and
+  RTF files found with such a line were typed as Markdown.
+- **DOCX, PPTX: the number of a numbered equation is set apart** (`x=x \qquad (1)`, was `x=x\#(1)`).
+- **DOCX, PPTX: a hidden degree of a root and hidden limits of a sum are not written** (`\sqrt{x}`, was
+  `\sqrt[2]{x}` where a writer left the 2 in the hidden degree).
 - **DOCX: a numbered heading in a style based on another** takes its level from the nearest style that has one:
   `2.1 Evaluation` under `2 Another heading` came out as `3 Evaluation`.
 - **DOCX: the own number of a legal-style level keeps its zeros** (`Section 1.01`, was `Section 1.1`).
 - **DOCX, PPTX, HTML, PDF: symbols of Wingdings 3 and Webdings** are read by tables of their own; the down triangle
-  before a fall came out as a box, and the check and cross of a Webdings yes / no table as nothing.
+  before a fall came out as a box, and the check and cross of a Webdings yes / no table as nothing. A number those
+  tables and the one of Wingdings 2 do not hold is left out; it was written as the Wingdings glyph of that number
+  (a globe of Webdings as `✓`).
 - **RTF: raised and lowered text is written as scripts** (`10^6`, `H_2O`), as in every other format; it was joined to
   what stood before it (`106`, `H2O`).
+- **HWP, HWPX: one outline heading no longer hides the titles set large.** A document with any outline heading kept
+  those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
+  note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
+  list item is outlined lost their headline. Titles by size and outline headings are both headings now.
+- **HWPX: a tracked deletion set in more than one character shape, or holding a table or a picture, is left out.**
+  Only a deletion inside one run of text was. A press release under review wrote two names and titles in front of the
+  one that replaced them, and a proposal kept a programme and the tables of the careers of people taken out of it.
 - **HWPX: a line break, a tab or a fixed space written beside the text of a run** (as writers other than Hangul leave
   them) is read; the two lines came out as one and the words around a tab were joined.
 - **HWP, HWPX: level ten of a number text** (`^:`) is read, and a caret that names no level writes nothing.
 - **HWP, HWPX: U+00AD typed as a dash** is written as the hyphen Hangul draws; the sub-items of a press release lost
   their marks. Between two letters it is removed as before.
-- **Hancom equations**: the italic word before capitals (`itA`) and the group after a bare script (`{}_3{rmC}_1`) are
-  read; the first came out as `P(itA \cap B)`, the second fell back to its script.
-- **HWP, HWPX: one outline heading no longer hides the titles set large.** A document with any outline heading kept
-  those only. A request for proposals of 89,000 characters with a single outline head, on a note, came out with that
-  note as its only heading and its 48 chapter and section titles as text, and press releases whose attachment or one
-  list item is outlined lost their headline. Titles by size and outline headings are both headings now.
-- **A typed `#` or `>` behind something invisible is text too** (PDF, HWP, HWPX, PPTX, DOCX). The mark was escaped
-  only where it stood first in the line as read. Behind what cleaning takes away — the spaces a line of code is
-  indented with after a line break, a zero-width space, a private-use character — and after a line separator
-  (U+2028) it was first in the line of the output all the same, and a heading or a quote: `    # comment` in a
-  listing, and a comment line of a real Word document typed behind a private-use character.
-- **DOCX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`). The comment of a command
-  (`# Point to your OLS config`) came out as a heading and `> 21 days` as a quote. ODT, RTF, HTML and EPUB write the
-  two marks as typed, on purpose: half of the ODT and RTF files found with such a line were typed as Markdown.
-- **PPTX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`). `> 750 mln` on a slide was a quote, and
-  the comment of a command in a text box (`# macOS, Linux, WSL`) a heading above the title of its slide.
-- **HWP, HWPX: a `#` or a `>` typed at the start of a line is text** (`\#`, `\>`), as in a PDF. A manual that shows
-  what is typed at a prompt (`# arch -k`) came out with 273 headings of its own lines, and the `>>` in front of the
-  summary lines of a press release made each a quote in a quote.
-- **HWPX: a tracked deletion set in more than one character shape, or holding a table or a picture, is left out.**
-  Only a deletion inside one run of text was. A press release under review wrote two names and titles in front of the
-  one that replaced them, and a proposal kept a programme and the tables of the careers of people taken out of it.
 - **HWP, HWPX: the warning of a body replaced by the preview says what happened**: no text was found in the body. It
   said the body could not be parsed, of documents whose body was read to its end and held none.
+- **Hancom equations**: the italic word before capitals (`itA`) and the group after a bare script (`{}_3{rmC}_1`) are
+  read; the first came out as `P(itA \cap B)`, the second fell back to its script.
+- **Windows: a document at a path of 260 characters or more is read.** Without LongPathsEnabled — off by default —
+  such a path was "File not found" on the command line, a `FileNotFoundError` from `convert_file` and "No file at
+  that path." from the MCP server, for a file that was there: a document deep in a synchronised folder with long
+  names. A root of the MCP server may be that long as well.
+- **Windows: a file another program holds open is said to be.** The command line said the file might be a folder or
+  lack a permission, and the MCP server only that it could not be read.
+- **macOS: `IsolatedConverter` under gevent or eventlet no longer loses a conversion.** Those libraries make every
+  socket non-blocking, the forkserver's too, and on macOS and the BSDs a socket it accepts is then non-blocking as
+  well: a worker asked for at a busy moment made the forkserver die, so the file being converted failed and the next
+  one was refused (two Dify requests at once on macOS: 2 runs in 100 under load). There, and only there, each worker
+  is spawned: about 0.1 s for a file instead of a few ms. Linux, the Dify runtime, keeps its forkserver.
 
 ## [0.3.15] - 2026-11-23
 
