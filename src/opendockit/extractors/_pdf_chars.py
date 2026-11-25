@@ -7,7 +7,6 @@ import math
 from operator import itemgetter
 import re
 import statistics
-import unicodedata
 
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._pdf_bidi import _RIGHT_TO_LEFT, _is_mark, _logical, _visual_units
@@ -180,17 +179,34 @@ def _written_at(char: dict) -> float | None:
     return matrix[5] if matrix is not None and len(matrix) >= 6 else None
 
 
-def _is_wide(text: str) -> bool:
-    """Whether the text holds a character East Asian text sets two cells wide (Hangul, Han, kana, full-width forms)."""
-    return any(unicodedata.east_asian_width(character) in "WF" for character in text)
+# The characters a line set on a grid may hold: Basic Latin, Latin-1 and Latin Extended-A and -B
+_ONE_CELL_END = "\u0250"
+
+
+def _is_of_one_cell(text: str) -> bool:
+    """Whether every character of the text is one a report of fixed pitch sets in one cell: a Latin letter, a digit, a mark
+    of punctuation. An East Asian font draws a syllable, a circled number, a Greek or Cyrillic letter, a piece of a ruled
+    line two cells wide, and what the standard calls their width does not say so for all of them."""
+    return max(text, default="") < _ONE_CELL_END
+
+
+def _is_upright(char: dict) -> bool:
+    """Whether the character is written straight, neither turned nor slanted: only then is the height of its text matrix
+    the height of its row. A text layer written over a scan stands a degree or two off, and from one character to the
+    next its height differs by more than rows laid over each other do."""
+    matrix = char.get("matrix")
+    return matrix is None or len(matrix) < 6 or (matrix[1] == 0 and matrix[2] == 0)
 
 
 def _pitch_steps(chars: list[dict]) -> tuple[list[dict], list[float]]:
     """The characters of a line from left to right - its letters, and the space characters written at their height
     (`_SAME_ROW`) - and the distance from the middle of each to the middle of the next. A space character of another row,
-    laid over the line, is none of the line's. Nothing for a line with a character two cells wide: on the grid of an East
-    Asian report a syllable takes two cells, and the middles of two syllables side by side are two cells apart with no
-    cell empty between them."""
+    laid over the line, is none of the line's. Nothing for a line with a character outside the Latin letters, digits and
+    marks (`_is_of_one_cell`): on the grid of an East Asian report a syllable, a circled number or a piece of a ruled line
+    takes two cells, and the middles of two of them side by side are two cells apart with no
+    cell empty between them; and nothing for a line with a character that is not written straight (`_is_upright`)."""
+    if not all(_is_of_one_cell(char["text"]) and _is_upright(char) for char in chars):
+        return [], []
     heights = [_written_at(char) for char in chars]
     if heights and heights.count(heights[0]) == len(heights):
         ordered = sorted(chars, key=_X0)  # one height, or none known: the usual line
@@ -201,8 +217,6 @@ def _pitch_steps(chars: list[dict]) -> tuple[list[dict], list[float]]:
         height = statistics.median(letters)
         ordered = sorted((char for char, at in zip(chars, heights, strict=True)
                           if char["text"].strip() or at is None or abs(at - height) <= _SAME_ROW), key=_X0)
-    if any(_is_wide(char["text"]) for char in ordered):
-        return [], []
     middles = [(char["x0"] + char["x1"]) / 2 for char in ordered]
     return ordered, [right - left for left, right in zip(middles, middles[1:], strict=False)]
 
@@ -263,8 +277,9 @@ def _fixed_pitch_text(chars: list[dict], pitches: list[tuple[float, float]]) -> 
     stand on a grid as well, of half the distance, with a space character in every other cell: they keep their spaces,
     and no two of them are neighbours, so such a line names no grid. Text of a fixed-pitch font fills its cells and reads
     as before.
-    Known accepted gap: a line with a character East Asian text sets two cells wide is not asked (`_pitch_steps`), so a
-    report of that kind in Korean reads as before; nor is text a character size apart or more - East Asian text set
+    Known accepted gap: a line with a character outside the Latin letters, digits and marks is not asked
+    (`_pitch_steps`), so a report of that kind in Korean, Greek or Russian reads as before, and neither is a line that is
+    turned or slanted; nor is text a character size apart or more - East Asian text set
     solid, where the quarter of a size a word processor leaves beside a digit puts a single digit on the grid by chance
     and no number of two digits; a row of letters that are the cells of a table
     (Pinned by: test_pdf_character_spacing.py::TestTextSetOnAGrid, ::TestGridOfALine)."""

@@ -347,6 +347,41 @@ class TestGridOfALine:
         assert _fixed_pitch_text(syllables, [(5.42, 9.0)]) is None and _fixed_pitch_text(mixed, [(5.42, 9.0)]) is None
         assert _fixed_pitch_text(self._chars("\uff21\uff22\uff23"), [(5.42, 9.0)]) is None  # full-width Latin letters
 
+    @pytest.mark.parametrize("text", ["\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467", "\u03b1\u03b2\u03b3\u03b4\u03b5\u03b6\u03b7\u03b8",
+                                      "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", "\u0410\u0411\u0412\u0413\u0414\u0415\u0416\u0417",
+                                      "\u203b\u203b \u2460\u2461"],
+                             ids=["circled-numbers", "greek", "pieces-of-a-ruled-line", "cyrillic", "reference-marks"])
+    def test_characters_a_korean_font_draws_two_cells_wide_are_not_set_apart(self, text):
+        """What the standard calls the width of these does not say that a Korean font draws them as wide as a syllable. On
+        a page with a grid of half a cell, a line of circled numbers read with a space between each two. Only a line of
+        Latin letters, digits and marks is asked."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
+
+        chars = self._chars(text, pitch=10.84, width=9.0)
+
+        assert _fixed_pitch_text(chars, [(5.42, 9.0)]) is None and _fixed_pitches([chars]) == []
+        assert _fixed_pitch_text(self._chars("\u00c9t\u00e9 d\u00e9j\u00e0 \u017e\u00e1k"), [(5.42, 9.0)]) == "\u00c9t\u00e9 d\u00e9j\u00e0 \u017e\u00e1k"
+
+    def test_line_that_is_turned_or_slanted_is_not_asked(self):
+        """The text layer over a scan stands a degree or two off, and the height of its text matrix rises from one
+        character to the next: the spaces of the line fell more than a tenth of a point from its letters, were taken for
+        another row, and digits written with spaces ran together."""
+        from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
+
+        typed = self._typed("1 2 3 4 5 6 7 8 9")
+        grid = self._chars("Account No  Type of Account")
+        for chars in (typed, grid):
+            for index, char in enumerate(chars):
+                char["matrix"] = (8.99, 0.31, -0.31, 8.99, char["x0"], 470.0 + index * 0.17)
+
+        assert _fixed_pitch_text(typed, [(7.5, 9.0)]) is None and _fixed_pitch_text(typed, [(3.75, 9.0)]) is None
+        assert _fixed_pitch_text(grid, [(5.42, 9.0)]) is None and _fixed_pitches([grid]) == []
+        for matrix in ((9.0, 0.0, 0.2, 9.0), (9.0, 0.2, 0.0, 9.0)):  # one letter in a slanted face; one letter turned
+            line = self._chars("Account No  Type of Account")
+            assert _fixed_pitch_text(line, [(5.42, 9.0)]) == "Account No Type of Account"
+            line[3]["matrix"] = (*matrix, line[3]["x0"], 470.0)
+            assert _fixed_pitch_text(line, [(5.42, 9.0)]) is None
+
     def test_page_names_a_grid_for_each_pitch_and_size_and_eight_at_most(self):
         from opendockit.extractors._pdf_chars import _fixed_pitch_text, _fixed_pitches
 
