@@ -812,7 +812,7 @@ class TestUndecodedGlyphs:
             _repair_chars(chars, glyphs, height)
 
         texts = [char["text"] for char in chars]
-        return fastest(repair)
+        return fastest(repair, runs=10)  # a few milliseconds: the fastest of three was passed now and then on a macOS runner
 
     def test_a_glyph_two_characters_pair_with_is_given_to_neither(self):
         """Two rows of pdfminer 3.5pt apart, and one of pdfium between them: both rows pair their U+FFFD with its '2'."""

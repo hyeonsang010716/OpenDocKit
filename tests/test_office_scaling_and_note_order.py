@@ -220,7 +220,7 @@ class TestPptxManyShapesWrappedInAlternateContent:
         from opendockit.extractors.pptx import _unwrap_alternate_content
 
         def seconds(count: int) -> float:
-            timer = Fastest()
+            timer = Fastest(6)  # tens of milliseconds: the fastest of three was passed once on a macOS runner
             for _ in timer:
                 tree = self._shape_tree(count)
                 with timer:

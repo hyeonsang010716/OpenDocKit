@@ -417,12 +417,15 @@ class TestNoMarksInsideCode:
     @pytest.mark.timing
     def test_many_code_blocks_in_one_strikethrough_take_linear_time(self):
         """Every piece of text between two code blocks is a run of its own. The marks are written together, with the child
-        positions measured once per parent (20,000 blocks took 6 s and 40,000 23 s, now about 1 s and 2 s)."""
-        html = "<del>" + "a<pre>c</pre>" * 20000 + "</del>"
-        start = time.perf_counter()
-        result = convert(html.encode(), "a.html")
+        positions measured once per parent (20,000 blocks took 6 s and 40,000 23 s, now about 1 s and 2 s).
 
-        assert time.perf_counter() - start < allowed(3)
+        Measured against the same blocks with each `a` struck on its own, which gives the same text, read on the same machine:
+        0.6 times as long, 6 times before. A bound of `allowed(3)` failed on a Windows runner."""
+        one = ("<del>" + "a<pre>c</pre>" * 20_000 + "</del>").encode()
+        apart = ("<del>a</del><pre>c</pre>" * 20_000).encode()
+
+        assert fastest(lambda: convert(one, "a.html")) < 2 * fastest(lambda: convert(apart, "a.html"))
+        result = convert(("<del>" + "a<pre>c</pre>" * 200 + "</del>").encode(), "a.html")
         assert result.text.startswith("~~a~~\n\n```\nc\n```\n\n~~a~~\n\n```\nc\n```")
 
     @pytest.mark.timing

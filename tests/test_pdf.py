@@ -1186,7 +1186,9 @@ def test_prose_columns_take_linear_time_in_label_value_rows():
     small, large = rows(2000), rows(8000)
     small_prose, large_prose = ({id(line) for row in lines for line in row} for lines in (small, large))
 
-    ratio = fastest(lambda: _label_value_rows(large, 595.0, large_prose)) / fastest(lambda: _label_value_rows(small, 595.0, small_prose))
+    # A few milliseconds each: the fastest of three came to 8.6 times once on a macOS runner
+    ratio = (fastest(lambda: _label_value_rows(large, 595.0, large_prose), runs=10)
+             / fastest(lambda: _label_value_rows(small, 595.0, small_prose), runs=10))
 
     assert ratio < 8
 

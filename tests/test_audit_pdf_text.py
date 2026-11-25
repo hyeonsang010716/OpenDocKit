@@ -18,7 +18,7 @@ from opendockit.extractors._pdf_figures import _figure_boxes
 from opendockit.extractors._pdf_model import _Line
 from tests.test_audit_pdf_head import _flate, _one_page, _stream
 from tests.test_pdf import _raw_pdf
-from tests.timing import allowed
+from tests.timing import allowed, fastest
 
 
 _FONT = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
@@ -601,12 +601,19 @@ class TestTooManyTextBoxes:
         assert any("read without text-box reading-order analysis" in warning for warning in result.warnings)
 
     @pytest.mark.timing
-    def test_a_form_drawn_many_times_is_not_grouped_every_time(self):
-        started = time.perf_counter()
-        result = convert(self._drawn_form(1_400, 15), "a.pdf")  # 4.3KB
+    def test_a_form_drawn_many_times_is_not_grouped_every_time(self, monkeypatch):
+        """Read in about the time of the same page with no text box grouped at all (54 seconds when the bound was per layout,
+        70 times that time with no bound). Measured against that reading on the same machine: a bound of `allowed(3)` failed
+        on a runner that read the page in just over 3 seconds."""
+        from opendockit.extractors import _pdf_pdfminer
 
-        assert time.perf_counter() - started < allowed(3)  # 54 seconds when the bound was per layout
-        assert result.sections[0].text == "Hello world"
+        data = self._drawn_form(1_400, 15)  # 4.3KB
+        seconds = fastest(lambda: convert(data, "a.pdf"))
+        monkeypatch.setattr(_pdf_pdfminer, "_PAGE_GROUPING_COST", 0)
+        ungrouped = fastest(lambda: convert(data, "a.pdf"))
+
+        assert seconds < 3 * ungrouped
+        assert convert(data, "a.pdf").sections[0].text == "Hello world"
 
     def test_a_crowded_page_read_again_keeps_its_first_reading(self, monkeypatch):
         """A page found crowded only while being read was taken for a page read from the ungrouped document; read again for

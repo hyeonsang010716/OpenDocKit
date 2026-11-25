@@ -638,9 +638,14 @@ class TestLongZebraTableWithMergedGroups:
 
     @pytest.mark.timing
     def test_fragments_of_a_long_table_are_joined_in_linear_time(self, monkeypatch):
+        """Joining the fragments takes a fifth of the time of the rest of the conversion, and five times that time before.
+        Measured against the rest of the same conversion, on the same machine: a bound of 1.5 seconds failed on a macOS
+        runner."""
+        import math
         import time
 
         import opendockit.extractors._pdf_shaded_tables as shaded
+        from tests.timing import Fastest
 
         regridded, spent = shaded._regridded_fragments, [0.0]
 
@@ -652,10 +657,17 @@ class TestLongZebraTableWithMergedGroups:
                 spent[0] += time.perf_counter() - started
 
         monkeypatch.setattr(shaded, "_regridded_fragments", timed)
-        text = convert(_long_zebra_with_groups_pdf(400), "a.pdf", ConvertOptions(page_markers=False)).text
+        data, joining, rest, timer = _long_zebra_with_groups_pdf(400), math.inf, math.inf, Fastest()
+        for _ in timer:
+            spent[0] = 0.0
+            with timer:
+                started = time.perf_counter()
+                text = convert(data, "a.pdf", ConvertOptions(page_markers=False)).text
+                whole = time.perf_counter() - started
+            joining, rest = min(joining, spent[0]), min(rest, whole - spent[0])
 
         assert "| G199 | 399-0 abcdef | 399-1 abcdef | 399-2 abcdef |" in text
-        assert spent[0] < 1.5  # about 4 seconds before
+        assert joining < rest
 
 
 def test_band_whose_only_text_lies_on_its_edge_does_not_end_the_text():

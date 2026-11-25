@@ -2010,16 +2010,21 @@ class TestXlsResourceBounds:
 
     @pytest.mark.timing
     def test_far_cell_does_not_make_every_row_full_width(self):
-        import time
+        """The far cell in the last column costs no more than in the third: each row is read up to its own cells only. Read
+        to the width of the widest row, the sheets with the cell in the last column took 60 times as long as with it in the
+        third. Measured against the third column on the same machine: a bound of 3 seconds failed on a slow Windows runner
+        that took twice as long as usual for everything."""
+        def sheets(column: int) -> bytes:
+            far = _xls_label(65535, column, "먼 칸") + _xls_label(65535, 1, "끝 행")
+            return builder.xls_bytes([(f"시트{index}", _XLS_ROWS, far) for index in range(3)])
 
+        third, last = sheets(2), sheets(255)
 
-        far = _xls_label(65535, 255, "먼 칸") + _xls_label(65535, 1, "끝 행")
-        data = builder.xls_bytes([(f"시트{index}", _XLS_ROWS, far) for index in range(3)])
+        def seconds(data: bytes) -> float:
+            return fastest(lambda: xls.extract_xls(data, ConvertOptions(max_chars=None)))
 
-        started = time.perf_counter()
-        extraction = xls.extract_xls(data, ConvertOptions(max_chars=None))
-
-        assert time.perf_counter() - started < 3
+        assert seconds(last) < 3 * seconds(third)  # about 1 time
+        extraction = xls.extract_xls(last, ConvertOptions(max_chars=None))
         assert extraction.sections[0].text == "| 항목 | 값 |\n| --- | --- |\n| 가 | 1 |\n|  | 끝 행 |"
         assert "Sheet '시트0': columns beyond column 100 were excluded." in extraction.warnings
 
