@@ -818,3 +818,217 @@ class TestManySeparateShadedTables:
             found = lookups.edges_at(y)
             assert found == [edge for edge in edges if abs(edge["top"] - y) <= 1.5]
             assert [id(edge) for edge in found] == [id(edge) for edge in edges if abs(edge["top"] - y) <= 1.5]
+
+
+# The table of a disease in a release, row by row: (label over both label columns, or (group, label) with the group cell
+# going on from the row above when it is None; then three values, or one value across the three columns)
+_DISEASE_ROWS = [("구분", "가형", "나형", "다형"), (("발생", "국가"), "콩고", "수단", "우간다"), ((None, "동향"), "산발 유행", "소규모", "드묾"),
+                 ("병원체", "자이레형", "수단형", "분디부교형"), ("증상", "발열과 두통이 나타남"), ("치명률", "60%", "41%", "30%"),
+                 (("치료", "약"), "승인 치료제", "없음", "없는 상태"), ((None, "백신"), "어베보", "미승인", "미승인 상태"),
+                 ("잠복기", "2일에서 21일"), (("경로", "동물"), "박쥐와 접촉"), ((None, "사람"), "체액에 접촉")]
+
+
+def _open_shaded_pdf(*, right_border_rows: int = 1, shaded: bool = True, open_left: bool = False) -> bytes:
+    """A table as a Korean release draws it: rules across every row, the label cells shaded, the columns ruled off only
+    where a row has cells of its own, and the right border on the header row alone (`right_border_rows` rows from the top)."""
+    columns, top, height = [57.0, 86.0, 125.0, 264.0, 397.0, 530.0], 760.0, 24.0
+    rows = _DISEASE_ROWS
+
+    def y(line: int) -> float:
+        return top - line * height
+
+    def draw(pdf, index):
+        grouped = [isinstance(row[0], tuple) for row in rows]
+        if shaded:
+            pdf.setFillColorRGB(0.85, 0.85, 0.85)
+            pdf.rect(columns[0], y(len(rows)), columns[2] - columns[0], height * len(rows), stroke=0, fill=1)
+            pdf.setFillColorRGB(0, 0, 0)
+        for line in range(len(rows) + 1):
+            # a rule stops at the group cell that goes on under it
+            start = columns[1] if line < len(rows) and grouped[line] and rows[line][0][0] is None else columns[0] - 1
+            pdf.line(start, y(line), columns[-1] + 1, y(line))
+        if not open_left:
+            pdf.line(columns[0], y(0), columns[0], y(len(rows)))
+        pdf.line(columns[2], y(0), columns[2], y(len(rows)))
+        for row, cells in enumerate(rows):
+            if grouped[row]:
+                pdf.line(columns[1], y(row), columns[1], y(row + 1))
+            if len(cells) == 4:
+                for x in columns[3:5]:
+                    pdf.line(x, y(row), x, y(row + 1))
+            label = cells[0]
+            if grouped[row]:
+                if label[0]:
+                    pdf.drawString(columns[0] + 3, y(row + 1) + 8, label[0])
+                pdf.drawString(columns[1] + 3, y(row + 1) + 8, label[1])
+            else:
+                pdf.drawString(columns[0] + 6, y(row + 1) + 8, label)
+            for column, value in enumerate(cells[1:]):
+                pdf.drawString(columns[2 + column] + 6, y(row + 1) + 8, value)
+        pdf.line(columns[-1], y(0), columns[-1], y(right_border_rows))
+        pdf.drawString(57, 420, "표 아래의 문단이다.")
+
+    return _korean_pdf(draw)
+
+
+class TestShadedTableOpenAtASide:
+    """The table of a disease in a press release: the right border is drawn on the header row only, and the label cells of
+    the first column are shaded. It was found whole with its open end given as a border, and then, because it has shaded
+    cells, searched again from the rules of the page alone: the cells of the last column and every value that spans to the
+    open end were gone from the table, and their text came out as paragraphs under a table of empty cells."""
+
+    _WHOLE = ("| 구분 | | 가형 | 나형 | 다형 |\n| --- | --- | --- | --- | --- |\n| 발생 | 국가 | 콩고 | 수단 | 우간다 |\n"
+              "| 발생 | 동향 | 산발 유행 | 소규모 | 드묾 |\n| 병원체 | | 자이레형 | 수단형 | 분디부교형 |\n"
+              "| 증상 | | 발열과 두통이 나타남 | | |\n| 치명률 | | 60% | 41% | 30% |\n| 치료 | 약 | 승인 치료제 | 없음 | 없는 상태 |\n"
+              "| 치료 | 백신 | 어베보 | 미승인 | 미승인 상태 |\n| 잠복기 | | 2일에서 21일 | | |\n| 경로 | 동물 | 박쥐와 접촉 | | |\n"
+              "| 경로 | 사람 | 체액에 접촉 | | |\n\n표 아래의 문단이다.")
+
+    def test_last_column_and_the_values_that_span_to_the_open_end_stay_in_the_table(self):
+        assert convert(_open_shaded_pdf(), "a.pdf").sections[0].text == self._WHOLE
+
+    def test_same_table_without_shading_is_whole_as_before(self):
+        """Without a shaded cell the table is not searched again."""
+        assert convert(_open_shaded_pdf(shaded=False), "a.pdf").sections[0].text == self._WHOLE
+
+    def test_same_table_closed_at_the_right_is_whole_as_before(self):
+        assert convert(_open_shaded_pdf(right_border_rows=len(_DISEASE_ROWS)), "a.pdf").sections[0].text == self._WHOLE
+
+    def test_table_without_any_right_border_is_whole_too(self):
+        assert convert(_open_shaded_pdf(right_border_rows=0), "a.pdf").sections[0].text == self._WHOLE
+
+
+    def test_table_found_with_and_without_its_open_side_is_kept_once(self):
+        """The table is found twice where the ends of its rules stand a point from its borders: with its open side given
+        as a border, and from the rules alone. Both grow into the whole table, and kept twice each was a box around the other:
+        both were dropped and the text went to the search for tables without rules."""
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_model import _TABLE_SETTINGS
+        from opendockit.extractors._pdf_open_tables import _open_sided_tables
+        from opendockit.extractors._pdf_shaded_tables import _with_shaded_rows
+
+        page = pdfplumber.open(BytesIO(_open_shaded_pdf())).pages[0]
+        twice = [*_open_sided_tables(page), *page.find_tables(_TABLE_SETTINGS)]
+
+        found = _with_shaded_rows(page, twice)
+
+        assert len(twice) == 2 and len(found) == 1
+        assert sum(cell is not None for cell in found[0].cells) > max(sum(cell is not None for cell in table.cells) for table in twice)
+
+
+    @staticmethod
+    def _grown(monkeypatch, second=None, closed: bool = False):
+        """`_grown_shaded_table` of the built table found with its open side given, with the searches it makes counted;
+        `second(first table, page)` gives what the second search finds in place of the real result."""
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors import _pdf_shaded_tables as shaded
+        from opendockit.extractors._pdf_open_tables import _open_sided_tables
+
+        page = pdfplumber.open(BytesIO(_open_shaded_pdf(right_border_rows=len(_DISEASE_ROWS) if closed else 1))).pages[0]
+        table = (page.find_tables(shaded._TABLE_SETTINGS) if closed else _open_sided_tables(page))[0]
+        searches = []
+        cropped = shaded._cropped
+
+        class Region:
+            def __init__(self, region):
+                self._region = region
+
+            def find_tables(self, settings):
+                found = self._region.find_tables(settings)
+                searches.append(found)
+                return second(searches[0][0], page) if second is not None and len(searches) == 2 else found
+
+        monkeypatch.setattr(shaded, "_cropped", lambda page, box: Region(cropped(page, box)))
+        grown = shaded._grown_shaded_table(page, table, [table], shaded._horizontal_rules(page))
+        return grown, searches
+
+    def test_table_that_keeps_its_ends_is_searched_once(self, monkeypatch):
+        """The same table with its right border drawn: found again from the rules, it has every cell, and that is the result."""
+        grown, searches = self._grown(monkeypatch, closed=True)
+
+        assert grown is not None and len(searches) == 1 and grown[0] is searches[0][0]
+
+    def test_table_that_lost_its_ends_is_searched_again_with_them(self, monkeypatch):
+        grown, searches = self._grown(monkeypatch)
+
+        assert len(searches) == 2 and grown[0] is searches[1][0]
+        assert sum(cell is not None for cell in grown[0].cells) > sum(cell is not None for cell in searches[0][0].cells)
+
+    @staticmethod
+    def _closed(page, *more: float) -> list:
+        """The table of the page found with both its ends given as borders, and a border more at each of `more`."""
+        return page.find_tables({"vertical_strategy": "lines", "horizontal_strategy": "lines",
+                                 "explicit_vertical_lines": [56.7, 530.5, *more]})
+
+    @pytest.mark.parametrize("second", [
+        lambda first, page: [],
+        lambda first, page: TestShadedTableOpenAtASide._closed(page) * 2,
+        lambda first, page: TestShadedTableOpenAtASide._closed(page, 330.0),
+        lambda first, page: page.find_tables({"vertical_strategy": "lines", "horizontal_strategy": "lines"}),
+    ], ids=["nothing", "two-tables", "a-column-more", "ends-still-gone"])
+    def test_second_search_is_taken_only_when_it_is_the_one_table_with_its_ends(self, monkeypatch, second):
+        """Otherwise the table stays as the first search left it, as before."""
+        grown, searches = self._grown(monkeypatch, second)
+
+        assert len(searches) == 2 and grown[0] is searches[0][0]
+
+    def test_tables_the_second_search_is_refused_for_would_hold_the_ends(self):
+        """What makes the two cases above cases of their own: each is a table with every end cell."""
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors._pdf_open_tables import _open_sided_tables
+        from opendockit.extractors._pdf_shaded_tables import _column_edges, _end_cells, _holds_the_ends
+
+        page = pdfplumber.open(BytesIO(_open_shaded_pdf())).pages[0]
+        table = _open_sided_tables(page)[0]
+        edges = _column_edges(table)
+        ends = _end_cells([table], edges[0], edges[-1])
+
+        assert len(self._closed(page)) == 1 and _holds_the_ends(self._closed(page)[0], ends)
+        wider = self._closed(page, 330.0)
+        assert len(wider) == 1 and _holds_the_ends(wider[0], ends) and len(_column_edges(wider[0])) == len(edges) + 1
+
+
+class TestEndCells:
+    """`_end_cells` and `_holds_the_ends`: the cells at the ends of a table, and whether a table found again still has them."""
+
+    class _Table:
+        def __init__(self, *cells):
+            self.cells = list(cells)
+
+    def test_cells_at_the_ends_are_listed_with_the_end_they_stand_at(self):
+        from opendockit.extractors._pdf_shaded_tables import _end_cells
+
+        table = self._Table((57, 100, 125, 120), (125, 100, 530, 120), None, (125, 120, 264, 140), (264, 120, 530.6, 140),
+                            (59.5, 140, 264, 160), (264, 140, 527.5, 160))
+
+        assert _end_cells([table], 57, 530) == [(57, 100, 120), (530, 100, 120), (530, 120, 140)]
+
+    @pytest.mark.parametrize(("cells", "held"), [
+        ([(57, 100, 125, 120), (397, 100, 530, 120)], True),
+        ([(57, 100, 125, 120), (397, 100, 530, 109), (397, 109, 530, 120)], True),
+        ([(57, 100, 125, 120), (264, 100, 397, 120)], False),
+        ([(57, 100, 125, 120), (397, 60, 530, 105)], False),
+        ([(57, 100, 125, 120), (397, 100, 531.4, 120)], True),
+        ([(57, 100, 125, 120), (397, 100, 533, 120)], False),
+        ([(57, 100, 125, 120), None, (397, 100, float("nan"), 120)], False),
+    ], ids=["still-there", "split-into-two-rows", "a-column-short", "another-row-only", "a-point-off", "three-points-off",
+            "no-number"])
+    def test_table_found_again_holds_the_ends_or_not(self, cells, held):
+        from opendockit.extractors._pdf_shaded_tables import _holds_the_ends
+
+        assert _holds_the_ends(self._Table(*cells), [(57, 100, 120), (530, 100, 120)]) is held
+
+    def test_end_that_is_no_number_is_not_held(self):
+        from opendockit.extractors._pdf_shaded_tables import _holds_the_ends
+
+        assert not _holds_the_ends(self._Table((57, 100, 530, 120)), [(float("inf"), 100, 120)])
+        assert not _holds_the_ends(self._Table((57, 100, 530, 120)), [(530, float("nan"), 120)])
+        assert _holds_the_ends(self._Table((57, 100, 530, 120)), [])
