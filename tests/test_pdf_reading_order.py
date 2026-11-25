@@ -1189,14 +1189,20 @@ class TestTwoPagesOnASheet:
 
     @classmethod
     def _second_sheet(cls):
-        from opendockit.extractors._pdf_model import _Line
+        """The 51 lines, the number of each page under it (7pt, centred in its half) and the table of contacts that closes
+        the right page."""
+        from opendockit.extractors._pdf_model import _Line, _Table
 
         count = {"L": 0, "R": 0}
         lines = []
         for side, top, right in cls._SECOND_SHEET:
             lines.append(_Line(top=top, bottom=top + 10, x0=40.2 if side == "L" else 461.2, x1=right, text=f"{side}{count[side]}", size=10))
             count[side] += 1
-        return cls._page(lines)
+        lines += [_Line(top=570.0, bottom=577.1, x0=202.4, x1=220.1, text="L27", size=7.1),
+                  _Line(top=570.0, bottom=577.1, x0=623.4, x1=641.1, text="R24", size=7.1)]
+        page = cls._page(lines)
+        page.tables.append(_Table(top=483.0, text="| a | b |", bottom=505.0, x0=462.0, x1=800.0))
+        return page
 
     @classmethod
     def _page(cls, lines, *, size=(841.0, 595.0), view=None, turned=False, **fields):
@@ -1214,7 +1220,7 @@ class TestTwoPagesOnASheet:
         _read_columns_in_turn(page)
         return " ".join(line.text for line in page.lines)
 
-    _IN_TURN = " ".join([*(f"L{row}" for row in range(27)), *(f"R{row}" for row in range(24))])
+    _IN_TURN = " ".join([*(f"L{row}" for row in range(28)), *(f"R{row}" for row in range(25))])
 
     def test_left_page_is_read_to_its_end_before_the_right_one(self):
         page = self._second_sheet()
@@ -1223,9 +1229,10 @@ class TestTwoPagesOnASheet:
         assert mixed.startswith("L0 R0 L1") and " L15 R1 " in mixed and self._read(page) == self._IN_TURN
         assert page.two_pages
 
-    def test_steps_that_put_the_lines_of_one_page_in_order_leave_a_sheet_alone(self):
+    def test_right_aligned_lines_are_not_looked_for_across_a_sheet(self):
         """Right-aligned lines between left ones are put back by height (`_read_alternating_sides_in_turn`): on a sheet whose
-        right page starts lower and indented, that mixed the two pages again line by line."""
+        right page starts lower and indented, that mixed the two pages again line by line. The other steps go on: a centred
+        caption pushed behind the table under it is still put back in its page."""
         from opendockit.extractors import _pdf_reading_order as order
 
         lines = [*(self._line("L", row) for row in range(6)),
@@ -1235,8 +1242,7 @@ class TestTwoPagesOnASheet:
         page = self._page(lines)
         order._read_columns_in_turn(page)
         in_turn = [line.text for line in page.lines]
-        for step in (order._read_alternating_sides_in_turn, order._read_lone_lines_in_place, order._read_sidebar_first):
-            step(page)
+        order._read_alternating_sides_in_turn(page)
 
         assert page.two_pages and [line.text for line in page.lines] == in_turn
         page.two_pages = False
@@ -1280,13 +1286,15 @@ class TestTwoPagesOnASheet:
     def _halves(self, rows: int = 4, **right) -> list:
         return [*(self._line("L", row) for row in range(rows)), *(self._line("R", row, **right) for row in range(rows))]
 
-    @pytest.mark.parametrize(("height", "sheet"), [(595.0, True), (596.0, True), (606.0, True), (583.5, True), (608.0, False),
-                                                   (582.0, False), (630.75, False), (473.0, False), (650.0, False), (842.0, False),
-                                                   (0.0, False)],
-                             ids=["a4", "a4-rounded", "two-in-a-hundred-higher", "two-in-a-hundred-lower", "a-little-higher",
-                                  "a-little-lower", "slide-4-to-3", "slide-16-to-9", "letter", "higher-than-wide", "no-height"])
+    @pytest.mark.parametrize(("height", "sheet"), [(595.0, True), (596.0, True), (600.0, True), (589.5, True), (602.0, False),
+                                                   (588.0, False), (582.2, False), (630.75, False), (473.0, False), (650.0, False),
+                                                   (842.0, False), (0.0, False)],
+                             ids=["a4", "a4-rounded", "one-in-a-hundred-higher", "one-in-a-hundred-lower", "a-little-higher",
+                                  "a-little-lower", "slide-set-to-a4-paper", "slide-4-to-3", "slide-16-to-9", "letter",
+                                  "higher-than-wide", "no-height"])
     def test_sheet_has_the_proportions_of_the_a_series(self, height, sheet):
-        """Two pages of a series printed to a sheet of it: 841 wide, 595 high. A slide is no such sheet."""
+        """Two pages of a series printed to a sheet of it: 841 wide, 595 high. A slide is no such sheet, also the one a
+        presentation program calls A4 paper (780 by 540)."""
         assert self._is_a_sheet(self._page(self._halves(), size=(841.0, height))) is sheet
 
     @pytest.mark.parametrize("crossing", ["line", "line-touching", "table", "figure", "rule", "band"])
@@ -1434,4 +1442,42 @@ class TestTwoPagesOnASheet:
         text = convert(buffer.getvalue(), "a.pdf").text
 
         order = [text.index(part) for part in ("왼쪽 첫째", "왼쪽 소제목", "왼쪽 둘째", "오른쪽 소제목", "오른쪽 첫째", "오른쪽 둘째")]
+        assert order == sorted(order)
+
+    def test_caption_over_a_table_of_the_left_page_stays_over_it(self):
+        """The left page holds a heading, a centred caption, a table and a closing line; the right page is short. The
+        layout analysis reads the caption behind the lines under it, and the step that puts such a lone line back
+        (`_read_lone_lines_in_place`) has to go on working on a sheet: kept off, the caption came out after the closing line."""
+        from reportlab.lib import colors
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.pdfgen import canvas
+        from reportlab.platypus import Frame, Paragraph, Table, TableStyle
+
+        pdfmetrics.registerFont(UnicodeCIDFont(_FONT))
+        body = ParagraphStyle("body", fontName=_FONT, fontSize=11, leading=15, wordWrap="CJK", spaceAfter=12)
+        head = ParagraphStyle("head", fontName=_FONT, fontSize=14, leading=20, spaceBefore=6, spaceAfter=8)
+        caption = ParagraphStyle("caption", fontName=_FONT, fontSize=10, leading=14, alignment=1, spaceAfter=4)
+        table = Table([["연도", "매출", "증가율"]] + [[str(2019 + i), f"{(i + 1) * 1000:,}", f"{10 + i}%"] for i in range(3)],
+                      colWidths=[110, 110, 110])
+        table.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), _FONT, 9), ("GRID", (0, 0), (-1, -1), 0.5, colors.black)]))
+
+        def prose(page: str, count: int) -> list:
+            return [Paragraph(f"{page} {number}번 문단은 올해 사업 실적을 아래와 같이 정리하였다는 내용을 길게 적어 둔 것이다. " * 2, body)
+                    for number in range(1, count + 1)]
+
+        left = [*prose("왼쪽", 3), Paragraph("왼쪽 2. 세부 내역", head), Paragraph("왼쪽 표 1. 연도별 매출", caption), table,
+                Paragraph("왼쪽 끝.", body)]
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(841.89, 595.28))
+        for x, story in ((40, left), (461, prose("오른쪽", 2))):
+            Frame(x, 40, 342, 515, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0).addFromList(story, pdf)
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf").text
+
+        order = [text.index(part) for part in ("왼쪽 3번 문단", "왼쪽 2. 세부 내역", "왼쪽 표 1. 연도별 매출", "| 연도 |", "왼쪽 끝.",
+                                                "오른쪽 1번 문단", "오른쪽 2번 문단")]
         assert order == sorted(order)

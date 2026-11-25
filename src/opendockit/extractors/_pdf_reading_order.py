@@ -55,9 +55,10 @@ _SIDE_BY_SIDE_ROWS_MIN = 2
 # the two outer margins together - the inner margins of the two pages - and each half holds at least this many lines
 _SHEET_GAP_RATIO = 0.75
 _SHEET_HALF_LINES_MIN = 3
-# and the sheet has the proportions of a sheet of the A series, whose half is a page of that series, within this share
+# and the sheet has the proportions of a sheet of the A or B series (1 to the square root of 2), whose half is a page of
+# that series, within this share: A4 as PDFs round it is within 0.4%, and a slide set to 'A4 paper' (780 by 540) is 2.1% off
 _SHEET_PROPORTION = math.sqrt(2)
-_SHEET_PROPORTION_TOLERANCE = 0.02
+_SHEET_PROPORTION_TOLERANCE = 0.01
 
 
 def _read_columns_in_turn(page: _Page) -> None:
@@ -119,8 +120,8 @@ def _two_pages_on_a_sheet(page: _Page) -> float | None:
     below both columns and for headings over them, and where they did not apply the order was the layout analysis's own,
     which pairs the boxes nearest to each other across the gap: a heading of the right page came out in the middle of a
     sentence of the left one (Pinned by: test_pdf_reading_order.py::TestTwoPagesOnASheet).
-    Kept narrow (Deliberate): the visible area has the proportions of a sheet of the A series on its side (1 to the
-    square root of 2, so that its half is a page of the series; a slide and a sheet of another series are not asked);
+    Kept narrow (Deliberate): the visible area has the proportions of a sheet of the A or B series on its side (1 to the
+    square root of 2, so that its half is a page of the series; a slide and a sheet of Letter are not asked);
     every line, table, picture, rule and filled band stands wholly left or wholly right of its middle; each half holds
     `_SHEET_HALF_LINES_MIN` lines or more; and the band left empty at the middle is centred on it and at least
     `_SHEET_GAP_RATIO` of the two outer margins together - each half has its own margins on both sides, where two
@@ -753,7 +754,7 @@ def _read_lone_lines_in_place(page: _Page) -> None:
     test_pdf_forms_and_amounts.py::TestFarRightAmounts). A subheading at the top spanning only the right column (two
     columns whose left column starts lower) is not moved.
     """
-    if page.simple or page.two_pages or not 2 <= len(page.lines) <= _LONE_LINE_MAX_LINES:
+    if page.simple or not 2 <= len(page.lines) <= _LONE_LINE_MAX_LINES:
         return
     lines = page.lines  # Modified in place
     tables = [(table.top, table.bottom, table.x0, table.x1) for table in page.tables]
@@ -810,7 +811,7 @@ def _read_sidebar_first(page: _Page) -> None:
     margin) is still body → sidebar.
     """
     lines = page.lines
-    if page.simple or page.two_pages or page.tables or page.figures or len(lines) < 6:
+    if page.simple or page.tables or page.figures or len(lines) < 6:
         return
     split = next((index for index in range(1, len(lines)) if lines[index].x0 < lines[index - 1].x0 - _TABLE_ROW_TOLERANCE), None)
     if split is None or split < 3 or len(lines) - split < 3:
