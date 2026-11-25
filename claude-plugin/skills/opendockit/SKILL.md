@@ -26,7 +26,7 @@ offline and read-only. Nothing is uploaded and no file is written.
 - The tools run on the user's computer, so they exist in Claude Code and in a Cowork session on the desktop app, not
   in claude.ai chat. If they are not among your tools, say that this plugin needs Claude Code or Cowork on the
   desktop, and do not pretend to have read the file.
-- The server is `opendockit-mcp` from `opendockit[mcp]==0.3.15`, started with `uvx` when the session starts. The
+- The server is `opendockit-mcp` from `opendockit[mcp]==0.3.16`, started with `uvx` when the session starts. The
   first start downloads the package from PyPI, and Python 3.12 or newer if this machine has none, so the first call
   can take a while on a slow connection.
 - Legacy `.doc` and `.ppt` need LibreOffice installed. `.docx` and `.pptx` do not.
