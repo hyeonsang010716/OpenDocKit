@@ -26,7 +26,7 @@ except ImportError as exc:  # pragma: no cover - exercised only without the extr
     raise ImportError('OpenDocKit\'s LightRAG integration needs LightRAG: pip install "opendockit[lightrag]"') from exc
 
 
-__all__ = ["ENGINE", "SUFFIXES", "OpenDocKitParser", "register"]
+__all__ = ["ENGINE", "MAX_CHARS", "SUFFIXES", "OpenDocKitParser", "register"]
 
 ENGINE = "opendockit"
 # The documents the engine may be sent, as LightRAG writes a suffix. Plain text and code are left to LightRAG's own engine,
@@ -35,11 +35,14 @@ SUFFIXES = frozenset({"pdf", "docx", "pptx", "xlsx", "xlsm", "doc", "ppt", "xls"
                       "html", "htm", "xhtml", "mht", "mhtml", "eml", "csv", "tsv"})
 # What LightRAG stores as a raw document (`lightrag.constants.FULL_DOCS_FORMAT_RAW`).
 _RAW = "raw"
-# The whole document is indexed, so the character limit of "one file into one context" is off; a page marker is no content of
-# a knowledge base; pictures are not decoded because nothing here describes them, and their alt text stays
+# The whole document is indexed, so the limit is not the 500,000 characters of "one file into one context" but the one of
+# the Open WebUI loader: without any, a small workbook can be gigabytes of text in LightRAG's own process. A page marker is
+# no content of a knowledge base; pictures are not decoded because nothing here describes them, and their alt text stays
 # (Pinned by: test_lightrag.py::TestParse::test_the_whole_document_is_stored_without_page_markers).
-_OPTIONS = ConvertOptions(max_chars=None, page_markers=False, decode_images=False)
+MAX_CHARS = 10_000_000
+_OPTIONS = ConvertOptions(max_chars=MAX_CHARS, page_markers=False, decode_images=False)
 _NO_TEXT = "OpenDocKit found no text in the document. A scanned document needs an engine that reads images."
+_TOO_LONG = f"The document is longer than {MAX_CHARS:,} characters, the most OpenDocKit converts for LightRAG."
 
 
 def register() -> None:
@@ -54,7 +57,8 @@ class OpenDocKitParser(BaseParser):
     """Convert one document to Markdown and store it as LightRAG's raw text.
 
     A document that cannot be converted raises the `opendockit.ConversionError` that `convert_file` raises, and one that
-    holds no text (a scan) raises too: LightRAG marks that document failed with the message and goes on with the others.
+    holds no text (a scan) or more than `MAX_CHARS` characters raises too: LightRAG marks that document failed with the
+    message and goes on with the others.
     What the converter skipped or approximated is kept with the document (`parse_warnings`, under `opendockit`).
     """
 
@@ -68,6 +72,10 @@ class OpenDocKitParser(BaseParser):
         # Pinned by: test_lightrag.py::TestParse::test_a_document_without_text_fails_and_stores_nothing
         if result.is_empty:
             raise ValueError(_NO_TEXT)
+        # A document cut at the limit would be indexed in part, and a warning in its metadata is read by nobody
+        # (Pinned by: test_lightrag.py::TestParse::test_a_document_past_the_character_limit_fails_and_stores_nothing)
+        if result.exceeded:
+            raise ValueError(_TOO_LONG)
         await ctx.rag._persist_parsed_full_docs(ctx.doc_id, {
             "content": result.text, "file_path": ctx.file_path, "parse_format": _RAW, "parse_engine": self.engine_name,
             "update_time": int(time.time())})

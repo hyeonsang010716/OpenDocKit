@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from opendockit import CorruptedDocumentError, convert_file
+from opendockit import ConvertOptions, CorruptedDocumentError, convert_file
 from tests import builder
 from tests.test_integrations import _scanned_pdf
 
@@ -122,6 +122,7 @@ class TestParse:
 
     def test_the_whole_document_is_stored_without_page_markers(self, tmp_path, registered, archived):
         """A knowledge base indexes all of a document: the default limit of 500,000 characters is for one model context."""
+        assert adapter.MAX_CHARS == 10_000_000
         pdf, sheet = tmp_path / "paper.pdf", tmp_path / "rows.csv"
         pdf.write_bytes(builder.pdf_bytes(pages=2))
         sheet.write_text("".join(f"row {n},{'x' * 60}\n" for n in range(9000)), encoding="utf-8")
@@ -140,6 +141,20 @@ class TestParse:
             _parse(path, rag)
 
         assert rag.stored == [] and archived == []
+
+    def test_a_document_past_the_character_limit_fails_and_stores_nothing(self, tmp_path, registered, archived, monkeypatch):
+        """Cut at the limit it would be indexed in part without a word, and without a limit it could be gigabytes of text."""
+        monkeypatch.setattr(adapter, "_OPTIONS", ConvertOptions(max_chars=1000, page_markers=False, decode_images=False))
+        short, long = tmp_path / "short.csv", tmp_path / "long.csv"
+        short.write_text("a,b\n1,2\n", encoding="utf-8")
+        long.write_text("".join(f"row {n},{'x' * 60}\n" for n in range(100)), encoding="utf-8")
+        rag = _Rag()
+
+        assert "| 1 | 2 |" in _parse(short, rag).content
+        with pytest.raises(ValueError, match="longer than 10,000,000 characters"):
+            _parse(long, rag)
+
+        assert [doc_id for doc_id, _ in rag.stored] == ["doc-1"] and archived == [str(short)]
 
     def test_a_document_that_cannot_be_read_raises_the_conversion_error(self, tmp_path, registered, archived):
         path = tmp_path / "broken.docx"
