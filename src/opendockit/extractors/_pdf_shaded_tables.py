@@ -168,7 +168,7 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
     sides_of = _PerTable(_cell_sides)
     # The tables of the result, with what growing a table looks up among them kept up to date (`_Fragments`)
     result = _Fragments(tables, box_of, edges_of, sides_of)
-    regrown: list[tuple[float, ...]] = []  # the boxes of the tables found again so far
+    regrown: list[object] = []  # the tables found again that are in the result
 
     for table in sorted(tables, key=lambda table: table.bbox[1]):
         if table not in result:
@@ -181,13 +181,21 @@ def _with_shaded_rows(page: object, tables: list[object]) -> list[object]:
         position = result.remove(replaced)
         if grown is not None:
             # One table found twice, with and without its open sides (the ends of its rules a point apart), grows into the
-            # same table twice: kept twice, each is a box around the other and both are dropped (`_real_tables`)
-            if any(all(abs(a - b) <= 2 for a, b in zip(box_of(new), box, strict=True)) for box in regrown):
-                continue
-            regrown.append(box_of(new))
+            # same box twice: kept twice, each is a box around the other and both are dropped (`_real_tables`). The one
+            # with more cells stays - the other is the one that lost its ends (Pinned by: test_pdf_shaded_tables.py::
+            # TestShadedTableOpenAtASide::test_table_found_with_and_without_its_open_side_is_kept_once)
+            same = next((kept for kept in regrown if kept in result
+                         and all(abs(a - b) <= 2 for a, b in zip(box_of(new), box_of(kept), strict=True))), None)
+            if same is not None:
+                if _cell_count(new) <= _cell_count(same):
+                    continue
+                position = result.remove([same])
+                regrown.remove(same)
         if (not _leaves_aligned_rows(page, new, result, shaded, box_of) and not _holds_columns(page, new)
                 or _has_drawn_columns(page, new)):
             result.add(new, position)
+            if grown is not None:
+                regrown.append(new)
     return _with_merged_column_fragments(page, result.ordered(), shades, shaded, box_of, edges_of)
 
 
@@ -1034,6 +1042,10 @@ def _grown_shaded_table(page: object, table: object, tables: list[object], rules
         if len(again) == 1 and len(_column_edges(again[0])) == len(edges) and _holds_the_ends(again[0], ends):
             found = again
     return found[0], chain
+
+
+def _cell_count(table: object) -> int:
+    return sum(cell is not None for cell in table.cells)
 
 
 def _end_cells(fragments: list[object], left: float, right: float) -> list[tuple[float, float, float]]:

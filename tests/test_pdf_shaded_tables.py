@@ -912,10 +912,37 @@ class TestShadedTableOpenAtASide:
         page = pdfplumber.open(BytesIO(_open_shaded_pdf())).pages[0]
         twice = [*_open_sided_tables(page), *page.find_tables(_TABLE_SETTINGS)]
 
-        found = _with_shaded_rows(page, twice)
+        def cells(table) -> int:
+            return sum(cell is not None for cell in table.cells)
 
-        assert len(twice) == 2 and len(found) == 1
-        assert sum(cell is not None for cell in found[0].cells) > max(sum(cell is not None for cell in table.cells) for table in twice)
+        found = _with_shaded_rows(page, twice)
+        other_way = _with_shaded_rows(page, twice[::-1])
+
+        assert len(twice) == 2 and len(found) == 1 and len(other_way) == 1
+        # the one that has its ends, whichever comes first: found from the rules alone it grows without them
+        assert cells(found[0]) == cells(other_way[0]) > max(map(cells, twice))
+        assert "분디부교형" in str(found[0].extract()) and "분디부교형" in str(other_way[0].extract())
+
+    def test_tables_of_one_box_that_are_not_found_again_both_stay(self, monkeypatch):
+        """The rule is for a table found again twice; what is not grown is left to the steps after, as before."""
+        from io import BytesIO
+
+        import pdfplumber
+
+        from opendockit.extractors import _pdf_shaded_tables as shaded
+        from opendockit.extractors._pdf_open_tables import _open_sided_tables
+
+        page = pdfplumber.open(BytesIO(_open_shaded_pdf())).pages[0]
+        twice = [*_open_sided_tables(page), *page.find_tables(shaded._TABLE_SETTINGS)]
+        grow = shaded._grown_shaded_table
+        monkeypatch.setattr(shaded, "_grown_shaded_table", lambda *given: None)
+
+        assert len(shaded._with_shaded_rows(page, twice)) == 2
+
+        calls = []
+        monkeypatch.setattr(shaded, "_grown_shaded_table", lambda *given: None if calls.append(1) or len(calls) > 1 else grow(*given))
+
+        assert len(shaded._with_shaded_rows(page, twice)) == 2 and len(calls) == 2  # one found again, one not: as before
 
 
     @staticmethod
@@ -1025,6 +1052,26 @@ class TestEndCells:
         from opendockit.extractors._pdf_shaded_tables import _holds_the_ends
 
         assert _holds_the_ends(self._Table(*cells), [(57, 100, 120), (530, 100, 120)]) is held
+
+    def test_cells_at_the_ends_of_every_table_replaced_are_listed(self):
+        from opendockit.extractors._pdf_shaded_tables import _end_cells
+
+        upper, lower = self._Table((57, 100, 530, 120)), self._Table((57, 130, 264, 150), (264, 130, 530, 150))
+
+        assert _end_cells([upper, lower], 57, 530) == [(57, 100, 120), (530, 100, 120), (57, 130, 150), (530, 130, 150)]
+
+    @pytest.mark.parametrize(("sides", "end", "held"), [
+        ([(397, 100, 530, 200), (397, 150, 530, 160)], (530, 180, 200), True),
+        ([(397, 110, 530, 130)], (530, 100, 120), True),
+        ([(397, 90, 530, 110)], (530, 100, 120), True),
+        ([(397, 111, 530, 130)], (530, 100, 120), False),
+        ([(397, 90, 530, 109)], (530, 100, 120), False),
+    ], ids=["tall-side-before-a-short-one", "side-that-starts-at-the-middle", "side-that-ends-at-the-middle",
+            "side-that-starts-under-the-middle", "side-that-ends-over-the-middle"])
+    def test_side_holds_an_end_where_it_goes_over_the_middle_of_the_cell(self, sides, end, held):
+        from opendockit.extractors._pdf_shaded_tables import _holds_the_ends
+
+        assert _holds_the_ends(self._Table(*sides), [end]) is held
 
     def test_end_that_is_no_number_is_not_held(self):
         from opendockit.extractors._pdf_shaded_tables import _holds_the_ends
