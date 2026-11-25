@@ -974,11 +974,36 @@ class TestCopiesOfStackedText:
                          4: _flate(b"BT /F1 12 Tf 72 800 Td (Hello world) Tj ET " + b"q /X1 Do Q " * draws), 5: _FONT, 6: form})
 
     @pytest.mark.timing
-    def test_copies_of_stacked_text_drawn_many_times_are_found_in_about_linear_time(self):
-        started = time.perf_counter()
-        result = convert(self._stacked_form(1_500, 30), "a.pdf")
+    def test_copies_of_stacked_text_drawn_many_times_are_found_in_about_linear_time(self, monkeypatch):
+        """The copy check of the lines takes under a hundredth of the rest of reading the page, and 0.8 of it with the scan
+        put back. Measured against that rest on the same machine: `allowed(8)` left too little room on a Windows runner,
+        where the whole conversion takes over 5 seconds."""
+        import math
 
-        assert time.perf_counter() - started < allowed(8)  # 54 seconds before
+        from tests.timing import Fastest
+
+        checking, calls, at = [0.0], [0], pdf_module._CopyIndex.at
+
+        def timed(index, line):
+            calls[0] += 1
+            started = time.perf_counter()
+            try:
+                return at(index, line)
+            finally:
+                checking[0] += time.perf_counter() - started
+
+        monkeypatch.setattr(pdf_module._CopyIndex, "at", timed)
+        data, check, rest, timer = self._stacked_form(1_500, 30), math.inf, math.inf, Fastest()
+        for _ in timer:
+            checking[0] = 0.0
+            with timer:
+                started = time.perf_counter()
+                result = convert(data, "a.pdf")
+                whole = time.perf_counter() - started
+            check, rest = min(check, checking[0]), min(rest, whole - checking[0])
+
+        assert calls[0] > 1_000  # every kept line was checked through the index
+        assert check < rest / 10
         assert "Hello world" in result.text
 
     def test_the_index_answers_as_the_scan_does(self):

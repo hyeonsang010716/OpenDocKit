@@ -435,20 +435,23 @@ class TestNoMarksInsideCode:
         is drawn as a paragraph of its own and gets its own pair (`TestStrikethroughAroundBlocks`); grouped, the marks around
         it stood alone between the paragraphs (`~~\n\nx\n\na~~`).
 
-        Four times the tables against a quarter of them, on the same machine: held to 3 seconds instead, it failed on CI
-        runners, which take two to three times as long for this page as the machine the bound was written on while the loop
-        that `allowed` measures them by runs as fast (3.1 to 3.8 s on Windows, a rerun on macOS). Linear now (4 to 4.5 times),
-        11 to 12 times before the fix."""
-        def page(count: int) -> bytes:
-            pieces = "a<pre>c</pre><table><tr><td>x</td></tr></table>" * count
-            return f"<table><tr><td><del>{pieces}</del></td><td>z</td></tr></table>".encode()
+        Measured against the same cell with each `a` and each `x` struck on its own, which gives the same text, read on the
+        same machine: 0.75 times as long, 5 times before the fix. Held to 3 seconds, it failed on CI runners (3.1 to 3.8 s on
+        Windows); four times the tables against a quarter of them, tried next, came within 1.4 times of its bound of 8 on a
+        macOS runner, as a larger page is slower there for every element."""
+        def page(count: int, apart: bool = False) -> bytes:
+            pieces = ("<del>a</del><pre>c</pre><table><tr><td><del>x</del></td></tr></table>" if apart
+                      else "a<pre>c</pre><table><tr><td>x</td></tr></table>") * count
+            return (f"<table><tr><td>{pieces}</td><td>z</td></tr></table>" if apart
+                    else f"<table><tr><td><del>{pieces}</del></td><td>z</td></tr></table>").encode()
 
-        small, large = page(2_500), page(10_000)
+        one, apart = page(10_000), page(10_000, apart=True)
 
-        assert fastest(lambda: convert(large, "a.html")) < 8 * fastest(lambda: convert(small, "a.html"))
-        result = convert(small, "a.html")
+        assert fastest(lambda: convert(one, "a.html")) < 2 * fastest(lambda: convert(apart, "a.html"))
+        result = convert(page(2_500), "a.html")
         assert result.text.count("~~") == 2 * 5_000  # every `a` and every `x`
         assert "\n~~\n" not in result.text
+        assert result.text == convert(page(2_500, apart=True), "a.html").text
 
     def test_strikethrough_set_on_a_code_block_itself_is_not_marked(self):
         assert convert(b'<pre style="text-decoration:line-through">x</pre>', "a.html").text == "```\nx\n```"

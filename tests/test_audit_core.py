@@ -261,13 +261,18 @@ class TestChartFormatWithManyOpenBrackets:
 
     @pytest.mark.timing
     def test_open_brackets_in_a_format_of_the_longest_length_take_linear_time(self):
-        format_code = "[$" * 126 + '0"원'
-        started = time.perf_counter()
+        """A format of 126 open brackets takes 1.2 times as long as a plain format of the same length, 10 times before (25
+        seconds). Measured against that format on the same machine: `allowed(10)` left too little room on a Windows runner."""
+        from tests.timing import fastest
 
-        shown = {_charts._format_value("1200", format_code) for _ in range(60_000)}
+        brackets, plain = "[$" * 126 + '0"원', "#" * 252 + '0"원'
 
-        assert time.perf_counter() - started < allowed(10.0)  # 25 seconds before, 3 now
-        assert len(format_code) == 255 and shown == {"1200"}
+        def seconds(format_code: str) -> float:
+            return fastest(lambda: {_charts._format_value("1200", format_code) for _ in range(20_000)})
+
+        assert seconds(brackets) < 3.5 * seconds(plain)
+        assert len(brackets) == len(plain) == 255
+        assert {_charts._format_value("1200", brackets) for _ in range(3)} == {"1200"}
 
     @pytest.mark.timing
     @pytest.mark.parametrize("format_code", ["0" * 20_000 + '"원"', "[Red]" * 4_000 + '0"원"', "0." + "0" * 20_000 + "%",
