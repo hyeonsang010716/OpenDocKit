@@ -26,6 +26,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from opendockit.exceptions import CorruptedDocumentError, UnsupportedFormatError
+from opendockit.extractors._codecs import portable_codec
 from opendockit.extractors._inline import SUBSCRIPT, SUPERSCRIPT, mark_script, resolve_scripts
 from opendockit.extractors._notation import chars_left
 from opendockit.extractors._openpyxl_reading import (
@@ -472,16 +473,17 @@ def _styles_codec(head: bytes) -> str | None:
     (lxml refuses that part anyway). openpyxl reads a part in UTF-16 like any other, while the byte patterns of the bound look
     for ASCII: a UTF-16 part of 900,000 cell formats was never counted and took 6.5 s and 1.8 GB, and one over the element bound
     lost every display format in the replaced stylesheet (Pinned by: test_spreadsheet.py::TestOversizedStylesheet::
-    test_styles_part_in_utf16_is_bounded_with_its_formats)."""
+    test_styles_part_in_utf16_is_bounded_with_its_formats). A codec only Windows has (`portable_codec`: `encoding="ansi"`, and
+    from Python 3.14 `encoding="cp20866"`) is one Python does not know, as on every other system (Pinned by:
+    test_codecs.py::TestSpreadsheetStyles)."""
     wide = next((name for start, name in _XML_WIDE_STARTS if head.startswith(start)), None)
     if wide is not None:
         return wide
     declared = _XML_ENCODING.match(head.removeprefix(codecs.BOM_UTF8))
     if declared is None:
         return None
-    try:
-        name = codecs.lookup(declared.group(1).decode("ascii")).name
-    except LookupError:
+    name = portable_codec(declared.group(1).decode("ascii"))
+    if name is None:
         return None
     # A declaration of UTF-16 or UTF-32 on bytes that are not is not followed (the part is read as ASCII, as libxml2 reads it)
     return None if name == "utf-8" or name.startswith(("utf-16", "utf-32")) else name
