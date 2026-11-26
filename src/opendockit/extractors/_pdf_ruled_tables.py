@@ -149,11 +149,11 @@ def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | 
 def _merged_cells(rows: list[list[str]], boxes: tuple[tuple, ...], spans: tuple[tuple[float, float], ...],
                   bands: tuple[tuple[float, float], ...]) -> tuple[tuple[int, int, int, int], ...]:
     """The cell boxes of a ruled table that cover more than one row or column, as (row, column, rows, columns) in `rows`:
-    a box covers the rows and columns whose middle lies inside it. Nothing when no box covers more than one column, and
-    nothing when the boxes do not lay the grid out with one box on each place — a place two boxes cover (a cell that holds
-    the cells of a table inside it, a box laid over others), a box over no row or column, rows that are not the rows of
-    the bands (a two-level header merged into one row, `_merge_split_header`; a row of a cell holding a table left out,
-    `_cell_rows`).
+    a box covers the rows and columns whose middle lies strictly inside it. Nothing when no box covers more than one
+    column, and nothing when a place is covered by two boxes (a cell that holds the cells of a table inside it, a box laid
+    over others), when a box covers no row or column, or when the rows are not the rows of the bands (a two-level
+    header merged into one row, `_merge_split_header`; a row of a cell holding a table left out, `_cell_rows`). A place
+    no box covers is written as a cell of its own.
 
     pdfplumber states each cell box and gives None for the places a merged cell hides, and those were written as empty
     cells: the text of a cell over three columns stood in the column its middle falls in, between empty ones, and no reader
@@ -191,14 +191,18 @@ def _spanned_text(table: _Table) -> str:
     The spans are kept only while the rows are the rows they were found in: same count, same width, and every place a
     merged cell covers empty or, in the first column of a cell over several rows, the copy of its text `_cell_rows` put
     there. Any other text there would be hidden by the span, so the table is written as before; and so it is when a step
-    after the search wrote the rows again — a table continued from the previous page (`continued`), one read from the right
-    (`from_the_right`). Known accepted gaps: those tables, a ruled table whose two-level header was merged into one row,
+    after the search wrote the rows again — a table continued from the previous page (`continued`, or a header carried over
+    to it, which clears `merges`), one read from the right (`from_the_right`) — and when the rows are no longer as many as
+    the bands found with them. The table is written as before too when the drawing would leave out rows for the
+    conversion's grid budget (`TableGrid.omitted_rows`): `text` holds them, and nothing would say they are gone. Known
+    accepted gaps: those tables, a ruled table whose two-level header was merged into one row,
     and borderless tables, keep the place of a merged cell's text in the column its middle falls in."""
     rows = table.rows
     if not table.merges or table.continued or table.from_the_right or table.stated:
         return table.text
     width = len(table.spans)
-    if not rows or any(len(row) != width for row in rows):
+    if (not rows or any(len(row) != width for row in rows) or len(table.bands) != len(rows)
+            or not all(math.isfinite(edge) for band in table.bands for edge in band)):
         return table.text
     starts: dict[tuple[int, int], tuple[int, int]] = {}
     covered: set[tuple[int, int]] = set()
@@ -221,7 +225,8 @@ def _spanned_text(table: _Table) -> str:
             if (row, column) not in covered:
                 row_span, column_span = starts.get((row, column), (1, 1))
                 grid.place(row, column, text or "", row_span=row_span, col_span=column_span)
-    return grid.spanning_html() or table.text
+    html = grid.spanning_html()
+    return html if html is not None and not grid.omitted_rows() else table.text
 
 
 def _with_open_below(table: _Table, lookups: _TableLookups) -> _Table:

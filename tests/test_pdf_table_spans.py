@@ -5,8 +5,9 @@ import math
 from opendockit import ConvertOptions, convert
 from opendockit.extractors._pdf_model import _Table
 from opendockit.extractors._pdf_ruled_tables import _merged_cells, _spanned_text
-from opendockit.markdown import TableGrid
+from opendockit.markdown import TableGrid, render_table, restore_spans, span_budget
 from opendockit.models import image_marker
+from tests.test_pdf import _korean_pdf
 from tests.test_pdf_table_columns import _merged_cells_pdf
 
 
@@ -48,6 +49,36 @@ class TestMergedCells:
 
         assert _text(cells, 3, _XS[:4]) == ("사업비 내역\n\n| 항목 | 금액 | 비고 |\n| --- | --- | --- |\n| 인건비 | 100 | - |\n\n"
                                             "표 아래 본문입니다.")
+
+
+class TestHeaderCarriedOver:
+    def test_a_header_put_on_the_rows_clears_their_spans(self):
+        """A borderless table at the foot of a page goes on in a ruled table of the same columns on the next: the header of
+        the first is put on top of the second (`_carry_table_headers`), and the spans found in its rows stood one row too
+        high — '합계' lost its two columns and '가' was written over them."""
+        xs = [50, 150, 250, 350, 450]
+
+        def draw(pdf, index):
+            pdf.setLineWidth(0.6)
+            if index == 0:
+                pdf.drawString(60, 780, "본문 첫 줄입니다.")
+                rows = [["구분", "항목", "2024년", "2025년"], ["갑", "을", "10", "20"], ["병", "정", "30", "40"], ["무", "기", "50", "60"]]
+                for number, row in enumerate(rows):
+                    for x, text in zip(xs, row, strict=False):
+                        pdf.drawString(x + 10, 160 - 18 * number, text)
+                return
+            ys = [790, 770, 750]
+            for row, column, height, width, text in [(0, 0, 1, 1, "가"), (0, 1, 1, 1, ""), (0, 2, 1, 1, "1"), (0, 3, 1, 1, "2"),
+                                                     (1, 0, 1, 2, "합계"), (1, 2, 1, 1, "3"), (1, 3, 1, 1, "4")]:
+                pdf.rect(xs[column], ys[row + height], xs[column + width] - xs[column], ys[row] - ys[row + height])
+                if text:
+                    pdf.drawString(xs[column] + 5, (ys[row] + ys[row + height]) / 2 - 4, text)
+            pdf.drawString(60, 700, "표 아래 본문입니다.")
+
+        text = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "| 구분 | 항목 | 2024년 | 2025년 |\n| --- | --- | --- | --- |\n| 가 | | 1 | 2 |\n| 합계 | | 3 | 4 |" in text
+        assert "colspan" not in text
 
 
 def _box(row: int, column: int, rows: int = 1, columns: int = 1) -> tuple[float, float, float, float]:
@@ -96,8 +127,19 @@ class TestMergedCellsFromTheBoxes:
             assert _merged_cells(rows, boxes, _SPANS, _BANDS) == ()
         assert _merged_cells(rows, (_box(0, 0, 1, 2),), _SPANS, ((0.0, 10.0), (10.0, math.inf), (math.inf, math.inf))) == ()
 
+    def test_a_box_whose_edge_lies_on_a_middle_does_not_cover_that_row_or_column(self):
+        """A place is covered when its middle lies strictly inside the box."""
+        rows = [["a", "", "b"], ["c", "d", "e"], ["f", "g", "h"]]
+        # from the middle of row 0 to the middle of row 2: that is row 1 alone
+        boxes = (_box(0, 0, 1, 2), _box(0, 2), (0.0, 5.0, 10.0, 25.0), _box(1, 1), _box(1, 2), _box(2, 1), _box(2, 2))
+        assert _merged_cells(rows, boxes, _SPANS, _BANDS) == ((0, 0, 1, 2),)
+        # from the middle of column 0 to that of column 2: column 1 alone
+        boxes = ((5.0, 0.0, 25.0, 10.0), _box(0, 0), _box(0, 2), _box(1, 0, 1, 2), _box(1, 2), _box(2, 0), _box(2, 1), _box(2, 2))
+        assert _merged_cells(rows, boxes, _SPANS, _BANDS) == ((1, 0, 1, 2),)
+
 
 def _table(rows: list[list[str]], merges: tuple[tuple[int, int, int, int], ...], **fields: object) -> _Table:
+    fields.setdefault("bands", tuple((10.0 * row, 10.0 * row + 10.0) for row in range(len(rows))))
     return _Table(top=0.0, text="as before", bottom=30.0, x0=0.0, x1=30.0, rows=rows, spans=_SPANS[:len(rows[0])],
                   merges=merges, **fields)
 
@@ -131,8 +173,31 @@ class TestSpannedText:
         assert _spanned_text(_table(rows, merges, continued=True)) == "as before"
         assert _spanned_text(_table(rows, merges, from_the_right=True)) == "as before"
         assert _spanned_text(_table([*rows, ["다", "라", "2", "3"]], merges)) == "as before"  # a row of another width
-        assert _spanned_text(_table(rows, ((1, 0, 2, 2),))) == "as before"  # a merge past the last row
         assert _spanned_text(_table(rows, ())) == "as before"
+        # rows no longer as many as the bands they were found with, or a band of no position (a header carried over)
+        assert _spanned_text(_table(rows, merges, bands=((0.0, 10.0),))) == "as before"
+        assert _spanned_text(_table(rows, merges, bands=((-math.inf, -math.inf), (0.0, 10.0)))) == "as before"
+
+    def test_a_merge_past_the_rows_or_columns_leaves_the_table_as_before(self):
+        rows = [["구분", "", "값"], ["가", "나", ""]]
+        assert _spanned_text(_table(rows, ((0, 0, 1, 2),))).startswith("<table>")
+        assert _spanned_text(_table(rows, ((0, 0, 1, 2), (1, 1, 2, 2)))) == "as before"
+        assert _spanned_text(_table(rows, ((0, 0, 1, 2), (1, 1, 1, 3)))) == "as before"
+
+    def test_white_space_in_a_place_a_merged_cell_covers_is_no_text(self):
+        assert _spanned_text(_table([["구분", " ", "값"], ["가", "나", "1"]], ((0, 0, 1, 2),))).startswith("<table>")
+
+    def test_rows_the_grid_budget_would_leave_out_leave_the_table_as_before(self):
+        """The drawing charges the conversion's grid budget; past it the bottom rows are left out, which `text` keeps."""
+        rows = [["A", "", "B", "C"], ["x", "y", "", ""], *([f"w{row}" if column == row % 4 else "" for column in range(4)]
+                                                          for row in range(8))]
+        table = _Table(top=0.0, text=render_table(rows), bottom=100.0, x0=0.0, x1=40.0, rows=rows,
+                       spans=((0.0, 10.0), (10.0, 20.0), (20.0, 30.0), (30.0, 40.0)),
+                       bands=tuple((10.0 * row, 10.0 * row + 10.0) for row in range(len(rows))), merges=((0, 0, 1, 2),))
+        assert _spanned_text(table).startswith("<table>")
+        with span_budget():
+            restore_spans((1_000_000, 5))
+            assert _spanned_text(table) == table.text
 
     def test_a_picture_in_a_merged_cell_stays_in_it_once(self):
         """A picture is put in the first place of the cell it lies in (`_place_images_in_cells`): written with the span,
