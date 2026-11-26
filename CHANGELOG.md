@@ -74,6 +74,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   writes another, with such a header in a part, came out as its delimiter lines and part headers. Mails are now read
   as the later versions read them, on every version.
 
+- **A mail parameter in RFC 2231 pieces reads the same on every supported Python.** Every release of 3.12 and 3.13.0
+  to 3.13.4 sort the pieces of a parameter whole, and a piece without a number among numbered ones
+  (`filename*=utf-8''a; filename*1=b.pdf`) raised an error out of every reader of that header. A mail with such a
+  piece in its boundary or charset, or in any parameter beside them, was rejected as corrupted, and such an attachment
+  name was counted as unnamed; two pieces of one number were joined in the order of their values. Python 3.13.5 and
+  later join the pieces by number, and the mail reader now does so on every version: the mail is read and the
+  attachment is named `ab.pdf`.
+
 ## [0.3.16] - 2026-11-25
 
 Most of this release comes from real documents rather than the ones the tests build: files attached to the issues of
