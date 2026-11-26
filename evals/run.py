@@ -177,10 +177,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.baseline is None:
         return 0
     if args.update_baseline:
-        if args.baseline.exists():  # a baseline written from a run that lacks documents compares later runs without them
+        try:  # a baseline written from a run that lacks documents compares later runs without them
             dropped = sorted(json.loads(args.baseline.read_text(encoding="utf-8"))["documents"].keys() - card["documents"].keys())
-            if dropped:
-                print(f"documents of the old baseline not in the new one: {len(dropped)} ({', '.join(dropped[:CHANGED_SHOWN])})")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):  # none yet, or not one: it is written anew
+            dropped = []
+        if dropped:
+            shown = ", ".join(dropped[:CHANGED_SHOWN]) + (f" and {len(dropped) - CHANGED_SHOWN} more" if len(dropped) > CHANGED_SHOWN else "")
+            print(f"documents of the old baseline not in the new one: {len(dropped)} ({shown})")
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps({key: card[key] for key in ("means", "documents", "texts")}, indent=1) + "\n", encoding="utf-8")
         return 0

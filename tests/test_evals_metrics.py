@@ -1,5 +1,6 @@
 """The structure metrics of `evals/metrics.py` and the baseline comparison of `evals/run.py`."""
 
+import json
 import random
 
 import pytest
@@ -263,6 +264,10 @@ class TestCompare:
 
         assert main(["--gold", str(gold), "--predictions", str(documents), "--baseline", str(baseline), "--update-baseline"]) == 0
         assert "documents of the old baseline not in the new one: 1 (b)" in capsys.readouterr().out
+
+        baseline.write_text("not a scorecard", encoding="utf-8")  # one that is no baseline is written anew
+        assert main(["--gold", str(gold), "--predictions", str(documents), "--baseline", str(baseline), "--update-baseline"]) == 0
+        assert json.loads(baseline.read_text(encoding="utf-8"))["documents"].keys() == {"a"}
 
     def test_the_same_documents_are_compared_by_the_means_written(self):
         """With the same documents on both sides the baseline's means are the ones compared, as they were written."""
