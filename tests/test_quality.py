@@ -131,9 +131,10 @@ def test_pdf_title_over_borderless_table_only_is_still_a_heading():
     assert result.sections[0].text.startswith("# 괘선 없는 표\n\n| 가 | 나 | 다 |")
 
 
-def test_pdf_two_level_merged_header_is_flattened():
-    """A two-level header common in Korean report PDFs ('1월', '2월' under '문의') is flattened into one row,
-    '문의 1월 | 문의 2월'."""
+def test_pdf_two_level_merged_header_keeps_its_spans():
+    """A two-level header common in Korean report PDFs ('1월', '2월' under '문의') is written with its spans, as the
+    other formats write it; flattened into one row, '문의 1월 | 문의 2월', it is the table's Markdown, used when the spans
+    cannot be written (`_pdf_ruled_tables._spanned_text`)."""
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -158,8 +159,9 @@ def test_pdf_two_level_merged_header_is_flattened():
 
     result = convert(buffer.getvalue(), "a.pdf")
 
-    assert ("| 부서 | 문의 1월 | 문의 2월 | 해결률 1월 | 해결률 2월 |\n| --- | --- | --- | --- | --- |\n"
-            "| 교육팀 | 620 | 700 | 91% | 93% |") in result.text
+    assert ('<table>\n<tr><th rowspan="2">부서</th><th colspan="2">문의</th><th colspan="2">해결률</th></tr>\n'
+            "<tr><td>1월</td><td>2월</td><td>1월</td><td>2월</td></tr>\n"
+            "<tr><td>교육팀</td><td>620</td><td>700</td><td>91%</td><td>93%</td></tr>\n</table>") in result.text
 
 
 def test_pdf_table_without_outer_borders_keeps_its_first_and_last_columns():
@@ -663,8 +665,9 @@ def test_pdf_open_sided_table_with_two_level_header_is_kept_whole():
 
     result = convert(_pdf_canvas(draw), "a.pdf")
 
-    assert ("| 구분 | 2025년 상반기 | 2025년 하반기 | 비고 |\n| --- | --- | --- | --- |\n"
-            "| 매출 | 120 | 150 | 증가 |\n| 비용 | 80 | 90 | 유지 |") in result.text
+    assert ('<table>\n<tr><th rowspan="2">구분</th><th colspan="2">2025년</th><th rowspan="2">비고</th></tr>\n'
+            "<tr><td>상반기</td><td>하반기</td></tr>\n<tr><td>매출</td><td>120</td><td>150</td><td>증가</td></tr>\n"
+            "<tr><td>비용</td><td>80</td><td>90</td><td>유지</td></tr>\n</table>") in result.text
 
 
 def test_pdf_one_level_header_spanning_two_columns_keeps_the_first_data_row():

@@ -16,9 +16,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   structure (TEDS) rises from 0.5745 to 0.5945 on the Korean pairs, from 0.5812 to 0.6029 on the Korean holdout and
   from 0.7761 to 0.7797 on the benchmark. Where the boxes do not lay the grid out one to a place (a cell that holds a
   table, a box over others), or a step after the search wrote the rows again (a table given the header of the table
-  on the previous page, one read from the right, a two-level header merged into one row), the table is written as
-  before; a table continued from the previous page with the same columns keeps its spans, and so does a table with a
-  picture in a cell over several rows. A table
+  on the previous page, one read from the right), the table is written as before; a table continued from the
+  previous page with the same columns keeps its spans, and so does a table with a picture in a cell over several
+  rows. A two-level header, merged into one row (`문의 1월 | 문의 2월`), is written with its spans as well, `문의`
+  over the columns of `1월` and `2월`: table structure rises again, from 0.5945 to 0.6125 on the Korean pairs and
+  from 0.7797 to 0.7811 on the benchmark; the merged row is still what is written where the spans cannot be. A table
   read from the tags of a tagged PDF and with a cell over several columns is written with the spans its structure tree
   states: table structure rises from 0.8464 to 0.8673 on the tagged PDF twins.
 

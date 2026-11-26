@@ -854,8 +854,10 @@ class TestHeaderWithoutTopBorder:
     def test_the_first_header_level_is_a_row_of_the_table(self):
         text = convert(_table_with_open_header(), "a.pdf").text
 
-        table = [line for line in text.splitlines() if line.startswith("|")]
-        assert table[0] == ("| No. | Party | Provisional Areas | Provisional Candidates | Official Areas | Official Candidates"
-                            " | Change |")
-        assert "| 2 | South Party | 1,649 | 23,679 | 1,623 | 23,939 | +260 |" in table
+        table = [line for line in text.splitlines() if line.startswith("<tr>")]
+        assert table[:2] == ['<tr><th rowspan="2">No.</th><th rowspan="2">Party</th><th colspan="2">Provisional</th>'
+                             '<th colspan="2">Official</th><th rowspan="2">Change</th></tr>',
+                             "<tr><td>Areas</td><td>Candidates</td><td>Areas</td><td>Candidates</td></tr>"]
+        assert ("<tr><td>2</td><td>South Party</td><td>1,649</td><td>23,679</td><td>1,623</td><td>23,939</td>"
+                "<td>+260</td></tr>") in table
         assert not any(line.startswith(("No.", "Provisional")) for line in text.splitlines())

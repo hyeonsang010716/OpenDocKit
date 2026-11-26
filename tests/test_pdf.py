@@ -3734,8 +3734,10 @@ class TestRuledTables:
 
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("| 구분 | 2024년 상반기 | 2024년 하반기 |\n| --- | --- | --- |\n| 서울 | 100 | 200 |\n"
-                               "| 부산 | 300 | 400 |\n| 합계 | | 1000 |\n\n표 아래 문단입니다.")
+        assert result.text == ('<table>\n<tr><th rowspan="2">구분</th><th colspan="2">2024년</th></tr>\n'
+                               "<tr><td>상반기</td><td>하반기</td></tr>\n<tr><td>서울</td><td>100</td><td>200</td></tr>\n"
+                               '<tr><td>부산</td><td>300</td><td>400</td></tr>\n<tr><td colspan="2">합계</td><td>1000</td></tr>\n'
+                               "</table>\n\n표 아래 문단입니다.")
 
     def test_open_sided_table_whose_last_row_breaks_every_column_rule_keeps_it(self):
         """The total '소계' spans columns 1-2 and the last row's remark columns 2-3, so the rule between columns 2 and 3 stops

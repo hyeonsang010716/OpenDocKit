@@ -593,8 +593,9 @@ class TestAbuttingTablesWithDifferentColumns:
 
         result = convert(_korean_pdf(draw), "a.pdf")
 
-        assert sum(1 for line in result.text.splitlines() if line.startswith("| ---")) == 1
-        assert "| 상반기 1분기 | 상반기 2분기 | 하반기 3분기 | 하반기 4분기 |" in result.text
+        assert result.text.count("<table>") == 1
+        assert ('<tr><th colspan="2">상반기</th><th colspan="2">하반기</th></tr>\n'
+                "<tr><td>1분기</td><td>2분기</td><td>3분기</td><td>4분기</td></tr>") in result.text
 
     def test_merged_cells_at_the_outer_edges_keep_one_table(self):
         """The right column merged over data rows 1-3 and the left column over rows 3-5: every row has the same outer
@@ -863,7 +864,8 @@ class TestStaggeredMerges:
 
         result = convert(_merged_cells_pdf([80, 200, 320, 440], cells, 5), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert "| 나 항목 | | 보류 |\n| 다 항목 | | 보류 |\n| 라 항목 | | 완료 |" in result.text
+        assert ('<tr><td colspan="2">나 항목</td><td rowspan="2">보류</td></tr>\n<tr><td colspan="2">다 항목</td></tr>\n'
+                '<tr><td colspan="2">라 항목</td><td>완료</td></tr>') in result.text
 
 
 def _three_rule_statement(header_lines: list[tuple[float, list[tuple[float, str]]]], header_height: float = 30.0) -> bytes:
