@@ -20,6 +20,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **A PDF with a JPEG 2000 picture pdfium cannot draw no longer ends the program converting it.** pdfium stops the
+  process, with a check that ends it rather than an error, when a JPEG 2000 picture's colour space asks for more
+  components than the picture holds (a DeviceN of four colorants over two components), and when an image mask's
+  picture is one it takes for gray. The PDF.js test file `jpx_numcomps.pdf`, 10 KB, ended every program that converted
+  it in its own process, a server with it. The reader now reads the headers of a document's JPEG 2000 pictures before
+  pdfium draws anything, and for such a document draws no picture and says so in a warning; its text is read as before.
+  The rules are pdfium's own, each measured on a picture built for it. A file without a JPEG 2000 picture costs one search
+  of its bytes. A server should still convert in `IsolatedConverter`: pdfium may have other defects of the kind.
+
 - **A document reads the same on Windows as elsewhere when it names a code page of Windows.** Windows lends Python
   codecs that no other system has: the machine's own code pages (`mbcs`, also named `ansi` and `dbcs`, and `oem`),
   and from Python 3.14 every code page Windows converts, by number. HTML, mail or text declaring `ansi`, an RTF with
