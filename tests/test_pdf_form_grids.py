@@ -34,6 +34,6 @@ class TestFormGridHeader:
         text = convert(_korean_pdf(draw), "a.pdf").sections[0].text
 
         assert "등록번호 상호" not in text
-        rows = [line for line in text.splitlines() if line.startswith("|")]
-        assert rows[0].startswith("| 등록번호 |") and "123-45-67890" in rows[0]
-        assert any(row.startswith("| 상호 |") and "(주)라마바" in row and "박대표" in row for row in rows)
+        rows = [line for line in text.splitlines() if line.startswith("<tr>")]
+        assert rows[0] == '<tr><th colspan="2">등록번호</th><th colspan="5">123-45-67890</th></tr>'
+        assert rows[1] == '<tr><td colspan="2">상호</td><td colspan="2">(주)라마바</td><td>성명</td><td colspan="2">박대표</td></tr>'

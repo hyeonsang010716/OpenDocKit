@@ -1133,6 +1133,14 @@ class TableGrid:
         finally:
             self._room = None
 
+    def spanning_html(self) -> str | None:
+        """What `render` writes when that is HTML because a cell still spans columns after the empty rows and columns are
+        removed; None when it would write Markdown, and for a table holding a table. For a reader that keeps its own Markdown
+        for a table without such a cell (`_pdf_ruled_tables._spanned_text`)."""
+        if self._embedded:
+            return None
+        return self._html(self._grid(filled_only=True))
+
     def _draw(self, *, headless: bool = False) -> str:
         rows = self._grid(filled_only=True)
         if not self._embedded:

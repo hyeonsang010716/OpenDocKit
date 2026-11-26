@@ -299,6 +299,10 @@ def _carry_table_headers(pages: list[_Page]) -> None:
             # the first row is a header
             continue
         first.rows = [header, *grid]
+        # the spans of its merged cells were found in the rows before the header was put on them: written with them, a span
+        # stood one row too high. The band of no position the header gets below leaves them out too (`_spanned_text`);
+        # either one keeps the table as it was (Pinned by: test_pdf_table_spans.py::TestHeaderCarriedOver)
+        first.merges = ()
         first.text = _table_text(first)
         if first.bands:
             first.bands = ((-math.inf, -math.inf), *first.bands)  # the carried-over header row has no position on the page

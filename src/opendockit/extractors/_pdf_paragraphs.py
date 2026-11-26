@@ -27,7 +27,7 @@ from opendockit.extractors._pdf_model import (
     _Table,
     _word_chars,
 )
-from opendockit.extractors._pdf_ruled_tables import _in_cell
+from opendockit.extractors._pdf_ruled_tables import _in_cell, _spanned_text
 from opendockit.markdown import escape_block_marks, render_table
 
 
@@ -83,7 +83,8 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
     # paragraph is a label placed to the left of the table or picture, it is inserted after it. A picture inside a ruled-table
     # cell is put in that cell.
     images = _place_images_in_cells(page.tables, images or [])
-    blocks = [((table.top, table.x0, table.x1, table.bottom), _bar_of_table(table) or table.text) for table in page.tables] + images
+    blocks = [((table.top, table.x0, table.x1, table.bottom), _bar_of_table(table) or _spanned_text(table)) for table in page.tables]
+    blocks += images
     follows = _picture_rows(images)
     # pictures joined as a row are placed left to right at the height of the row's first picture
     starts = {text: box[0] for box, text in images}

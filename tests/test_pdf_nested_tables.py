@@ -85,7 +85,7 @@ class TestNestedTables:
         result = convert(_resume_pdf((6, 6, 6, 6), open_last_row=True), "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text.count("2015~2017") == 1
-        row = next(line for line in result.text.splitlines() if line.startswith("| 학력 |"))
+        row = next(line for line in result.text.splitlines() if line.startswith("<tr><td>학력</td>"))
         assert "2009~2015" in row and "2015~2017 한국대학교 대학원 인공지능 석사" in row
 
     def test_unit_line_under_the_inner_table_becomes_a_row_after_it(self):

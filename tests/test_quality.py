@@ -686,8 +686,8 @@ def test_pdf_one_level_header_spanning_two_columns_keeps_the_first_data_row():
 
     result = convert(_pdf_canvas(draw), "a.pdf")
 
-    assert ("| 이름 | 연락처 | |\n| --- | --- | --- |\n| 홍길동 | 010-1111-2222 | hong@a.kr |\n"
-            "| 김철수 | 010-3333-4444 | kim@a.kr |") in result.text
+    assert ('<tr><th>이름</th><th colspan="2">연락처</th></tr>\n<tr><td>홍길동</td><td>010-1111-2222</td><td>hong@a.kr</td></tr>\n'
+            "<tr><td>김철수</td><td>010-3333-4444</td><td>kim@a.kr</td></tr>") in result.text
 
 
 def test_pdf_text_inside_form_xobjects_stays_where_it_is_drawn():

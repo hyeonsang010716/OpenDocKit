@@ -2,6 +2,8 @@
 rectangles with no border)."""
 
 
+import re
+
 import pytest
 
 from opendockit import ConvertOptions, convert
@@ -877,18 +879,42 @@ class TestShadedTableOpenAtASide:
     cells, searched again from the rules of the page alone: the cells of the last column and every value that spans to the
     open end were gone from the table, and their text came out as paragraphs under a table of empty cells."""
 
-    _WHOLE = ("| 구분 | | 가형 | 나형 | 다형 |\n| --- | --- | --- | --- | --- |\n| 발생 | 국가 | 콩고 | 수단 | 우간다 |\n"
-              "| 발생 | 동향 | 산발 유행 | 소규모 | 드묾 |\n| 병원체 | | 자이레형 | 수단형 | 분디부교형 |\n"
-              "| 증상 | | 발열과 두통이 나타남 | | |\n| 치명률 | | 60% | 41% | 30% |\n| 치료 | 약 | 승인 치료제 | 없음 | 없는 상태 |\n"
-              "| 치료 | 백신 | 어베보 | 미승인 | 미승인 상태 |\n| 잠복기 | | 2일에서 21일 | | |\n| 경로 | 동물 | 박쥐와 접촉 | | |\n"
-              "| 경로 | 사람 | 체액에 접촉 | | |\n\n표 아래의 문단이다.")
+    # Searched again from the rules of the page, the shaded table keeps some merged label cells as cells of their own
+    # ('구분', '증상'), where the table found once keeps every span (`_UNSHADED`): the same cells in the same order, with
+    # fewer spans (known accepted gap, `_pdf_ruled_tables._spanned_text`).
+    _WHOLE = ('<table>\n<tr><th>구분</th><th></th><th>가형</th><th>나형</th><th>다형</th></tr>\n'
+              '<tr><td rowspan="2">발생</td><td>국가</td><td>콩고</td><td>수단</td><td>우간다</td></tr>\n'
+              '<tr><td>동향</td><td>산발 유행</td><td>소규모</td><td>드묾</td></tr>\n'
+              '<tr><td colspan="2">병원체</td><td>자이레형</td><td>수단형</td><td>분디부교형</td></tr>\n'
+              '<tr><td>증상</td><td></td><td>발열과 두통이 나타남</td><td></td><td></td></tr>\n'
+              '<tr><td colspan="2">치명률</td><td>60%</td><td>41%</td><td>30%</td></tr>\n'
+              '<tr><td rowspan="2">치료</td><td>약</td><td>승인 치료제</td><td>없음</td><td>없는 상태</td></tr>\n'
+              '<tr><td>백신</td><td>어베보</td><td>미승인</td><td>미승인 상태</td></tr>\n'
+              '<tr><td colspan="2">잠복기</td><td colspan="3">2일에서 21일</td></tr>\n'
+              '<tr><td rowspan="2">경로</td><td>동물</td><td>박쥐와 접촉</td><td></td><td></td></tr>\n'
+              '<tr><td>사람</td><td>체액에 접촉</td><td></td><td></td></tr>\n</table>\n\n표 아래의 문단이다.')
+    _UNSHADED = ('<table>\n<tr><th colspan="2">구분</th><th>가형</th><th>나형</th><th>다형</th></tr>\n'
+                 '<tr><td rowspan="2">발생</td><td>국가</td><td>콩고</td><td>수단</td><td>우간다</td></tr>\n'
+                 '<tr><td>동향</td><td>산발 유행</td><td>소규모</td><td>드묾</td></tr>\n'
+                 '<tr><td colspan="2">병원체</td><td>자이레형</td><td>수단형</td><td>분디부교형</td></tr>\n'
+                 '<tr><td colspan="2">증상</td><td colspan="3">발열과 두통이 나타남</td></tr>\n'
+                 '<tr><td colspan="2">치명률</td><td>60%</td><td>41%</td><td>30%</td></tr>\n'
+                 '<tr><td rowspan="2">치료</td><td>약</td><td>승인 치료제</td><td>없음</td><td>없는 상태</td></tr>\n'
+                 '<tr><td>백신</td><td>어베보</td><td>미승인</td><td>미승인 상태</td></tr>\n'
+                 '<tr><td colspan="2">잠복기</td><td colspan="3">2일에서 21일</td></tr>\n'
+                 '<tr><td rowspan="2">경로</td><td>동물</td><td colspan="3">박쥐와 접촉</td></tr>\n'
+                 '<tr><td>사람</td><td colspan="3">체액에 접촉</td></tr>\n</table>\n\n표 아래의 문단이다.')
 
     def test_last_column_and_the_values_that_span_to_the_open_end_stay_in_the_table(self):
         assert convert(_open_shaded_pdf(), "a.pdf").sections[0].text == self._WHOLE
 
     def test_same_table_without_shading_is_whole_as_before(self):
-        """Without a shaded cell the table is not searched again."""
-        assert convert(_open_shaded_pdf(shaded=False), "a.pdf").sections[0].text == self._WHOLE
+        """Without a shaded cell the table is not searched again: the same cells in the same order, every span kept."""
+        text = convert(_open_shaded_pdf(shaded=False), "a.pdf").sections[0].text
+
+        assert text == self._UNSHADED
+        filled = re.compile(r"<t[dh][^>]*>([^<]+)</t[dh]>")
+        assert filled.findall(text) == filled.findall(self._WHOLE)
 
     def test_same_table_closed_at_the_right_is_whole_as_before(self):
         assert convert(_open_shaded_pdf(right_border_rows=len(_DISEASE_ROWS)), "a.pdf").sections[0].text == self._WHOLE
