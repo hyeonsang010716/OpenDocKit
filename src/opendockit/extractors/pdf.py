@@ -663,6 +663,9 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
 
     if renderer and renderer.skipped:
         extraction.warnings.append(f"There are too many pictures, so {renderer.skipped} of them were not extracted as images.")
+    if renderer and renderer.undrawn:
+        extraction.warnings.append(f"{renderer.undrawn} picture(s) of the PDF were not extracted: it holds a JPEG 2000 picture "
+                                   "that stops the PDF renderer when drawn.")
     # Only the pages whose picture was rendered were handed over: with `max_images` low (or 0) the render budget runs out, and
     # those pages kept only their text layer, while the warning said every page was handed over as an image (Pinned by:
     # test_image.py::TestPdfImages::test_untrusted_pages_beyond_the_picture_budget_are_not_said_to_be_handed_over).

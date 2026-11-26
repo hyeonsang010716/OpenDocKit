@@ -14,6 +14,7 @@ from pdfminer.pdfinterp import PDFPageInterpreter
 from pdfminer.utils import MATRIX_IDENTITY, apply_matrix_pt, mult_matrix
 import pypdfium2 as pdfium
 
+from opendockit.extractors._pdf_jpx import stops_the_renderer
 from opendockit.extractors._pdf_model import _MIN_FIGURE_POINTS, _PDFIUM_LOCK, _box_area, _encloses, _Page
 from opendockit.models import ConvertOptions, Extraction, ImageKind
 
@@ -373,6 +374,11 @@ class _PageRenderer:
 
     def __init__(self, data: bytes, options: ConvertOptions) -> None:
         self._document = _open_pdfium(data)
+        self._data = data
+        # Whether drawing a page of the document stops pdfium (`_pdf_jpx.stops_the_renderer`), found the first time a
+        # picture is to be drawn; then no picture of it is drawn, and `undrawn` counts them for a warning
+        self._stops: bool | None = None
+        self.undrawn = 0
         self._scale = options.pdf_render_scale
         self._budget = None if options.max_images is None else options.max_images * _RENDER_BUDGET_FACTOR
         self._cached: tuple[tuple[int, float], object] | None = None
@@ -381,6 +387,15 @@ class _PageRenderer:
 
     def render(self, page_index: int, box: tuple[float, float, float, float] | None = None,
                native_scale: float = 0.0) -> bytes | None:
+        # A JPEG 2000 picture whose colour space asks for more components than it holds, or an image mask pdfium takes for
+        # gray, stops the process when pdfium draws it: a check that ends it, not an error. A PDF.js test file of 10 KB with
+        # one such picture among six ended every program that converted it in its own process
+        # (Pinned by: test_pdf_jpx.py::TestTheRendererStops)
+        if self._stops is None:
+            self._stops = stops_the_renderer(self._data)
+        if self._stops:
+            self.undrawn += 1
+            return None
         if self._budget is not None:
             if self._budget <= 0:
                 self.skipped += 1
