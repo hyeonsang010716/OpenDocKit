@@ -36,7 +36,7 @@ Text flow:
 Tables:
 
 - Ruled tables, including tables without left and right borders, dotted cell boundaries, vertically merged values repeated on every row, tables that fill the whole page, and text written rotated inside a cell.
-- A ruled table with a cell over several columns is written as HTML with `colspan` and `rowspan`, as the other formats write merged cells. Not for a table given the header of the table on the previous page, one read from right to left, or one whose two-level header is combined into one row: those stay Markdown, the merged text in one of the columns it covers.
+- A ruled table with a cell over several columns is written as HTML with `colspan` and `rowspan`, as the other formats write merged cells. A two-level header is written with its spans too; where they cannot be written, it is combined into one row (`문의 1월 | 문의 2월`). Not for a table given the header of the table on the previous page or one read from right to left: those stay Markdown, the merged text in one of the columns it covers.
 - Borderless tables, including splitting two cells that touch because the gap between them is narrow, and tables
   drawn with horizontal rules only (a rule above, under the header and below, as papers set them).
 - In a tagged PDF (an export of Word or LibreOffice), a table the tags state is read from them where the page agrees, as HTML with the spans the tags state when a cell spans columns.

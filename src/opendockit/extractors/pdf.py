@@ -1128,7 +1128,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # table finder could not build a cell (e.g. a table continued onto the next page without a bottom border) are not held by any
     # cell, so removing by area would make them vanish silently
     # (Pinned by: test_quality.py::test_pdf_text_inside_a_table_area_is_never_dropped).
-    table_boxes = [cell for _, _, cells in tables for cell in cells]
+    table_boxes = [cell for _, _, cells, _ in tables for cell in cells]
     in_cells = _BoxIndex(table_boxes).holds  # on a page with thousands of cells, scanning every cell per character is quadratic time
     page_chars = page.chars  # the chars of a filtered page (FilteredPage) are filtered again on every access
 
@@ -1256,7 +1256,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                            bold=_is_bold_line(inside), space_at_end=_space_at_end(inside)))
         line_owners.append(owner)
     lines = _place_xobject_lines(lines, line_owners)
-    _mark_checkboxes(page, lines, [bbox for bbox, _, _ in tables])
+    _mark_checkboxes(page, lines, [bbox for bbox, _, _, _ in tables])
     _mark_circle_bullets(page, lines)
 
     if not lines and chars:
@@ -1277,7 +1277,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     figures = _figure_boxes(page, view)
     lookups = _TableLookups(page, figures)
     return _Page(number=page.page_number, width=float(page.width), height=float(page.height), lines=lines,
-                 tables=[_with_open_below(_ruled_table(bbox, rows, boxes, lookups), lookups) for bbox, rows, boxes in tables],
+                 tables=[_with_open_below(_ruled_table(bbox, rows, boxes, lookups, header), lookups)
+                         for bbox, rows, boxes, header in tables],
                  has_images=bool(page.images), view=view, figures=figures,
                  has_outlines=outline_points >= _OUTLINE_MIN_POINTS,
                  placement_fit=placement_fit, placement_pending=placement_pending, sideways=sideways_text,

@@ -126,9 +126,10 @@ class _TableLookups:
 
 
 def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | None]], boxes: list[tuple],
-                 text: _TableLookups) -> _Table:
+                 text: _TableLookups, header: tuple[list[str], list[str]] | None = None) -> _Table:
     """Turns one ruled table (a result of `_real_tables`) into a `_Table`. For a cell holding a picture the line heights of the cell
-    text are stored as well (`_place_images_in_cells`), from the page's characters and pictures in `text`."""
+    text are stored as well (`_place_images_in_cells`), from the page's characters and pictures in `text`. `header` holds
+    the two rows of a two-level header merged into the top row of `rows` (`_merge_split_header`), as they were found."""
     cells = [[cell and _drawn_text(cell) for cell in row] for row in rows]
     boxes = tuple(box for box in boxes if box)
     cell_lines = {}
@@ -143,8 +144,13 @@ def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | 
 
             cell_lines[index] = tuple(tops)
     spans, bands = _column_spans(boxes, len(cells[0])), _row_bands(boxes, len(cells))
+    merges, unmerged = _merged_cells(cells, boxes, spans, bands), ()
+    if header is not None and not merges:
+        unmerged = (tuple(cells[0]), *(tuple(_drawn_text(cell) for cell in row) for row in header))
+        whole = [list(unmerged[1]), list(unmerged[2]), *cells[1:]]
+        merges = _merged_cells(whole, boxes, spans, _row_bands(boxes, len(whole)))
     return _Table(top=bbox[1], text=render_table(cells), bottom=bbox[3], x0=bbox[0], x1=bbox[2], rows=cells, spans=spans,
-                  cells=boxes, bands=bands, cell_lines=cell_lines, merges=_merged_cells(cells, boxes, spans, bands))
+                  cells=boxes, bands=bands, cell_lines=cell_lines, merges=merges, unmerged_header=unmerged)
 
 
 def _merged_cells(rows: list[list[str]], boxes: tuple[tuple, ...], spans: tuple[tuple[float, float], ...],
@@ -153,7 +159,8 @@ def _merged_cells(rows: list[list[str]], boxes: tuple[tuple, ...], spans: tuple[
     a box covers the rows and columns whose middle lies strictly inside it. Nothing when no box covers more than one
     column, and nothing when a place is covered by two boxes (a cell that holds the cells of a table inside it, a box laid
     over others), when a box covers no row or column, or when the rows are not the rows of the bands (a two-level
-    header merged into one row, `_merge_split_header`; a row of a cell holding a table left out, `_cell_rows`). A place
+    header merged into one row, `_merge_split_header`, which `_ruled_table` searches again in the two rows as they were
+    found; a row of a cell holding a table left out, `_cell_rows`). A place
     no box covers is written as a cell of its own.
 
     pdfplumber states each cell box and gives None for the places a merged cell hides, and those were written as empty
@@ -201,17 +208,24 @@ def _spanned_text(table: _Table) -> str:
     (`_merged_title`). A table read from the tags of a tagged PDF (`stated`) has the spans its tree states
     (`_pdf_tagged_tables._trusted_cells`), and no cell boxes or bands to hold them to: its rows are as wide as each other
     as they were built. The table is written as before too when the drawing would leave out rows for the
-    conversion's grid budget (`TableGrid.omitted_rows`): `text` holds them, and nothing would say they are gone. Known
-    accepted gaps: those tables, a ruled table whose two-level header was merged into one row,
+    conversion's grid budget (`TableGrid.omitted_rows`): `text` holds them, and nothing would say they are gone. A
+    table whose two-level header was merged into one row (`unmerged_header`) is written from the two rows as they were
+    found, while its top row is still the one merged and it is not continued from the previous page: '문의 1월 | 문의 2월'
+    stood for a header the other formats write with '문의' over the two columns of '1월' and '2월', and the merged row
+    stays its Markdown (Pinned by: test_pdf_table_spans.py::TestTwoLevelHeaders). Known accepted gaps: those tables,
     and borderless tables, keep the place of a merged cell's text in the column its middle falls in."""
-    rows = table.rows
+    rows, bands = table.rows, table.bands
     if not table.merges or table.from_the_right or not rows:
         return table.text
+    if table.unmerged_header:
+        if table.continued or tuple(rows[0]) != table.unmerged_header[0]:
+            return table.text
+        rows = [list(row) for row in table.unmerged_header[1:]] + rows[1:]
+        bands = _row_bands(table.cells, len(rows))
     width = len(rows[0]) if table.stated else len(table.spans)
     if any(len(row) != width for row in rows):
         return table.text
-    if not table.stated and (len(table.bands) != len(rows)
-                             or not all(math.isfinite(edge) for band in table.bands for edge in band)):
+    if not table.stated and (len(bands) != len(rows) or not all(math.isfinite(edge) for band in bands for edge in band)):
         return table.text
     starts: dict[tuple[int, int], tuple[int, int]] = {}
     covered: set[tuple[int, int]] = set()
@@ -313,7 +327,8 @@ def _is_caption_box(cells: list[list[str | None]]) -> bool:
 
 
 @_dropping_page_indexes
-def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], list[list[str]], list[tuple]]]:
+def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], list[list[str]], list[tuple],
+                                             tuple[list[str], list[str]] | None]]:
     """Filter layout boxes out of the ruled tables: page frames (a box that covers the page but has hardly any cells), outer boxes
     that enclose another table, and boxes whose content is a single column.
 
@@ -345,21 +360,22 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
             header_rows = len(cells) - len(merged) + 1  # 2 if a two-level header was merged
             _mark_filled_cells(table, cells, header_rows)
             rows = [[cell or "" for cell in row] for row in (*merged[:1], *cells[header_rows:])]
-            candidates.append((table.bbox, rows, list(table.cells), table))
+            header = tuple([cell or "" for cell in row] for row in cells[:2]) if header_rows == 2 else None
+            candidates.append((table.bbox, rows, list(table.cells), table, header))
 
     kept, absorbed = [], set()
-    for bbox, rows, boxes, table in candidates:
+    for bbox, rows, boxes, table, header in candidates:
         inner = [other for other in candidates if other[0] is not bbox and _encloses(bbox, other[0])]
         if inner:
             rows = _with_inner_tables(table, rows, inner)
             if rows is None:
                 continue
             absorbed.update(id(other[0]) for other in inner)
-            kept.append((bbox, [(bbox, rows, boxes)]))
+            kept.append((bbox, [(bbox, rows, boxes, None)]))
         elif len(rows) == len(table.rows):
-            kept.append((bbox, _split_column_sections(table, bbox, rows)))
+            kept.append((bbox, [(*piece, None) for piece in _split_column_sections(table, bbox, rows)]))
         else:
-            kept.append((bbox, [(bbox, rows, boxes)]))
+            kept.append((bbox, [(bbox, rows, boxes, header)]))
     return [piece for bbox, pieces in kept if id(bbox) not in absorbed for piece in pieces]
 
 
@@ -800,7 +816,7 @@ def _text_around(chars: list[dict], cell: tuple, inner: tuple) -> tuple[str, str
     """Text inside the outer cell `cell` that lies outside the cells of the inner table (`inner` = a candidate of `_real_tables`):
     (text above the table, text below the table). None if there are characters beside the table (the inner table was found only in
     part). A unit line ('(단위: 천원)') or caption becomes a row before or after the inner table."""
-    bbox, _, inner_cells, _ = inner
+    bbox, _, inner_cells = inner[:3]
     outside = [char for char in chars
                if char["text"].strip() and _inside_any(char, [cell]) and not _inside_any(char, inner_cells)]
     if any(bbox[1] <= (char["top"] + char["bottom"]) / 2 <= bbox[3] for char in outside):

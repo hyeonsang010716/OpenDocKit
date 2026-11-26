@@ -267,6 +267,10 @@ class _Table:
     # tagged table states (`_pdf_tagged_tables._trusted_cells`); the table is written with them while one still covers more
     # than one column (`_spanned_text`). `text` stays the table without them, which the page's characters are counted from.
     merges: tuple[tuple[int, int, int, int], ...] = ()
+    # A ruled table whose two-level header was merged into its top row (`_merge_split_header`): that top row as it was
+    # merged, then the two rows as they were found. `merges` are then in those two rows and the rows under the top one,
+    # and the table is written with them while its top row is still the one merged (`_spanned_text`).
+    unmerged_header: tuple[tuple[str, ...], ...] = ()
     # Top coordinate of each text line of a cell holding a picture (index into `cells`). If it matches the number of lines of the
     # cell text, the picture is placed between the lines at that height.
     cell_lines: dict[int, tuple[float, ...]] = field(default_factory=dict)

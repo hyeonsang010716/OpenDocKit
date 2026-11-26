@@ -358,3 +358,85 @@ class TestPicturesInMergedCells:
         rows = [[f"세트\n{image_marker(0)}", "", "값"], ["세트", "", "1"], ["나", "다", "2"]]
         assert _spanned_text(_table(rows, ((0, 0, 2, 2),))).startswith("<table>")
         assert _spanned_text(_table([rows[0], ["세트 외", "", "1"], rows[2]], ((0, 0, 2, 2),))) == "as before"
+
+
+def _two_level(**fields: object) -> _Table:
+    """A table whose two-level header ('1월', '2월' under '값', beside '구분' over both) was merged into its top row, as
+    `_ruled_table` keeps it: the merged rows, the header rows as they were found, and the spans in those."""
+    from opendockit.extractors._pdf_ruled_tables import _row_bands
+
+    boxes = ((0.0, 0.0, 10.0, 20.0), (10.0, 0.0, 30.0, 10.0), (10.0, 10.0, 20.0, 20.0), (20.0, 10.0, 30.0, 20.0),
+             (0.0, 20.0, 10.0, 30.0), (10.0, 20.0, 20.0, 30.0), (20.0, 20.0, 30.0, 30.0))
+    rows = [["구분", "값 1월", "값 2월"], ["가", "1", "2"]]
+    header = (("구분", "값", ""), ("구분", "1월", "2월"))
+    merges = _merged_cells([list(row) for row in header] + rows[1:], boxes, _SPANS, _row_bands(boxes, 3))
+    fields.setdefault("unmerged_header", (tuple(rows[0]), *header))
+    return _Table(top=0.0, text="as before", bottom=30.0, x0=0.0, x1=30.0, rows=rows, spans=_SPANS, cells=boxes,
+                  merges=merges, **fields)
+
+
+class TestTwoLevelHeaders:
+    """A two-level header merged into one row ('값 1월 | 값 2월') is written with its spans, from the rows it was found in;
+    its Markdown stays the merged row, and it is what is written when the spans cannot be."""
+
+    def test_the_header_is_written_from_the_rows_it_was_found_in(self):
+        table = _two_level()
+
+        assert table.merges == ((0, 0, 2, 1), (0, 1, 1, 2))
+        assert _spanned_text(table) == ('<table>\n<tr><th rowspan="2">구분</th><th colspan="2">값</th></tr>\n'
+                                        "<tr><td>1월</td><td>2월</td></tr>\n<tr><td>가</td><td>1</td><td>2</td></tr>\n</table>")
+        assert table.text == "as before"
+
+    def test_a_top_row_written_again_since_keeps_the_markdown(self):
+        """A step after the search that writes the top row again (a header carried over from the previous page) makes
+        the header rows as they were found no longer the table's."""
+        table = _two_level()
+        table.rows[0] = ["구분", "값", "비고"]
+
+        assert _spanned_text(table) == "as before"
+
+    def test_a_continued_table_keeps_the_markdown(self):
+        assert _spanned_text(_two_level(continued=True)) == "as before"
+
+    def test_rows_no_longer_those_of_the_boxes_keep_the_markdown(self):
+        table = _two_level()
+        table.rows.append(["나", "3", "4"])
+
+        assert _spanned_text(table) == "as before"
+
+    def test_text_hidden_by_a_span_keeps_the_markdown(self):
+        table = _two_level(unmerged_header=(("구분", "값 1월", "값 2월"), ("구분", "값", "남는 글"), ("구분", "1월", "2월")))
+
+        assert _spanned_text(table) == "as before"
+
+    def test_a_built_table_keeps_its_two_level_header_with_its_spans(self):
+        """Pinned by the same row: the header of a ruled table, drawn, found and written with its spans."""
+        rows = [["구분", "2025년", "", "비고"], ["", "상반기", "하반기", ""], ["매출", "120", "150", "증가"]]
+
+        def draw(pdf, index):
+            _spanned_grid(pdf, rows, 800, [90, 90, 90, 90], [(0, 0, 0, 1), (1, 0, 2, 0), (3, 0, 3, 1)])
+
+        text = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text == ('<table>\n<tr><th rowspan="2">구분</th><th colspan="2">2025년</th><th rowspan="2">비고</th></tr>\n'
+                        "<tr><td>상반기</td><td>하반기</td></tr>\n<tr><td>매출</td><td>120</td><td>150</td><td>증가</td></tr>\n"
+                        "</table>")
+
+    def test_the_header_rows_are_drawn_text_like_the_rest(self):
+        """The header rows as they were found are text from the page's characters like the rows (`_drawn_text`): a
+        dash that arrives as U+00AD stays a dash in the header written with its spans."""
+        from opendockit.extractors._pdf_ruled_tables import _ruled_table
+
+        class Lookups:
+            def holds_figure(self, box):
+                return False
+
+        boxes = [(0.0, 0.0, 10.0, 20.0), (10.0, 0.0, 30.0, 10.0), (10.0, 10.0, 20.0, 20.0), (20.0, 10.0, 30.0, 20.0),
+                 (0.0, 20.0, 10.0, 30.0), (10.0, 20.0, 20.0, 30.0), (20.0, 20.0, 30.0, 30.0)]
+        rows = [["구분", "2025\xad2026 1월", "2025\xad2026 2월"], ["가", "1", "2"]]
+        header = (["구분", "2025\xad2026", ""], ["구분", "1월", "2월"])
+
+        table = _ruled_table((0.0, 0.0, 30.0, 30.0), rows, boxes, Lookups(), header)
+
+        assert _spanned_text(table) == ('<table>\n<tr><th rowspan="2">구분</th><th colspan="2">2025-2026</th></tr>\n'
+                                        "<tr><td>1월</td><td>2월</td></tr>\n<tr><td>가</td><td>1</td><td>2</td></tr>\n</table>")
