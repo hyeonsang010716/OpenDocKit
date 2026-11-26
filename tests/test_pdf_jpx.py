@@ -10,6 +10,7 @@ import pytest
 from opendockit import convert
 from opendockit.extractors import _pdf_jpx
 from opendockit.extractors._pdf_jpx import _OBJECT_HEADER, _holder, stops_the_renderer
+from tests.timing import fastest
 
 
 def _picture(mode: str, jp2: bool = False, colour: int | None = None) -> bytes:
@@ -86,6 +87,39 @@ def _pdf(picture: bytes, space: str | None = None, *, mask: bool = False, flate:
     return bytes(pdf)
 
 
+def _packed_resources(picture: bytes, space: str, resources: str, objects: tuple[bytes, ...] = (), *,
+                      packed_filter: bool = False) -> bytes:
+    """A one-page PDF whose page resources (`resources`, PDF text) are an object of an object stream, which a
+    cross-reference stream points into — or, with `packed_filter`, whose picture's Filter is that object; `objects`
+    are objects 8, 9, … for them to refer to."""
+    numbered: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources "
+            + (f"<< /XObject << /Im0 5 0 R >> {resources} >>".encode() if packed_filter else b"6 0 R") + b" /Contents 4 0 R >>"),
+        4: _stream("", b"q 200 0 0 200 50 50 cm /Im0 Do Q"),
+        5: _stream(f"/Type /XObject /Subtype /Image /Width 16 /Height 16 /BitsPerComponent 8 "
+                   f"/Filter {'6 0 R' if packed_filter else '/JPXDecode'} /ColorSpace {space}", picture)}
+    for number, body in enumerate(objects, start=8):
+        numbered[number] = body
+    packed = b"[/JPXDecode]" if packed_filter else f"<< /XObject << /Im0 5 0 R >> {resources} >>".encode()
+    head = b"6 0 "
+    numbered[7] = _stream(f"/Type /ObjStm /N 1 /First {len(head)} /Filter /FlateDecode", zlib.compress(head + packed))
+    pdf, offsets = bytearray(b"%PDF-1.7\n"), {}
+    for number in sorted(numbered):
+        offsets[number] = len(pdf)
+        pdf += f"{number} 0 obj\n".encode() + numbered[number] + b"\nendobj\n"
+    size = max(numbered) + 2
+    table = size - 1
+    offsets[table] = len(pdf)
+    rows = b"".join(b"\x00" + (0).to_bytes(4, "big") + b"\xff\xff" if number == 0 else
+                    b"\x02" + (7).to_bytes(4, "big") + b"\x00\x00" if number == 6 else
+                    b"\x01" + offsets[number].to_bytes(4, "big") + b"\x00\x00" for number in range(size))
+    pdf += (f"{table} 0 obj\n<< /Type /XRef /Size {size} /W [1 4 2] /Root 1 0 R /Length {len(rows)} >>\nstream\n".encode()
+            + rows + b"\nendstream\nendobj\n")
+    pdf += f"startxref\n{offsets[table]}\n%%EOF\n".encode()
+    return bytes(pdf)
+
+
 def _stream(dictionary: str, body: bytes) -> bytes:
     return f"<< {dictionary} /Length {len(body)} >>\nstream\n".encode() + body + b"\nendstream"
 
@@ -124,6 +158,7 @@ _CASES = {
     "DeviceCMYK over 3 components": (lambda: _pdf(_picture("RGB"), "/DeviceCMYK"), True),
     "DeviceCMYK over 3 components named sRGB": (lambda: _pdf(_picture("RGB", jp2=True, colour=16), "/DeviceCMYK"), False),
     "DeviceCMYK over 4 components": (lambda: _pdf(_picture("CMYK"), "/DeviceCMYK"), False),
+    "DeviceCMYK over 3 components named CMYK": (lambda: _pdf(_picture("RGB", jp2=True, colour=12), "/DeviceCMYK"), True),
     # a default space in the resources makes DeviceRGB a space of three components that is not refused
     "DeviceRGB under DefaultRGB over 2 components": (
         lambda: _pdf(_picture("LA"), "/DeviceRGB", resources="/ColorSpace << /DefaultRGB [/ICCBased 6 0 R] >>",
@@ -160,10 +195,78 @@ _CASES = {
     "mask with a profile for colour box, 3 components": (
         lambda: _pdf(_with_boxes(_picture("RGB", jp2=True), colour_first=_box(b"colr", bytes([2, 0, 0]) + b"\x00" * 128)), mask=True),
         False),
+    # a default space in the resources stands for the device space it is named after (one of ICC profiles keeps the
+    # device's components), wherever the resources are written
+    "DeviceGray under a DefaultGray of CalRGB over 1 component": (
+        lambda: _pdf(_picture("L"), "/DeviceGray", resources=f"/ColorSpace << /DefaultGray [/CalRGB {_WHITE}] >>"), True),
+    "DeviceGray under a DefaultGray of DeviceCMYK over 3 components": (
+        lambda: _pdf(_picture("RGB"), "/DeviceGray", resources="/ColorSpace << /DefaultGray /DeviceCMYK >>"), True),
+    "DeviceGray under a DefaultGray of ICC 3 over 1 component": (
+        lambda: _pdf(_picture("L"), "/DeviceGray", resources="/ColorSpace << /DefaultGray [/ICCBased 6 0 R] >>",
+                     objects=(_stream("/N 3", b"\x00" * 128),)), False),
+    "DeviceRGB under a DefaultRGB of DeviceN 4 over 3 components": (
+        lambda: _pdf(_picture("RGB"), "/DeviceRGB", resources="/ColorSpace << /DefaultRGB [/DeviceN [/A /B /C /D] /DeviceRGB 6 0 R] >>",
+                     objects=_device_n(4)[1]), True),
+    "DeviceCMYK under a DefaultCMYK of ICC 4 over 3 components": (
+        lambda: _pdf(_picture("RGB", jp2=True, colour=16), "/DeviceCMYK", resources="/ColorSpace << /DefaultCMYK [/ICCBased 6 0 R] >>",
+                     objects=(_stream("/N 4", b"\x00" * 128),)), True),
+    "DeviceRGB under a DefaultRGB in an object stream, over 2 components": (
+        lambda: _packed_resources(_picture("LA"), "/DeviceRGB", "/ColorSpace << /DefaultRGB [/ICCBased 8 0 R] >>",
+                                  (_stream("/N 3", b"\x00" * 128),)), True),
+    "DeviceRGB, resources in an object stream without a default, over 2 components": (
+        lambda: _packed_resources(_picture("LA"), "/DeviceRGB", "/ColorSpace << /CS0 /DeviceGray >>"), False),
+    "DefaultRGB written with #hh": (
+        lambda: _pdf(_picture("LA"), "/DeviceRGB", resources="/ColorSpace << /Default#52#47B [/ICCBased 6 0 R] >>",
+                     objects=(_stream("/N 3", b"\x00" * 128),)), True),
+    # a name the resources give
+    "a name for a DeviceN of 4 over 2 components": (
+        lambda: _pdf(_picture("LA"), "/CS0", resources="/ColorSpace << /CS0 [/DeviceN [/A /B /C /D] /DeviceRGB 6 0 R] >>",
+                     objects=_device_n(4)[1]), True),
+    "a name for DeviceGray over 2 components": (lambda: _pdf(_picture("LA"), "/CS0", resources="/ColorSpace << /CS0 /DeviceGray >>"), False),
+    "a name the resources do not give": (lambda: _pdf(_picture("LA"), "/CS9"), False),
+    # pdfium tells an array's family by the first four letters of its first name, and takes no other
+    "an array of DeviceRGB with 4 names over 3 components": (
+        lambda: _pdf(_picture("RGB"), "[/DeviceRGB [/A /B /C /D] /DeviceRGB 6 0 R]", objects=_device_n(4)[1]), True),
+    "an array of DeviceGray with 3 names over 1 component": (
+        lambda: _pdf(_picture("L"), "[/DeviceGray [/A /B /C] /DeviceRGB 6 0 R]", objects=_device_n(3)[1]), True),
+    "an array of DeviceCMYK alone over 3 components": (lambda: _pdf(_picture("RGB"), "[/DeviceCMYK]"), True),
+    "an array of DeviceRGB alone over 3 components": (lambda: _pdf(_picture("RGB"), "[/DeviceRGB]"), False),
+    "CalCMYK over 3 components": (lambda: _pdf(_picture("RGB"), f"[/CalCMYK {_WHITE}]"), False),
+    "Separation over 1 component": (lambda: _pdf(_picture("L"), "[/Separation /Spot /DeviceRGB 6 0 R]", objects=_device_n(1)[1]), False),
+    "Pattern over 1 component": (lambda: _pdf(_picture("L"), "/Pattern"), False),
+    "RGB, the abbreviation, over 2 components": (lambda: _pdf(_picture("LA"), "/RGB"), False),
+    "ICC with N 3.0 over 1 component": (lambda: _pdf(_picture("L"), "[/ICCBased 6 0 R]", objects=(_stream("/N 3.0", b"\x00" * 128),)), True),
+    "ICC with N 2 over 1 component": (lambda: _pdf(_picture("L"), "[/ICCBased 6 0 R]", objects=(_stream("/N 2", b"\x00" * 128),)), False),
+    "an array of DeviceRGB alone under a DefaultRGB of ICC 1, over 2 components": (
+        lambda: _pdf(_picture("LA"), "[/DeviceRGB]", resources="/ColorSpace << /DefaultRGB [/ICCBased 6 0 R] >>",
+                     objects=(_stream("/N 1", b"\x00" * 128),)), False),
+    "ICC without N over 1 component": (lambda: _pdf(_picture("L"), "[/ICCBased 6 0 R]", objects=(_stream("/Alternate /DeviceRGB", b"\x00" * 128),)), False),
+    "an ICC stream for colour space over 1 component": (lambda: _pdf(_picture("L"), "6 0 R", objects=(_stream("/N 3", b"\x00" * 128),)), False),
+    # an indirect ImageMask is no boolean to pdfium
+    "an indirect ImageMask over 2 components": (
+        lambda: _pdf(_picture("LA"), _device_n(2)[0], objects=(*_device_n(2)[1], b"true")).replace(
+            b"/Filter /JPXDecode", b"/ImageMask 7 0 R /Filter /JPXDecode"), False),
+    # the first colour box counts however short it is: a profile of no bytes leaves the space unknown, and CMYK is taken
+    "DeviceCMYK over 3 components after a short profile box": (
+        lambda: _pdf(_with_boxes(_picture("RGB", jp2=True), colour_first=_box(b"colr", bytes([2, 0, 0]))), "/DeviceCMYK"), True),
     # wherever the picture is drawn from, and however its filter is written
     "drawn from a form": (lambda: _pdf(_picture("LA"), _device_n(4)[0], in_form=True, objects=_device_n(4)[1]), True),
     "under FlateDecode": (lambda: _pdf(_picture("LA"), _device_n(4)[0], flate=True, objects=_device_n(4)[1]), True),
     "name written with #hh": (lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="/J#50X#44ecode", objects=_device_n(4)[1]), True),
+    "name written with lowercase #hh": (
+        lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="/#4aPXDecode", objects=_device_n(4)[1]), True),
+    "a filter array whose element is an object of its own": (
+        lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="[7 0 R]", objects=(*_device_n(4)[1], b"/JPXDecode")), True),
+    "JPXDecode after a filter pdfium does not undo first": (
+        lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="[/DCTDecode /JPXDecode]", objects=_device_n(4)[1]), False),
+    "an array of JPXDecode alone": (lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="[/JPXDecode]", objects=_device_n(4)[1]), True),
+    "JPXDecode before another filter": (
+        lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="[/JPXDecode /FlateDecode]", objects=_device_n(4)[1]), False),
+    "a filter written as an object of its own": (
+        lambda: _pdf(_picture("LA"), _device_n(4)[0], filter_name="7 0 R", objects=(*_device_n(4)[1], b"[/JPXDecode]")), True),
+    "an object header written in a string of the dictionary": (
+        lambda: _pdf(_picture("LA"), _device_n(4)[0], objects=_device_n(4)[1]).replace(
+            b"/Filter /JPXDecode", b"/Name (4 0 obj) /Filter /JPXDecode"), True),
     "drawn from a form, safe": (lambda: _pdf(_picture("LA"), _device_n(2)[0], in_form=True, objects=_device_n(2)[1]), False),
 }
 
@@ -216,24 +319,84 @@ class TestWhatIsNotJudged:
         assert b"/JPXDecode" in data and stops_the_renderer(data) is False
 
     def test_what_cannot_be_read_counts_as_stopping_it(self):
-        """A header that is not JPEG 2000, a colour space named in resources the guard does not look up, a file pdfminer
-        cannot open, a name before any object, an object pdfminer cannot read."""
+        """A header that is not JPEG 2000, a file pdfminer cannot open, a name before any object."""
         assert stops_the_renderer(_pdf(b"\x00" * 64, "/DeviceRGB")) is True
-        assert stops_the_renderer(_pdf(_picture("LA"), "/CS0", resources="/ColorSpace << /CS0 /DeviceGray >>")) is True
         assert stops_the_renderer(b"%PDF-1.7\n1 0 obj << /Filter /JPXDecode >> endobj") is True
         assert stops_the_renderer(b"/JPXDecode " + _pdf(_picture("RGB"), "/DeviceRGB")) is True
-        data = _pdf(_picture("RGB"), "/DeviceRGB")
-        assert stops_the_renderer(data.replace(b"%%EOF", b"99 0 obj\n<< /Filter /JPXDecode >>\nendobj\n%%EOF")) is True
+
+    def test_more_names_than_are_judged_count_as_stopping_it(self):
+        names = b"% " + b"/JPXDecode " * (_pdf_jpx._MAX_NAMES + 1)
+        data = _pdf(_picture("RGB"), "/DeviceRGB").replace(b"/Im0 Do Q", b"/Im0 Do Q " + names)
+
+        assert stops_the_renderer(data) is True
+        assert stops_the_renderer(data.replace(b"/JPXDecode ", b"/DCTDecode ", 1000)) is False  # within the limit: judged
+
+    def test_data_that_cannot_be_undone_counts_as_stopping_it(self):
+        """A picture under FlateDecode whose data does not inflate: not judged."""
+        data = _pdf(_picture("RGB"), "/DeviceRGB", flate=True)
+        start = data.index(b"stream\n", data.index(b"/JPXDecode")) + 7
+        broken = data[:start] + b"\x00" * 8 + data[start + 8:]
+
+        assert stops_the_renderer(broken) is True
+
+    def test_an_object_the_cross_reference_table_does_not_name_is_not_judged(self):
+        """Nothing draws it: counted as stopping pdfium, it cost a document its pictures."""
+        orphan = (b"99 0 obj\n<< /Filter /JPXDecode /ColorSpace /DeviceCMYK /Length 4 >>\nstream\nxxxx\nendstream\n"
+                  b"endobj\n%%EOF")
+        assert stops_the_renderer(_pdf(_picture("RGB"), "/DeviceRGB").replace(b"%%EOF", orphan)) is False
+
+    def test_a_filter_written_only_in_an_object_stream_is_not_looked_for(self):
+        """Known accepted gap: a file whose bytes name no JPXDecode is not opened, and a filter written as an object of an
+        object stream is not in them. Opening and inflating the object streams of every PDF with pictures cost 2.6 s on
+        one of 343 such files of the PDF.js tests; a producer writes the name in the picture's own dictionary. Once a
+        file names JPXDecode anywhere, its object streams are read too (`test_each_case_is_judged_as_pdfium_draws_it`)."""
+        hidden = _packed_resources(_picture("LA"), _device_n(4)[0].replace("6 0 R", "8 0 R"), "", _device_n(4)[1], packed_filter=True)
+
+        assert b"JPXDecode" not in hidden and stops_the_renderer(hidden) is False
+        named_too = hidden + b"% /JPXDecode\n"  # after the last object: no picture of its own
+        assert stops_the_renderer(named_too) is True
+        # a picture of its own named in the bytes, safe: the other is found in the object stream
+        safe = _stream("/Subtype /Image /Width 16 /Height 16 /BitsPerComponent 8 /Filter /JPXDecode /ColorSpace /DeviceGray",
+                       _picture("L"))
+        beside = _packed_resources(_picture("LA"), _device_n(4)[0].replace("6 0 R", "8 0 R"), "", (*_device_n(4)[1], safe),
+                                   packed_filter=True)
+        assert stops_the_renderer(beside) is True
+
+    def test_a_file_entry_beside_the_filter_is_not_read_as_filters(self):
+        """pdfminer takes the stream's filters from F, a file specification here, before Filter; pdfium reads Filter."""
+        data = _pdf(_picture("LA"), _device_n(2)[0], objects=_device_n(2)[1]).replace(b"/Filter /JPXDecode", b"/F (file) /Filter /JPXDecode")
+
+        assert stops_the_renderer(data) is False
 
 
 class TestTheObjectOfAName:
     def test_the_header_is_found_far_before_the_name(self):
         data = b"12 0 obj\n<< " + b" " * 10_000 + b"/Filter /JPXDecode >>"
 
-        assert _holder(data, data.index(b"/JPXDecode")) == 12
+        assert _holder(data, 0, data.index(b"/JPXDecode")) == 12
+        far = b"12 0 obj\n<< " + b" " * 100_000 + b"/Filter /JPXDecode >>"
+        assert _holder(far, 0, far.index(b"/JPXDecode")) == 12
+        assert _holder(far, 10, far.index(b"/JPXDecode")) is None  # not after the name before it: that name's object
 
     def test_a_header_cut_by_the_start_of_the_stretch_is_not_read(self):
         data = b"x" * 5 + b"1234 0 obj"
 
         assert [match.group(1) for match in _OBJECT_HEADER.finditer(data, 7, len(data))] == []
-        assert _holder(data, len(data)) == 1234
+        assert _holder(data, 0, len(data)) == 1234
+        assert _holder(b"7 0 objection /JPXDecode", 0, 14) is None  # a word that starts like the keyword
+
+
+class TestCost:
+    @pytest.mark.timing
+    def test_many_names_in_one_object_take_linear_time(self):
+        """Each name's object was looked for back to the start of the file when no header lay near it: a stream holding a
+        name every 100 bytes took 5 s for 250 KB and a minute for a megabyte."""
+        def holding(size: int) -> bytes:
+            filler = (b"/JPXDecode" + b" " * 90) * (size // 100)
+            return _pdf(_picture("LA"), "/DeviceRGB").replace(b"/Im0 Do Q", b"/Im0 Do Q % " + filler)
+
+        small, large = holding(250_000), holding(1_000_000)
+
+        assert fastest(lambda: stops_the_renderer(large)) < 8 * fastest(lambda: stops_the_renderer(small)) + 0.05
+        assert stops_the_renderer(large) is False
+

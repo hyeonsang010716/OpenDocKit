@@ -24,10 +24,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   process, with a check that ends it rather than an error, when a JPEG 2000 picture's colour space asks for more
   components than the picture holds (a DeviceN of four colorants over two components), and when an image mask's
   picture is one it takes for gray. The PDF.js test file `jpx_numcomps.pdf`, 10 KB, ended every program that converted
-  it in its own process, a server with it. The reader now reads the headers of a document's JPEG 2000 pictures before
-  pdfium draws anything, and for such a document draws no picture and says so in a warning; its text is read as before.
-  The rules are pdfium's own, each measured on a picture built for it. A file without a JPEG 2000 picture costs one search
-  of its bytes. A server should still convert in `IsolatedConverter`: pdfium may have other defects of the kind.
+  it in its own process, a server with it. The reader now reads the headers of a document's JPEG 2000 pictures and the
+  colour spaces pdfium would take for them before it draws anything, and for such a document draws no picture and says so
+  in a warning; its text is read as before. The rules follow pdfium's code, each measured on a picture built for it. A
+  file whose bytes name no JPEG 2000 filter costs one search of them. A server should still convert in
+  `IsolatedConverter`: a file made to stop pdfium can find other ways.
 
 - **A document reads the same on Windows as elsewhere when it names a code page of Windows.** Windows lends Python
   codecs that no other system has: the machine's own code pages (`mbcs`, also named `ansi` and `dbcs`, and `oem`),

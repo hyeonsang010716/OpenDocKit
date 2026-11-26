@@ -388,8 +388,8 @@ class _PageRenderer:
     def render(self, page_index: int, box: tuple[float, float, float, float] | None = None,
                native_scale: float = 0.0) -> bytes | None:
         # A JPEG 2000 picture whose colour space asks for more components than it holds, or an image mask pdfium takes for
-        # gray, stops the process when pdfium draws it: a check that ends it, not an error. The PDF.js test file of six such
-        # pictures (10 KB) ended every program that converted it in its own process
+        # gray, stops the process when pdfium draws it: a check that ends it, not an error. A PDF.js test file of 10 KB with
+        # one such picture among six ended every program that converted it in its own process
         # (Pinned by: test_pdf_jpx.py::TestTheRendererStops)
         if self._stops is None:
             self._stops = stops_the_renderer(self._data)
