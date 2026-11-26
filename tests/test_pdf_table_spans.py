@@ -353,6 +353,8 @@ class TestPicturesInMergedCells:
 
         assert _without_pictures(f"{image_marker(0)}\n세트") == "세트"
         assert _without_pictures(f"세트 {image_marker(0)}") == f"세트 {image_marker(0)}"  # not a line of its own
+        assert _without_pictures(f"{image_marker(0)} 세트") == f"{image_marker(0)} 세트"
+        assert _without_pictures(f"세트\n{image_marker(0)}\n상품") == "세트\n상품"  # the lines of the text stay lines
         rows = [[f"세트\n{image_marker(0)}", "", "값"], ["세트", "", "1"], ["나", "다", "2"]]
         assert _spanned_text(_table(rows, ((0, 0, 2, 2),))).startswith("<table>")
         assert _spanned_text(_table([rows[0], ["세트 외", "", "1"], rows[2]], ((0, 0, 2, 2),))) == "as before"
