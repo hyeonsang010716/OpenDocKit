@@ -24,6 +24,7 @@ import email.quoprimime
 import email.utils
 import quopri
 import re
+import urllib.parse
 
 from opendockit.exceptions import CorruptedDocumentError
 from opendockit.extractors._codecs import portable_codec
@@ -51,7 +52,8 @@ class _MailReadAsTheLaterVersionsRead(Compat32):
     test_core_malformed_mail_and_html.py::TestHeaderValueOnTheNextLine, TestTransferEncodingWithWhiteSpaceAround). The
     first rule is the one the later versions have, word for word. The second takes the white space off the value here,
     which is all `get_payload` does with it there, and every reader of the value in this module strips it as well: where
-    the later versions run nothing changes."""
+    the later versions run nothing changes. The messages it makes are `_MailMessage`, which read their parameters as 3.13.5
+    and later do."""
 
     def header_source_parse(self, sourcelines: list[str]) -> tuple[str, str]:
         name, value = sourcelines[0].split(":", 1)
@@ -60,7 +62,90 @@ class _MailReadAsTheLaterVersionsRead(Compat32):
         return (name, value.strip() if name.lower() == "content-transfer-encoding" else value)
 
 
-_POLICY = _MailReadAsTheLaterVersionsRead()
+def _decode_params(params: list[tuple[str, str]]) -> list[tuple[str, str | tuple[str | None, str | None, str]]]:
+    """`email.utils.decode_params` as Python 3.13.5 and later have it: the pieces of an RFC 2231 parameter
+    (`filename*0*=…; filename*1=…`) are joined by their numbers, a piece without a number counted as 0 or left out beside a
+    piece numbered 0, and pieces of one number in the order they are written.
+
+    Every release of Python 3.12 and 3.13.0 to 3.13.4 sort the pieces whole: a piece without a number among numbered ones
+    (`filename*=utf-8''a; filename*1=b.pdf`) raised a TypeError out of every reader of the header, so a mail with such a
+    boundary, charset or any parameter beside them was rejected as corrupted and such an attachment name was unnamed, and two
+    pieces of one number were joined in the order of their values (Pinned by:
+    test_core_malformed_mail_and_html.py::TestParameterInPieces). The code is the later versions', with the same helpers of
+    `email.utils`; where they run, the answer is theirs (Pinned by: TestParameterInPieces::test_the_rule_is_that_of_the_later_versions).
+    """
+    new_params = [params[0]]
+    # Map parameter's name to a list of continuations.  The values are a 3-tuple of the continuation number, the string value,
+    # and a flag specifying whether a particular segment is %-encoded.
+    rfc2231_params: dict[str, list[tuple[int | None, str, bool]]] = {}
+    for name, value in params[1:]:
+        encoded = name.endswith("*")
+        value = email.utils.unquote(value)
+        mo = email.utils.rfc2231_continuation.match(name)
+        if mo:
+            name, num = mo.group("name", "num")
+            if num is not None:
+                num = int(num)
+            rfc2231_params.setdefault(name, []).append((num, value, encoded))
+        else:
+            new_params.append((name, '"%s"' % email.utils.quote(value)))  # noqa: UP031 - the standard library's formatting
+    if rfc2231_params:
+        for name, continuations in rfc2231_params.items():
+            value = []
+            extended = False
+            # Sort by number, treating None as 0 if there is no 0, and ignore it if there is already a 0.
+            has_zero = any(x[0] == 0 for x in continuations)
+            if has_zero:
+                continuations = [x for x in continuations if x[0] is not None]
+            else:
+                continuations = [(x[0] or 0, x[1], x[2]) for x in continuations]
+            continuations.sort(key=lambda x: x[0])
+            # And now append all values in numerical order, converting %-encodings for the encoded segments. If any of the
+            # continuation names ends in a *, then the entire string, after decoding segments and concatenating, must have
+            # the charset and language specifiers at the beginning of the string.
+            for num, s, encoded in continuations:
+                if encoded:
+                    # Decode as "latin-1", so the characters in s directly represent the percent-encoded octet values.
+                    # collapse_rfc2231_value treats this as an octet sequence.
+                    s = urllib.parse.unquote(s, encoding="latin-1")
+                    extended = True
+                value.append(s)
+            value = email.utils.quote("".join(value))
+            if extended:
+                charset, language, value = email.utils.decode_rfc2231(value)
+                new_params.append((name, (charset, language, '"%s"' % value)))  # noqa: UP031
+            else:
+                new_params.append((name, '"%s"' % value))  # noqa: UP031
+    return new_params
+
+
+class _MailMessage(Message):
+    """`Message`, reading its parameters (`get_param`, `get_params`, `get_filename`, `get_boundary`, `get_content_charset`,
+    and the parser's own look for a boundary) with the rule of Python 3.13.5 and later (`_decode_params`) on every version.
+    The parser makes every message and part of a mail with the policy's factory, so a part and a forwarded mail are one too
+    (Pinned by: test_core_malformed_mail_and_html.py::TestParameterInPieces::test_every_part_of_a_mail_reads_its_parameters_with_the_rule)."""
+
+    def _get_params_preserve(self, failobj: object, header: str) -> object:
+        # `Message._get_params_preserve`, the same in every supported version, with the pieces joined by `_decode_params`
+        missing = object()
+        value = self.get(header, missing)
+        if value is missing:
+            return failobj
+        params = []
+        for p in _parseparam(value):
+            try:
+                name, val = p.split("=", 1)
+                name = name.strip()
+                val = val.strip()
+            except ValueError:
+                # Must have been a bare attribute
+                name = p.strip()
+                val = ""
+            params.append((name, val))
+        return _decode_params(params)
+
+
+_POLICY = _MailReadAsTheLaterVersionsRead(message_factory=_MailMessage)
 
 
 # The header line names of the MIME header block (`mime_header_block`) and the headers used to identify mail. MHTML detection for
@@ -1449,35 +1534,25 @@ def _attachment_name(part: Message) -> str:
     replacement character a byte, so `filename="견적서.pdf"` written in UTF-8 or CP949 came out as `���������.pdf`
     (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName).
     """
-    headers = Message()
+    headers = _MailMessage()   # its pieces joined as those of every other message here (`_decode_params`)
     for header in ("Content-Disposition", "Content-Type"):
         value = part.get(header)
         if value is not None:
             headers[header] = _header_text(value) if isinstance(value, Header) else value
     missing = object()
-    try:
-        value = headers.get_param("filename", missing, "content-disposition")
-        if value is missing:
-            value = headers.get_param("name", missing, "content-type")
-    except TypeError:  # an RFC 2231 name Python 3.12 and 3.13 cannot read (`_has_filename`): counted as unnamed
-        return ""
+    value = headers.get_param("filename", missing, "content-disposition")
+    if value is missing:
+        value = headers.get_param("name", missing, "content-type")
     name = "" if value is missing else _parameter_text(value).strip()
     return _decoded_header(name) if name else ""
 
 
 def _has_filename(part: Message) -> bool:
-    """Does the part carry a name (`get_filename`)? On Python 3.12 and 3.13 the standard library sorts the pieces of an RFC 2231
-    parameter with `None` for the piece without a number, so `filename*=utf-8''a; filename*1=b.pdf` raised a TypeError and
-    the whole mail was rejected as corrupted for one attachment name. Such a name is a name that cannot be read: the part
-    stays an attachment, counted as unnamed (`_attachment_name`)
-    (Pinned by: test_core_mail_parts_and_icons.py::TestEightBitAttachmentName::test_name_the_standard_library_cannot_read).
-    """
-    try:
-        return part.get_filename() is not None
-    except TypeError:
-        return any(_PARAMETER_NAME.match(segment).group().strip().lower() == name
-                   for header, name in (("Content-Disposition", "filename"), ("Content-Type", "name"))
-                   for segment in _parseparam(str(part.get(header, "")))[1:])
+    """Does the part carry a name (`get_filename`)? A name in RFC 2231 pieces is joined by the rule of Python 3.13.5 and later
+    (`_decode_params`): `filename*=utf-8''a; filename*1=b.pdf` is `ab.pdf` on every version, where 3.12 and 3.13.0 to 3.13.4
+    raised a TypeError
+    (Pinned by: test_core_malformed_mail_and_html.py::TestParameterInPieces::test_an_attachment_name_is_read)."""
+    return part.get_filename() is not None
 
 
 def _parameter_text(value: str | tuple[str | None, str | None, str]) -> str:
