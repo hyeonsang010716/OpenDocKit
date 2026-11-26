@@ -209,6 +209,41 @@ class TestCompare:
         del old["texts"]
         assert not any("text changed" in line for line in compare(new, old, tolerance=0.002)[0])
 
+    @staticmethod
+    def _scored(**documents: float) -> dict:
+        """A scorecard whose means are those of its documents, each scored the same on every metric."""
+        from evals.run import METRICS, _means
+
+        scored = {name: dict.fromkeys(METRICS, value) for name, value in documents.items()}
+        return {"means": _means(scored), "documents": scored}
+
+    def test_a_document_of_the_baseline_not_in_the_run_is_left_out_of_both_means(self):
+        """korea.kr stopped serving two releases of the Korean pairs: fetched again, the corpus had 58 of 60, and the mean
+        of the 58 rose against that of the 60 with the reader unchanged. A fall of the same size would have been hidden."""
+        old = self._scored(a=0.9, b=0.8, gone=0.2)
+        lines, fell = compare(self._scored(a=0.9, b=0.8), old, tolerance=0.002)
+        assert not fell
+        assert "documents of the baseline not in this run: 1 (gone)" in lines
+        assert "the means below are those of the 2 documents in both" in lines
+        assert any(line.startswith("nid ") and line.endswith("+0.0000") for line in lines)
+
+        # the 58 that are left fell, and the 2 that are gone would have hidden it
+        lines, fell = compare(self._scored(a=0.85, b=0.8), old, tolerance=0.002)
+        assert fell and any(line.startswith("nid ") and "FELL" in line for line in lines)
+
+    def test_a_document_of_the_run_not_in_the_baseline_is_left_out_of_both_means(self):
+        lines, fell = compare(self._scored(a=0.9, b=0.8, new=0.1), self._scored(a=0.9, b=0.8), tolerance=0.002)
+        assert not fell
+        assert "documents of this run not in the baseline: 1 (new)" in lines
+        assert any(line.startswith("nid ") and line.endswith("+0.0000") for line in lines)
+
+    def test_the_same_documents_are_compared_by_the_means_written(self):
+        """With the same documents on both sides the baseline's means are the ones compared, as they were written."""
+        old = self._scored(a=0.9, b=0.8)
+        old["means"]["nid"]["mean"] = 0.95
+        lines, fell = compare(self._scored(a=0.9, b=0.8), old, tolerance=0.002)
+        assert fell and not any("not in" in line for line in lines)
+
 
 class TestRun:
     def test_documents_are_scored_against_markdown_and_against_documents(self, tmp_path):

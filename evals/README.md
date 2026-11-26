@@ -108,6 +108,11 @@ uv run python -m evals.run --documents $K/pdf --gold $K/hwpx --baseline evals/ba
 Sixty press releases of Korean ministries that the policy briefing site publishes as HWPX and as PDF
 (`korean_pairs.tsv` lists them; the files themselves are not kept here). The HWPX states its tables and its order of
 text, so its conversion is the reference for the PDF's: nobody labels anything, and the corpus can grow by a command.
+The site does not keep every release: fetched again in November 2026, two of the sixty (156790053, 156790103) and one
+release of the development set (156789960) were no longer served, and the fetch names each one it could not get. A
+document of a baseline that is not in a run is named above the comparison, and the means compared are then those of
+the documents in both, on both sides: the mean of 58 releases set against that of 60 would move with the reader
+unchanged, and would hide a fall of the same size.
 The scores say how far the two readers agree, so read them as a watch for change, not as a grade:
 
 - **Words 0.978**, from 0.961: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs
@@ -243,8 +248,13 @@ A first form of this corpus took 116 public DOCX test files and pandoc's reading
 conventions and test fixtures more than readers — tables with one filled column, placeholder text of empty form
 fields, files of thirty characters — and was dropped for the references a person had checked.
 
-The twins depend on the versions of pandoc and LibreOffice that made them (3.9 and 26.2 for the baselines), so they
-run where they were made, not in CI.
+The twins depend on the versions of pandoc and LibreOffice that made them (3.9 and 26.2 for the baselines), and on the
+state of the machine they were made on. Made again on the same machine with the same versions in November 2026, two
+of the 200 PDFs came out with another text in each of the two PDF folders, and the Japanese, Chinese and Korean script
+twins in both: LibreOffice draws a character its font lacks in some other font it finds, and in the twins checked it
+had found another one (a Korean display font where it had taken another before), with the scores of some moving by
+more than 0.02. So they run where they were made, not in CI, and a copy of the twins that matches the baselines is
+kept rather than made again.
 
 ## Script twins: one text in nineteen languages
 

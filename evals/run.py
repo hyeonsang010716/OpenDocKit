@@ -64,7 +64,8 @@ def _score_document(job: tuple[str, str | None, str | None, str, str | None, boo
 def _means(documents: dict[str, dict[str, float | None]]) -> dict[str, dict[str, float | int | None]]:
     means: dict[str, dict[str, float | int | None]] = {}
     for metric in METRICS:
-        values = [scores[metric] for scores in documents.values() if scores[metric] is not None]
+        # a baseline written before a metric was added has no number for it
+        values = [scores[metric] for scores in documents.values() if scores.get(metric) is not None]
         means[metric] = {"mean": round(sum(values) / len(values), 4) if values else None, "documents": len(values)}
     return means
 
@@ -94,10 +95,26 @@ def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path 
 def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] = METRICS) -> tuple[list[str], bool]:
     """The lines of a comparison with `baseline`, and whether the mean of a metric in `gate` fell by more than `tolerance`."""
     lines, fell = [], False
+    # A document of the baseline that is not in this run (korea.kr no longer serves it, a folder was left out), or one of
+    # the run that is not in the baseline, would move a mean without the reader having changed: the means are then those
+    # of the documents in both, on both sides, and the line above the table names the others.
+    before_means, now_means = baseline["means"], card["means"]
+    absent = sorted(baseline["documents"].keys() - card["documents"].keys())
+    added = sorted(card["documents"].keys() - baseline["documents"].keys())
+    if absent or added:
+        both = baseline["documents"].keys() & card["documents"].keys()
+        before_means = _means({name: baseline["documents"][name] for name in both})
+        now_means = _means({name: card["documents"][name] for name in both})
+        for count, names, where in ((len(absent), absent, "of the baseline not in this run"),
+                                    (len(added), added, "of this run not in the baseline")):
+            if count:
+                shown = ", ".join(names[:CHANGED_SHOWN]) + (f" and {count - CHANGED_SHOWN} more" if count > CHANGED_SHOWN else "")
+                lines.append(f"documents {where}: {count} ({shown})")
+        lines.append(f"the means below are those of the {len(both)} documents in both")
     lines.append(f"{'metric':8} {'baseline':>9} {'now':>9} {'change':>9}")
     for metric in METRICS:
         # a baseline written before a metric was added has no number for it
-        before, now = baseline["means"].get(metric, {}).get("mean"), card["means"][metric]["mean"]
+        before, now = before_means.get(metric, {}).get("mean"), now_means[metric]["mean"]
         if before is None or now is None:
             continue
         mark = ""
