@@ -144,6 +144,18 @@ class TestTablesFromTheTree:
                         "<tr><td>Sales</td><td>10</td><td>12</td></tr>\n<tr><td>Costs</td><td>7</td><td>8</td></tr>\n"
                         f"</table>\n\n{_AFTER}")
 
+    def test_a_cell_of_two_paragraphs_in_a_table_with_spans(self):
+        """The paragraphs of a cell were joined by the tag `<br>` itself, which an HTML table writes as text:
+        `<td>Costs&lt;br>more costs</td>`. They are joined by a line break, written `<br>` by both kinds of table."""
+        rows = [[([1], {"RowSpan": 2}), ([2], {"ColSpan": 2})], [[3], [4]], [[5], [6], [7]], [[8], [9], [10]]]
+        table = _table(rows)
+        table[1][3][1][0] = ("TD", [("P", [8]), ("P", [11])])  # the cell 'Costs' of two paragraphs
+        pieces = [*self._GROUPED[:-1], (72, 194, "more costs"), (72, 260, _AFTER)]
+
+        text = _text(_tagged_pdf(pieces, [("P", [0]), table, ("P", [12])]))
+
+        assert "<tr><td>Costs<br>more costs</td><td>7</td><td>8</td></tr>" in text and "&lt;" not in text
+
     def test_spans_that_would_cover_one_place_twice_are_left_out(self):
         """A cell over two columns that runs into the place a cell from the row above covers: the tree cannot be drawn as
         it says, and the table is written without spans, as before."""
@@ -162,6 +174,10 @@ class TestTablesFromTheTree:
         assert _trusted_cells(_TaggedTable(stated))[1] == ((0, 1, 2, 1),)
         stated[1][1] = cell("Q2", 330, 154, rows=9)  # a span past the last row is one to the last row
         assert _trusted_cells(_TaggedTable(stated))[1] == ((0, 1, 2, 1), (1, 2, 2, 1))
+        # an overlap before the last span leaves them all out too
+        stated[1] = [cell("Q1", 72, 154, columns=2), cell("Q2", 330, 154)]
+        stated.append([cell("Total", 72, 182, columns=2), cell("22", 330, 182)])
+        assert _trusted_cells(_TaggedTable(stated))[1] == ()
 
     def test_a_table_spanned_only_down_its_rows_is_written_as_before(self):
         rows = [[[1], [2], [3]], [([4], {"RowSpan": 2}), [5], [6]], [[7], [8]]]

@@ -39,7 +39,7 @@ Tables:
 - A ruled table with a cell over several columns is written as HTML with `colspan` and `rowspan`, as the other formats write merged cells. Not for a table continued from the previous page, one read from right to left, or one whose two-level header is combined into one row: those stay Markdown, the merged text in one of the columns it covers.
 - Borderless tables, including splitting two cells that touch because the gap between them is narrow, and tables
   drawn with horizontal rules only (a rule above, under the header and below, as papers set them).
-- In a tagged PDF (an export of Word or LibreOffice), a table the tags state is read from them where the page agrees, with the spans of its merged cells.
+- In a tagged PDF (an export of Word or LibreOffice), a table the tags state is read from them where the page agrees, as HTML with the spans the tags state when a cell spans columns.
 - Striped (row-shaded) tables, including vertically merged cells and an unshaded header and first row.
 - A table continued on the next page gets the header row of the previous page.
 - A table inside a table is flattened into one table by repeating the outer table's label on every row.

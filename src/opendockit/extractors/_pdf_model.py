@@ -262,9 +262,10 @@ class _Table:
     # number of rows.
     cells: tuple[tuple[float, float, float, float], ...] = ()
     bands: tuple[tuple[float, float], ...] = ()
-    # The cell boxes of a ruled table that cover more than one row or column, as (row, column, rows, columns) in `rows`, when
-    # one of them covers more than one column (`_pdf_ruled_tables._merged_cells`); the table is then written with those
-    # spans (`_spanned_text`). `text` stays the table without them, which is what the page's characters are counted from.
+    # The cells that cover more than one row or column, as (row, column, rows, columns) in `rows`: the cell boxes of a ruled
+    # table, when one of them covers more than one column (`_pdf_ruled_tables._merged_cells`), or the spans the tree of a
+    # tagged table states (`_pdf_tagged_tables._trusted_cells`); the table is written with them while one still covers more
+    # than one column (`_spanned_text`). `text` stays the table without them, which the page's characters are counted from.
     merges: tuple[tuple[int, int, int, int], ...] = ()
     # Top coordinate of each text line of a cell holding a picture (index into `cells`). If it matches the number of lines of the
     # cell text, the picture is placed between the lines at that height.

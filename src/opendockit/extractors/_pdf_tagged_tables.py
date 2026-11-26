@@ -247,9 +247,12 @@ def _page_tagged_tables(tables: list[list[list[_TaggedCell]]], chars: list[dict]
     """The tagged tables of a page with the text and the box of each cell, from the characters of the page (`chars`) that
     carry the marked-content ids of the cell.
 
-    The paragraphs of a cell are joined by `<br>` and the lines of a paragraph by a space: a line of a cell is broken
-    where the cell ends. Where the cell is too narrow for a word the word itself is broken ('Differen' over 'ce'), and
-    the two lines are joined with nothing between them when the page shows it (`_breaks_a_word`).
+    The paragraphs of a cell are joined by a line break and the lines of a paragraph by a space: a line of a cell is
+    broken where the cell ends. The break is a newline, which a Markdown table and an HTML one both write as `<br>`;
+    joined as the tag itself, it was the cell's text to an HTML table, which writes it as text (`&lt;br>`) (Pinned by:
+    test_pdf_tagged_tables.py::TestTablesFromTheTree::test_a_cell_of_two_paragraphs_in_a_table_with_spans). Where the
+    cell is too narrow for a word the word itself is broken ('Differen' over 'ce'), and the two lines are joined with
+    nothing between them when the page shows it (`_breaks_a_word`).
     """
     by_content: dict[int, list[dict]] = {}
     for char in chars:
@@ -294,7 +297,7 @@ def _page_tagged_tables(tables: list[list[list[_TaggedCell]]], chars: list[dict]
                         text += part
                     if text:
                         texts.append(text)
-                cells.append(("<br>".join(texts), box if texts else None, row_span, col_span))
+                cells.append(("\n".join(texts), box if texts else None, row_span, col_span))
             table.append(cells)
         read.append(_TaggedTable(table))
     return read
@@ -323,7 +326,7 @@ def _extract_tagged_tables(page: _Page) -> None:
     any table is looked for by the alignment of its text.
 
     A tag is what the program that wrote the PDF says, and a PDF can say anything: the table is taken only when the
-    page agrees with it (`_trusted_grid`). It has two rows and two columns or more; the cells of a row stand side by
+    page agrees with it (`_trusted_cells`). It has two rows and two columns or more; the cells of a row stand side by
     side in their order — from the left, or in every row from the right — and the rows one under the other; every line
     of the page inside the box of the table lies in one of its cells, so nothing else is taken with it; and no table
     found by its rules stands there — a ruled table is read from its rules as before. A table that fails any of these
@@ -364,13 +367,6 @@ def _in_a_cell(x0: float, x1: float, middle: float, boxes: list[tuple[float, flo
     at_height = [box for box in boxes if box[1] - _OVERLAP_TOLERANCE <= middle <= box[3] + _OVERLAP_TOLERANCE]
     return (any(box[0] <= x0 + _OVERLAP_TOLERANCE for box in at_height)
             and any(box[2] >= x1 - _OVERLAP_TOLERANCE for box in at_height))
-
-
-def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
-    """The rows of a tagged table as a grid of cell text, or None when the page does not agree with the tags
-    (`_trusted_cells`)."""
-    trusted = _trusted_cells(tagged)
-    return None if trusted is None else trusted[0]
 
 
 def _trusted_cells(tagged: _TaggedTable) -> tuple[list[list[str]], tuple[tuple[int, int, int, int], ...]] | None:
