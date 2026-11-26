@@ -33,6 +33,7 @@ PLAIN_OPTIONS = ConvertOptions(page_markers=False, extract_images=False, keep_em
 WORKERS = 4
 MOVED = 0.02  # a document is listed when one of its metrics moved by more than this
 CHANGED_SHOWN = 40  # how many of the documents whose text changed without a score moving are named
+ABSENT_SHARE = 0.1  # the share of a baseline's documents a run may lack and still be compared (2 of 60 Korean pairs are gone)
 
 
 def _convert(path: Path, plain: bool = False) -> tuple[str, float]:
@@ -110,6 +111,10 @@ def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] 
             if count:
                 shown = ", ".join(names[:CHANGED_SHOWN]) + (f" and {count - CHANGED_SHOWN} more" if count > CHANGED_SHOWN else "")
                 lines.append(f"documents {where}: {count} ({shown})")
+        # a fetch that broke, or a folder of other documents, would be compared on what little is left, and pass
+        if not both or len(absent) > len(baseline["documents"]) * ABSENT_SHARE:
+            lines.append(f"too few documents of the baseline in this run to compare: {len(both)} of {len(baseline['documents'])}")
+            return lines, True
         lines.append(f"the means below are those of the {len(both)} documents in both")
     lines.append(f"{'metric':8} {'baseline':>9} {'now':>9} {'change':>9}")
     for metric in METRICS:
@@ -172,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.baseline is None:
         return 0
     if args.update_baseline:
+        if args.baseline.exists():  # a baseline written from a run that lacks documents compares later runs without them
+            dropped = sorted(json.loads(args.baseline.read_text(encoding="utf-8"))["documents"].keys() - card["documents"].keys())
+            if dropped:
+                print(f"documents of the old baseline not in the new one: {len(dropped)} ({', '.join(dropped[:CHANGED_SHOWN])})")
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps({key: card[key] for key in ("means", "documents", "texts")}, indent=1) + "\n", encoding="utf-8")
         return 0

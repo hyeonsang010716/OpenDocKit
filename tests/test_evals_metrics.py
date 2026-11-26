@@ -220,15 +220,16 @@ class TestCompare:
     def test_a_document_of_the_baseline_not_in_the_run_is_left_out_of_both_means(self):
         """korea.kr stopped serving two releases of the Korean pairs: fetched again, the corpus had 58 of 60, and the mean
         of the 58 rose against that of the 60 with the reader unchanged. A fall of the same size would have been hidden."""
-        old = self._scored(a=0.9, b=0.8, gone=0.2)
-        lines, fell = compare(self._scored(a=0.9, b=0.8), old, tolerance=0.002)
+        kept = {f"d{index}": 0.8 for index in range(10)}
+        old = self._scored(**kept, gone=0.2)
+        lines, fell = compare(self._scored(**kept), old, tolerance=0.002)
         assert not fell
         assert "documents of the baseline not in this run: 1 (gone)" in lines
-        assert "the means below are those of the 2 documents in both" in lines
+        assert "the means below are those of the 10 documents in both" in lines
         assert any(line.startswith("nid ") and line.endswith("+0.0000") for line in lines)
 
-        # the 58 that are left fell, and the 2 that are gone would have hidden it
-        lines, fell = compare(self._scored(a=0.85, b=0.8), old, tolerance=0.002)
+        # the documents that are left fell, and the one that is gone would have hidden it
+        lines, fell = compare(self._scored(**dict(kept, d0=0.75)), old, tolerance=0.002)
         assert fell and any(line.startswith("nid ") and "FELL" in line for line in lines)
 
     def test_a_document_of_the_run_not_in_the_baseline_is_left_out_of_both_means(self):
@@ -236,6 +237,32 @@ class TestCompare:
         assert not fell
         assert "documents of this run not in the baseline: 1 (new)" in lines
         assert any(line.startswith("nid ") and line.endswith("+0.0000") for line in lines)
+
+    def test_a_run_that_lacks_much_of_the_baseline_fails(self):
+        """Compared on what is left, a run of other documents, or of a fetch that broke, would pass."""
+        old = self._scored(**{f"d{index}": 0.9 for index in range(20)})
+        assert not compare(self._scored(**{f"d{index}": 0.9 for index in range(18)}), old, tolerance=0.002)[1]  # 2 of 20
+
+        for card in (self._scored(**{f"d{index}": 0.9 for index in range(17)}), self._scored(x=0.9, y=0.9)):
+            lines, fell = compare(card, old, tolerance=0.002)
+            assert fell and any(line.startswith("too few documents of the baseline in this run") for line in lines)
+
+    def test_a_baseline_written_again_names_the_documents_it_drops(self, tmp_path, capsys):
+        from evals.run import main
+
+        gold, documents = tmp_path / "gold", tmp_path / "documents"
+        gold.mkdir(), documents.mkdir()
+        for name in ("a", "b"):
+            (gold / f"{name}.md").write_text("# Title\n\nSome text.\n", encoding="utf-8")
+            (documents / f"{name}.md").write_text("# Title\n\nSome text.\n", encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        assert main(["--gold", str(gold), "--predictions", str(documents), "--baseline", str(baseline), "--update-baseline"]) == 0
+        assert "not in the new one" not in capsys.readouterr().out
+        (documents / "b.md").unlink()
+        (gold / "b.md").unlink()
+
+        assert main(["--gold", str(gold), "--predictions", str(documents), "--baseline", str(baseline), "--update-baseline"]) == 0
+        assert "documents of the old baseline not in the new one: 1 (b)" in capsys.readouterr().out
 
     def test_the_same_documents_are_compared_by_the_means_written(self):
         """With the same documents on both sides the baseline's means are the ones compared, as they were written."""

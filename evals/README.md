@@ -112,7 +112,9 @@ The site does not keep every release: fetched again in November 2026, two of the
 release of the development set (156789960) were no longer served, and the fetch names each one it could not get. A
 document of a baseline that is not in a run is named above the comparison, and the means compared are then those of
 the documents in both, on both sides: the mean of 58 releases set against that of 60 would move with the reader
-unchanged, and would hide a fall of the same size.
+unchanged, and would hide a fall of the same size. A run that lacks more than a tenth of its baseline is not compared
+and fails, and a baseline is written again only from a whole corpus: `--update-baseline` names the documents of the
+old one the new one drops, and later runs would be compared without them.
 The scores say how far the two readers agree, so read them as a watch for change, not as a grade:
 
 - **Words 0.978**, from 0.961: Hangul breaks a line of Korean after any syllable, and every body paragraph of the PDFs

@@ -321,11 +321,12 @@ def compare(card: dict, baseline: dict) -> tuple[list[str], bool]:
     lines, worse = [], False
     for key in ("documents", "converted", "words", "missing", "joined", "private_use"):
         lines.append(f"{key:<12}{baseline['totals'].get(key, 0):>10}{card['totals'][key]:>10}")
-    # the totals of a folder fetched again without a document the source no longer serves are not the baseline's, and
-    # say so only by their size: the documents are named (each one is still compared with its own line below)
+    # a folder fetched again without a document the source no longer serves has smaller totals than the baseline's, which
+    # do not say why: the documents are named (each of the others is still compared on its own line below)
     absent = sorted(baseline["documents"].keys() - card["documents"].keys())
     if absent:
-        lines.append(f"documents of the baseline not in this run: {len(absent)} ({', '.join(absent)})")
+        shown = ", ".join(absent[:40]) + (f" and {len(absent) - 40} more" if len(absent) > 40 else "")
+        lines.append(f"documents of the baseline not in this run: {len(absent)} ({shown})")
     for name, entry in sorted(card["documents"].items()):
         was = baseline["documents"].get(name)
         if was is None:
