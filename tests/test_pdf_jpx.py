@@ -357,6 +357,14 @@ class TestWhatIsNotJudged:
         assert stops_the_renderer(b"%PDF-1.7\n1 0 obj << /Filter /JPXDecode >> endobj") is True
         assert stops_the_renderer(b"/JPXDecode " + _pdf(_picture("RGB"), "/DeviceRGB")) is True
 
+    def test_a_space_named_in_resources_is_read_alike_for_every_picture(self):
+        """Read first for a picture that wraps the name in fifteen arrays of one element, the space was read past the depth
+        limit and taken for one of 32 components for every picture after it."""
+        deep = "[" * 15 + "/CS0" + "]" * 15
+        data = _pdf(_picture("LA"), deep, resources="/ColorSpace << /CS0 [[/DeviceGray]] >>")
+
+        assert stops_the_renderer(data) is False
+
     def test_more_names_than_are_judged_count_as_stopping_it(self):
         names = b"% " + b"/JPXDecode " * (_pdf_jpx._MAX_NAMES + 1)
         data = _pdf(_picture("RGB"), "/DeviceRGB").replace(b"/Im0 Do Q", b"/Im0 Do Q " + names)

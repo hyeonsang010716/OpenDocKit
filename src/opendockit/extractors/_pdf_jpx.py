@@ -151,8 +151,10 @@ class _Document:
         name a default space took 12 s, the square of its pages."""
         key = (name, named)
         if key not in self._looked_up:
+            # read at one depth whatever the picture that asks first: read without resources, a value names no other space
+            # to look up, so the depth limit still ends a space that holds itself, and no picture gets another's answer
             self._looked_up[key] = list(dict.fromkeys(reading for value in self.named(name) for reading in read(value)))
-        return self._looked_up[key]
+        return list(self._looked_up[key])
 
 
 def _dictionaries(value: object) -> list[dict]:
@@ -336,13 +338,13 @@ def _readings(space: object, document: _Document, *, resources: bool, named: boo
                 def default(value: object) -> list[tuple[str, int]]:
                     if named and _family(document.resolve(value), document) == "ICCB":
                         return [("", _DEVICE_COMPONENTS[family])]
-                    return _readings(value, document, resources=False, depth=depth + 1)
+                    return _readings(value, document, resources=False, depth=1)
 
                 readings += document.looked_up(_DEFAULTS[family], named, default)
             return readings
         if name == "Pattern" or not resources:
             return []
-        return document.looked_up(name, False, lambda value: _readings(value, document, resources=False, depth=depth + 1))
+        return document.looked_up(name, False, lambda value: _readings(value, document, resources=False, depth=1))
     if not isinstance(space, list) or not space:
         return []
     if len(space) == 1:
