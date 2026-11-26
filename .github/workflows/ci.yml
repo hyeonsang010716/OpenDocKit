@@ -69,6 +69,23 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run pytest -m timing --durations=15
 
+  code-page-949:
+    # Korean Windows runs programs in code page 949 by default, and the runners in 1252. The suite is run once more by a copy
+    # of the interpreter whose manifest names ko-KR, which runs in 949 whatever the system locale: the locale encoding is
+    # cp949 and a redirected stream is written in it (.github/scripts/code_page_949.py). LibreOffice is not installed: the
+    # tests that start it run in the Windows job of `test`.
+    timeout-minutes: 30
+    name: test (py3.12, windows-latest, code page 949)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.12
+      - name: Tests in code page 949 (parallel)
+        run: uv run python .github/scripts/code_page_949.py -m pytest -n auto -m "not timing"
+
   native:
     # The native sheet reader (packages/opendockit-xlsx-core): built from source and installed, the whole suite is run
     # with it, so every test compares its rows with the Python readers' (tests/test_spreadsheet_quick_rows.py).

@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **The tests run in code page 949, the default of Korean Windows, on every change** (the `code page 949` job of CI).
+  The runners run in 1252, so no run of the suite had the code page most Korean users have. The job runs the suite by
+  a copy of the interpreter whose manifest names that code page, which Windows honours whatever its own locale;
+  `.github/scripts/code_page_949.py` does the same on any Windows machine.
+
 ### Changed
 
 - **A ruled PDF table with a cell over several columns is written with its spans.** pdfplumber states each cell box,
