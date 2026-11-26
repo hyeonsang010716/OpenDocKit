@@ -247,9 +247,12 @@ def _page_tagged_tables(tables: list[list[list[_TaggedCell]]], chars: list[dict]
     """The tagged tables of a page with the text and the box of each cell, from the characters of the page (`chars`) that
     carry the marked-content ids of the cell.
 
-    The paragraphs of a cell are joined by `<br>` and the lines of a paragraph by a space: a line of a cell is broken
-    where the cell ends. Where the cell is too narrow for a word the word itself is broken ('Differen' over 'ce'), and
-    the two lines are joined with nothing between them when the page shows it (`_breaks_a_word`).
+    The paragraphs of a cell are joined by a line break and the lines of a paragraph by a space: a line of a cell is
+    broken where the cell ends. The break is a newline, which a Markdown table and an HTML one both write as `<br>`;
+    joined as the tag itself, it was the cell's text to an HTML table, which writes it as text (`&lt;br>`) (Pinned by:
+    test_pdf_tagged_tables.py::TestTablesFromTheTree::test_a_cell_of_two_paragraphs_in_a_table_with_spans). Where the
+    cell is too narrow for a word the word itself is broken ('Differen' over 'ce'), and the two lines are joined with
+    nothing between them when the page shows it (`_breaks_a_word`).
     """
     by_content: dict[int, list[dict]] = {}
     for char in chars:
@@ -294,7 +297,7 @@ def _page_tagged_tables(tables: list[list[list[_TaggedCell]]], chars: list[dict]
                         text += part
                     if text:
                         texts.append(text)
-                cells.append(("<br>".join(texts), box if texts else None, row_span, col_span))
+                cells.append(("\n".join(texts), box if texts else None, row_span, col_span))
             table.append(cells)
         read.append(_TaggedTable(table))
     return read
@@ -323,7 +326,7 @@ def _extract_tagged_tables(page: _Page) -> None:
     any table is looked for by the alignment of its text.
 
     A tag is what the program that wrote the PDF says, and a PDF can say anything: the table is taken only when the
-    page agrees with it (`_trusted_grid`). It has two rows and two columns or more; the cells of a row stand side by
+    page agrees with it (`_trusted_cells`). It has two rows and two columns or more; the cells of a row stand side by
     side in their order — from the left, or in every row from the right — and the rows one under the other; every line
     of the page inside the box of the table lies in one of its cells, so nothing else is taken with it; and no table
     found by its rules stands there — a ruled table is read from its rules as before. A table that fails any of these
@@ -337,9 +340,10 @@ def _extract_tagged_tables(page: _Page) -> None:
     used: set[int] = set()
     for tagged in page.tagged:
         boxes = [box for row in tagged.rows for _, box, _, _ in row if box is not None]
-        grid = _trusted_grid(tagged)
-        if grid is None or not boxes:
+        trusted = _trusted_cells(tagged)
+        if trusted is None or not boxes:
             continue
+        grid, merges = trusted
         x0, top = min(box[0] for box in boxes), min(box[1] for box in boxes)
         x1, bottom = max(box[2] for box in boxes), max(box[3] for box in boxes)
         if any(table.top < bottom and table.bottom > top and table.x0 < x1 and table.x1 > x0 for table in page.tables):
@@ -349,7 +353,8 @@ def _extract_tagged_tables(page: _Page) -> None:
                   and top - _OVERLAP_TOLERANCE <= (line.top + line.bottom) / 2 <= bottom + _OVERLAP_TOLERANCE]
         if not inside or not all(_in_a_cell(line.x0, line.x1, (line.top + line.bottom) / 2, boxes) for line in inside):
             continue
-        page.tables.append(_Table(top=top, text=render_table(grid), bottom=bottom, x0=x0, x1=x1, rows=grid, stated=True))
+        page.tables.append(_Table(top=top, text=render_table(grid), bottom=bottom, x0=x0, x1=x1, rows=grid, stated=True,
+                                  merges=merges))
         used.update(id(original) for line in inside for original in _original_lines_of(line))
     if used:
         page.lines = [line for line in page.lines if id(line) not in used]
@@ -364,11 +369,15 @@ def _in_a_cell(x0: float, x1: float, middle: float, boxes: list[tuple[float, flo
             and any(box[2] >= x1 - _OVERLAP_TOLERANCE for box in at_height))
 
 
-def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
-    """The rows of a tagged table as a grid of cell text, or None when the page does not agree with the tags.
+def _trusted_cells(tagged: _TaggedTable) -> tuple[list[list[str]], tuple[tuple[int, int, int, int], ...]] | None:
+    """The rows of a tagged table as a grid of cell text, with the cells the tree says span rows or columns as (row,
+    column, rows, columns) in it; None when the page does not agree with the tags.
 
     A cell that spans rows has its text on every row it covers and one that spans columns in the first of them, as the
-    tables of every format are written (`docs/decisions/core.md`).
+    tables of every format are written (`docs/decisions/core.md`); the spans are those the tree states, which the table
+    is written with (`_pdf_ruled_tables._spanned_text`). They are left out when two of them would cover one place (a
+    span over the cells a span from above already covers, in a tree that says so), and then the table is written
+    without them, as before.
     """
     rows = tagged.rows
     if len(rows) < 2:
@@ -391,6 +400,9 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
             previous_top = min(tops)
     grid: list[list[str | None]] = [[] for _ in rows]
     covered: dict[tuple[int, int], str] = {}  # the cells under a cell that spans rows
+    merges: list[tuple[int, int, int, int]] = []
+    spanned: set[tuple[int, int]] = set()  # the places the spans cover
+    overlapping = False
     for index, row in enumerate(rows):
         column = 0
         for text, _, row_span, col_span in row:
@@ -401,6 +413,12 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
             for below in range(index + 1, min(index + row_span, len(rows))):
                 for offset in range(col_span):
                     covered[below, column + offset] = text if offset == 0 else ""
+            height = min(row_span, len(rows) - index)
+            if height > 1 or col_span > 1:
+                merges.append((index, column, height, col_span))
+                places = {(index + down, column + right) for down in range(height) for right in range(col_span)}
+                overlapping = overlapping or not places.isdisjoint(spanned)
+                spanned |= places
             column += col_span
         while (index, column) in covered:
             grid[index].append(covered[index, column])
@@ -409,4 +427,6 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
     if width < 2 or width * len(grid) > _MAX_TABLE_CELLS:
         return None
     filled = [[cell or "" for cell in row] + [""] * (width - len(row)) for row in grid]
-    return filled if sum(1 for row in filled if any(row)) >= 2 else None
+    if sum(1 for row in filled if any(row)) < 2:
+        return None
+    return filled, () if overlapping else tuple(merges)
