@@ -29,7 +29,7 @@ from opendockit.extractors._pdf_open_tables import _merge_split_header, _open_si
 from opendockit.extractors._pdf_pdfminer import _INFLATE_BUDGET
 from opendockit.extractors._pdf_shaded_tables import _column_edges, _is_inner_part, _mark_filled_cells, _rule_line, _with_shaded_rows
 from opendockit.extractors._pdf_table_filters import _dropping_page_indexes
-from opendockit.markdown import render_table
+from opendockit.markdown import TableGrid, render_table
 
 
 # Share of the page area for a table to count as a page frame. In slide PDFs the whole page is often a frame box. A table this
@@ -141,9 +141,87 @@ def _ruled_table(bbox: tuple[float, float, float, float], rows: list[list[str | 
                     tops.append(top)
 
             cell_lines[index] = tuple(tops)
-    return _Table(top=bbox[1], text=render_table(cells), bottom=bbox[3], x0=bbox[0], x1=bbox[2], rows=cells,
-                  spans=_column_spans(boxes, len(cells[0])), cells=boxes, bands=_row_bands(boxes, len(cells)),
-                  cell_lines=cell_lines)
+    spans, bands = _column_spans(boxes, len(cells[0])), _row_bands(boxes, len(cells))
+    return _Table(top=bbox[1], text=render_table(cells), bottom=bbox[3], x0=bbox[0], x1=bbox[2], rows=cells, spans=spans,
+                  cells=boxes, bands=bands, cell_lines=cell_lines, merges=_merged_cells(cells, boxes, spans, bands))
+
+
+def _merged_cells(rows: list[list[str]], boxes: tuple[tuple, ...], spans: tuple[tuple[float, float], ...],
+                  bands: tuple[tuple[float, float], ...]) -> tuple[tuple[int, int, int, int], ...]:
+    """The cell boxes of a ruled table that cover more than one row or column, as (row, column, rows, columns) in `rows`:
+    a box covers the rows and columns whose middle lies inside it. Nothing when no box covers more than one column, and
+    nothing when the boxes do not lay the grid out with one box on each place — a place two boxes cover (a cell that holds
+    the cells of a table inside it, a box laid over others), a box over no row or column, rows that are not the rows of
+    the bands (a two-level header merged into one row, `_merge_split_header`; a row of a cell holding a table left out,
+    `_cell_rows`).
+
+    pdfplumber states each cell box and gives None for the places a merged cell hides, and those were written as empty
+    cells: the text of a cell over three columns stood in the column its middle falls in, between empty ones, and no reader
+    could tell which columns it covers ('| 15:00~15:05 | | 오프닝 영상 | |'), where DOCX, HWPX, ODF and HTML write such a
+    table as HTML with its spans (Pinned by: test_pdf_table_spans.py::TestMergedCells). The places are found by bisection
+    over the middles, and a place is visited once: a box over a place already taken ends the search."""
+    if not spans or not bands or len(bands) != len(rows) or any(len(row) != len(spans) for row in rows):
+        return ()
+    row_middles = [(top + bottom) / 2 for top, bottom in bands]
+    column_middles = [(left + right) / 2 for left, right in spans]
+    if not all(map(math.isfinite, [*row_middles, *column_middles])):
+        return ()
+    taken: set[tuple[int, int]] = set()
+    merged: list[tuple[int, int, int, int]] = []
+    for x0, top, x1, bottom in boxes:
+        first_row, end_row = bisect_right(row_middles, top), bisect_left(row_middles, bottom)
+        first_column, end_column = bisect_right(column_middles, x0), bisect_left(column_middles, x1)
+        if first_row >= end_row or first_column >= end_column:
+            return ()  # a box over no middle, or one that is no number
+        for row in range(first_row, end_row):
+            for column in range(first_column, end_column):
+                if (row, column) in taken:
+                    return ()
+                taken.add((row, column))
+        if end_row - first_row > 1 or end_column - first_column > 1:
+            merged.append((first_row, first_column, end_row - first_row, end_column - first_column))
+    return tuple(merged) if any(columns > 1 for _, _, _, columns in merged) else ()
+
+
+def _spanned_text(table: _Table) -> str:
+    """The text of the table as it is written: with the spans of its merged cells (`merges`) when one still covers more
+    than one column once the empty rows and columns are left out — HTML, as `TableGrid` writes a table of any format with
+    such a cell — and otherwise `text`, the table as it was written before.
+
+    The spans are kept only while the rows are the rows they were found in: same count, same width, and every place a
+    merged cell covers empty or, in the first column of a cell over several rows, the copy of its text `_cell_rows` put
+    there. Any other text there would be hidden by the span, so the table is written as before; and so it is when a step
+    after the search wrote the rows again — a table continued from the previous page (`continued`), one read from the right
+    (`from_the_right`). Known accepted gaps: those tables, a ruled table whose two-level header was merged into one row,
+    and borderless tables, keep the place of a merged cell's text in the column its middle falls in."""
+    rows = table.rows
+    if not table.merges or table.continued or table.from_the_right or table.stated:
+        return table.text
+    width = len(table.spans)
+    if not rows or any(len(row) != width for row in rows):
+        return table.text
+    starts: dict[tuple[int, int], tuple[int, int]] = {}
+    covered: set[tuple[int, int]] = set()
+    for row, column, row_span, column_span in table.merges:
+        if row + row_span > len(rows) or column + column_span > width:
+            return table.text
+        first = rows[row][column] or ""
+        for below in range(row, row + row_span):
+            for right in range(column, column + column_span):
+                if (below, right) == (row, column):
+                    continue
+                text = rows[below][right] or ""
+                if text.strip() and not (right == column and text == first):
+                    return table.text
+                covered.add((below, right))
+        starts[row, column] = (row_span, column_span)
+    grid = TableGrid()
+    for row, cells in enumerate(rows):
+        for column, text in enumerate(cells):
+            if (row, column) not in covered:
+                row_span, column_span = starts.get((row, column), (1, 1))
+                grid.place(row, column, text or "", row_span=row_span, col_span=column_span)
+    return grid.spanning_html() or table.text
 
 
 def _with_open_below(table: _Table, lookups: _TableLookups) -> _Table:

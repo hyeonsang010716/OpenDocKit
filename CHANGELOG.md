@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+
+- **A ruled PDF table with a cell over several columns is written with its spans.** pdfplumber states each cell box,
+  and the places a merged cell hides were written as empty cells: the text of a cell over three columns stood in
+  whichever column its middle fell in, between empty ones (`| 15:00~15:05 | | 오프닝 영상 | |`), and nothing said
+  which columns it covers. Such a table is now HTML with `colspan` and `rowspan`, as a DOCX, HWPX, ODF or HTML table
+  with merged cells already was; a table merged only down its rows stays Markdown with the value on every row. Table
+  structure (TEDS) rises from 0.5745 to 0.5945 on the Korean pairs, from 0.5812 to 0.6029 on the Korean holdout and
+  from 0.7761 to 0.7797 on the benchmark. Where the boxes do not lay the grid out one to a place (a cell that holds a
+  table, a box over others), or a step after the search wrote the rows again (a table continued from the previous
+  page, one read from the right, a two-level header merged into one row), the table is written as before.
+
 ### Fixed
 
 - **A document reads the same on Windows as elsewhere when it names a code page of Windows.** Windows lends Python

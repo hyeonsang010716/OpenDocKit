@@ -672,12 +672,15 @@ class TestAbuttingTablesWithDifferentColumns:
         """A form with a block merged over rows 1-3 of the two right columns and another over rows 3-5 of the two left
         columns. The rows the right block starts in are as tall as the block when measured by their cells, so their middle
         lay in row 3, where the left columns are merged: the form was split after row 2, 'r3c0' fell out as a paragraph
-        and the second table took a data row as its header. Row 3 is the last row of the right block, so it repeats 'r1c2'."""
+        and the second table took a data row as its header. Row 3 is the last row of the right block and the first of the
+        left one: both blocks are written with their spans."""
         result = convert(self._form_pdf([(1, 2, 3), (3, 0, 3)], heights), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
-                               "| r1c0 | r1c1 | r1c2 | |\n| r2c0 | r2c1 | r1c2 | |\n| r3c0 | | r1c2 | |\n| r3c0 | | r4c2 | r4c3 |\n"
-                               "| r3c0 | | r5c2 | r5c3 |\n| r6c0 | r6c1 | r6c2 | r6c3 |\n\nEnd of the form.")
+        assert result.text == ("Application form\n\n<table>\n<tr><th>Head0</th><th>Head1</th><th>Head2</th><th>Head3</th></tr>\n"
+                               '<tr><td>r1c0</td><td>r1c1</td><td rowspan="3" colspan="2">r1c2</td></tr>\n'
+                               '<tr><td>r2c0</td><td>r2c1</td></tr>\n<tr><td rowspan="3" colspan="2">r3c0</td></tr>\n'
+                               "<tr><td>r4c2</td><td>r4c3</td></tr>\n<tr><td>r5c2</td><td>r5c3</td></tr>\n"
+                               "<tr><td>r6c0</td><td>r6c1</td><td>r6c2</td><td>r6c3</td></tr>\n</table>\n\nEnd of the form.")
 
     def test_merged_blocks_below_each_other_keep_one_table(self):
         """A block merged over rows 1-2 of the two right columns and, right below it, one over rows 3-5 of the two left
@@ -686,18 +689,21 @@ class TestAbuttingTablesWithDifferentColumns:
         'r3c0' as its header."""
         result = convert(self._form_pdf([(1, 2, 2), (3, 0, 3)], [20] * 7), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
-                               "| r1c0 | r1c1 | r1c2 | |\n| r2c0 | r2c1 | r1c2 | |\n| r3c0 | | r3c2 | r3c3 |\n| r3c0 | | r4c2 | r4c3 |\n"
-                               "| r3c0 | | r5c2 | r5c3 |\n| r6c0 | r6c1 | r6c2 | r6c3 |\n\nEnd of the form.")
+        assert result.text == ("Application form\n\n<table>\n<tr><th>Head0</th><th>Head1</th><th>Head2</th><th>Head3</th></tr>\n"
+                               '<tr><td>r1c0</td><td>r1c1</td><td rowspan="2" colspan="2">r1c2</td></tr>\n'
+                               '<tr><td>r2c0</td><td>r2c1</td></tr>\n<tr><td rowspan="3" colspan="2">r3c0</td><td>r3c2</td><td>r3c3</td></tr>\n'
+                               "<tr><td>r4c2</td><td>r4c3</td></tr>\n<tr><td>r5c2</td><td>r5c3</td></tr>\n"
+                               "<tr><td>r6c0</td><td>r6c1</td><td>r6c2</td><td>r6c3</td></tr>\n</table>\n\nEnd of the form.")
 
     def test_merged_blocks_with_no_row_of_all_columns_keep_one_table(self):
         """The same two blocks in a form that has no other row: no row has every column boundary, and the form is still one
         table. It was split after row 2 and the second half took 'r2c0' as its header."""
         result = convert(self._form_pdf([(0, 2, 2), (2, 0, 3)], [20] * 5), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | |\n| --- | --- | --- | --- |\n"
-                               "| r1c0 | r1c1 | Head2 | |\n| r2c0 | | r2c2 | r2c3 |\n| r2c0 | | r3c2 | r3c3 |\n"
-                               "| r2c0 | | r4c2 | r4c3 |\n\nEnd of the form.")
+        assert result.text == ("Application form\n\n<table>\n"
+                               '<tr><th>Head0</th><th>Head1</th><th rowspan="2" colspan="2">Head2</th></tr>\n'
+                               '<tr><td>r1c0</td><td>r1c1</td></tr>\n<tr><td rowspan="3" colspan="2">r2c0</td><td>r2c2</td><td>r2c3</td></tr>\n'
+                               "<tr><td>r3c2</td><td>r3c3</td></tr>\n<tr><td>r4c2</td><td>r4c3</td></tr>\n</table>\n\nEnd of the form.")
 
     def test_merged_blocks_overlapping_in_a_column_keep_one_table(self):
         """A block over the three left columns of rows 1-2 and one over the two right columns of rows 3-5: the first lies
@@ -706,9 +712,10 @@ class TestAbuttingTablesWithDifferentColumns:
         ('| Head0 | Head3 |') and the lower took 'r2c0' as its header."""
         result = convert(self._form_pdf([(0, 0, 2, 3), (2, 2, 3)], [20] * 5), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("Application form\n\n| Head0 | | | Head3 |\n| --- | --- | --- | --- |\n"
-                               "| Head0 | | | r1c3 |\n| r2c0 | r2c1 | r2c2 | |\n| r3c0 | r3c1 | r2c2 | |\n"
-                               "| r4c0 | r4c1 | r2c2 | |\n\nEnd of the form.")
+        assert result.text == ("Application form\n\n<table>\n"
+                               '<tr><th rowspan="2" colspan="3">Head0</th><th>Head3</th></tr>\n<tr><td>r1c3</td></tr>\n'
+                               '<tr><td>r2c0</td><td>r2c1</td><td rowspan="3" colspan="2">r2c2</td></tr>\n'
+                               "<tr><td>r3c0</td><td>r3c1</td></tr>\n<tr><td>r4c0</td><td>r4c1</td></tr>\n</table>\n\nEnd of the form.")
 
     def test_blocks_stacked_in_the_same_columns_keep_one_table(self):
         """A block over the two left columns of rows 0-1, then a block over columns 1-2 of rows 2-3 and another one over
@@ -717,9 +724,10 @@ class TestAbuttingTablesWithDifferentColumns:
         result = convert(self._form_pdf([(0, 0, 2), (2, 1, 2), (4, 1, 2)], [20] * 8), "a.pdf", ConvertOptions(page_markers=False))
 
         table = result.text.split("\n\n")[1].split("\n")
-        assert len(table) == 9 and all(line.count("|") == 5 for line in table)
-        assert table[0] == "| Head0 | | Head2 | Head3 |" and table[3] == "| r2c0 | r2c1 | | r2c3 |"
-        assert result.text.endswith("| r7c0 | r7c1 | r7c2 | r7c3 |\n\nEnd of the form.")
+        assert len(table) == 10 and table[0] == "<table>" and table[-1] == "</table>"
+        assert table[1] == '<tr><th rowspan="2" colspan="2">Head0</th><th>Head2</th><th>Head3</th></tr>'
+        assert table[3] == '<tr><td>r2c0</td><td rowspan="2" colspan="2">r2c1</td><td>r2c3</td></tr>'
+        assert result.text.endswith("<tr><td>r7c0</td><td>r7c1</td><td>r7c2</td><td>r7c3</td></tr>\n</table>\n\nEnd of the form.")
 
     def test_rows_merged_from_a_column_that_a_block_above_covers_keep_one_table(self):
         """Two last rows whose three right columns are merged, right below a block over the two left columns of rows 3-4:
@@ -727,9 +735,12 @@ class TestAbuttingTablesWithDifferentColumns:
         above them have. Split, the two last rows became a table of their own with 'r5c0' as its header."""
         result = convert(self._form_pdf([(3, 0, 2), (5, 1, 1, 3), (6, 1, 1, 3)], [20] * 7), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("Application form\n\n| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n"
-                               "| r1c0 | r1c1 | r1c2 | r1c3 |\n| r2c0 | r2c1 | r2c2 | r2c3 |\n| r3c0 | | r3c2 | r3c3 |\n"
-                               "| r3c0 | | r4c2 | r4c3 |\n| r5c0 | r5c1 | | |\n| r6c0 | r6c1 | | |\n\nEnd of the form.")
+        assert result.text == ("Application form\n\n<table>\n<tr><th>Head0</th><th>Head1</th><th>Head2</th><th>Head3</th></tr>\n"
+                               "<tr><td>r1c0</td><td>r1c1</td><td>r1c2</td><td>r1c3</td></tr>\n"
+                               "<tr><td>r2c0</td><td>r2c1</td><td>r2c2</td><td>r2c3</td></tr>\n"
+                               '<tr><td rowspan="2" colspan="2">r3c0</td><td>r3c2</td><td>r3c3</td></tr>\n<tr><td>r4c2</td><td>r4c3</td></tr>\n'
+                               '<tr><td>r5c0</td><td colspan="3">r5c1</td></tr>\n<tr><td>r6c0</td><td colspan="3">r6c1</td></tr>\n'
+                               "</table>\n\nEnd of the form.")
 
     def test_table_below_a_block_with_a_boundary_of_its_own_is_another_table(self):
         """A table of two columns right below a form that ends in a block over its two left columns: the lower table's
@@ -740,9 +751,11 @@ class TestAbuttingTablesWithDifferentColumns:
         result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
 
         assert result.text == ("Application form\n\n| Name | Kim | Sales |\n| --- | --- | --- |\n| Grade | Manager | 1234 |\n\n"
-                               "| Head0 | Head1 | Head2 | Head3 |\n| --- | --- | --- | --- |\n| r1c0 | r1c1 | r1c2 | r1c3 |\n"
-                               "| r2c0 | r2c1 | r2c2 | r2c3 |\n| r3c0 | | r3c2 | r3c3 |\n| r3c0 | | r4c2 | r4c3 |\n\n"
-                               "| Item | Amount |\n| --- | --- |\n| Fee | 1,000 |\n| Tax | 100 |\n\nEnd of the form.")
+                               "<table>\n<tr><th>Head0</th><th>Head1</th><th>Head2</th><th>Head3</th></tr>\n"
+                               "<tr><td>r1c0</td><td>r1c1</td><td>r1c2</td><td>r1c3</td></tr>\n"
+                               "<tr><td>r2c0</td><td>r2c1</td><td>r2c2</td><td>r2c3</td></tr>\n"
+                               '<tr><td rowspan="2" colspan="2">r3c0</td><td>r3c2</td><td>r3c3</td></tr>\n<tr><td>r4c2</td><td>r4c3</td></tr>\n'
+                               "</table>\n\n| Item | Amount |\n| --- | --- |\n| Fee | 1,000 |\n| Tax | 100 |\n\nEnd of the form.")
 
     @pytest.mark.parametrize("edges", [[60, 110, 160], [360, 410, 460]], ids=["under the first column", "under the last column"])
     def test_narrower_table_below_a_grid_is_another_table(self, edges):
@@ -770,8 +783,10 @@ class TestAbuttingTablesWithDifferentColumns:
 
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("| Name | | Kim | | Dept | Sales |\n| --- | --- | --- | --- | --- | --- |\n| Grade | | Manager | | Phone | 1234 |\n"
-                               "| Period | | March | | Remarks | |\n| From | To | | Days | Remarks | |")
+        assert result.text == ('<table>\n<tr><th colspan="2">Name</th><th colspan="2">Kim</th><th>Dept</th><th>Sales</th></tr>\n'
+                               '<tr><td colspan="2">Grade</td><td colspan="2">Manager</td><td>Phone</td><td>1234</td></tr>\n'
+                               '<tr><td colspan="2">Period</td><td colspan="2">March</td><td rowspan="2" colspan="2">Remarks</td></tr>\n'
+                               '<tr><td>From</td><td colspan="2">To</td><td>Days</td></tr>\n</table>')
 
     def test_tables_stay_apart_when_the_rows_above_them_have_the_columns_of_both(self):
         """The same three tables the other way round, the month grid on top: the table of six columns goes with the month
@@ -802,7 +817,8 @@ class TestAbuttingTablesWithDifferentColumns:
 
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text.startswith("| Name | Kim | Dept | Sales |\n| --- | --- | --- | --- |\n| Grade | Manager | Phone | 1234 |\n\n| Date |")
+        assert result.text.startswith("| Name | Kim | Dept | Sales |\n| --- | --- | --- | --- |\n| Grade | Manager | Phone | 1234 |\n\n"
+                                      '<table>\n<tr><th colspan="2">Date</th>')
 
 
 def _merged_cells_pdf(xs: list[float], cells: list[tuple[int, int, int, int, str]], rows: int) -> bytes:

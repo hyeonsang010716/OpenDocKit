@@ -3757,8 +3757,9 @@ class TestRuledTables:
 
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == ("| 구분 | 내용 | 금액 |\n| --- | --- | --- |\n| 인건비 | 연구원 | 12,000 |\n"
-                               "| 재료비 | 시약 | 3,500 |\n| 소계 | | 15,500 |\n| 비고 | 부가세 별도 | |\n\n표 아래 문단입니다.")
+        assert result.text == ("<table>\n<tr><th>구분</th><th>내용</th><th>금액</th></tr>\n<tr><td>인건비</td><td>연구원</td><td>12,000</td></tr>\n"
+                               '<tr><td>재료비</td><td>시약</td><td>3,500</td></tr>\n<tr><td colspan="2">소계</td><td>15,500</td></tr>\n'
+                               '<tr><td>비고</td><td colspan="2">부가세 별도</td></tr>\n</table>\n\n표 아래 문단입니다.')
 
     def test_closed_table_with_merged_first_column_under_a_two_column_header_is_kept_whole(self):
         """In a table closed on all four sides whose first column is vertically merged and whose header '구분' spans columns 1–2, the
@@ -3780,14 +3781,17 @@ class TestRuledTables:
         result = convert(_korean_pdf(draw), "a.pdf")
 
         assert result.sections[0].text == (
-            "| 구분 | | 2024년 | 2025년 |\n| --- | --- | --- | --- |\n| 자산 | 유동자산 | 100 | 110 |\n"
-            "| 자산 | 비유동자산 | 300 | 320 |\n| 부채 | 유동부채 | 50 | 55 |\n| 부채 | 비유동부채 | 120 | 118 |\n"
-            "| 자본 | 자본금 | 200 | 200 |\n| 자본 | 이익잉여금 | 30 | 57 |")
+            '<table>\n<tr><th colspan="2">구분</th><th>2024년</th><th>2025년</th></tr>\n'
+            '<tr><td rowspan="2">자산</td><td>유동자산</td><td>100</td><td>110</td></tr>\n<tr><td>비유동자산</td><td>300</td><td>320</td></tr>\n'
+            '<tr><td rowspan="2">부채</td><td>유동부채</td><td>50</td><td>55</td></tr>\n<tr><td>비유동부채</td><td>120</td><td>118</td></tr>\n'
+            '<tr><td rowspan="2">자본</td><td>자본금</td><td>200</td><td>200</td></tr>\n<tr><td>이익잉여금</td><td>30</td><td>57</td></tr>\n'
+            "</table>")
 
     def test_vertical_merge_is_repeated_in_every_row_when_another_row_merges_columns(self):
         """The rows and columns in which to repeat a vertically merged value are found by centre coordinates, but merged cells inflated
         the row and column boxes (the '수입' cell spanning three rows became the height of the first row, and the '합계' cell spanning
-        two columns became the width of the first column), so the centres were off. The category of the third row was empty."""
+        two columns became the width of the first column), so the centres were off. The category of the third row was empty.
+        The '합계' cell over two columns makes the table HTML, where the merge is a span over the three rows."""
         columns, top, height = [70, 150, 270, 370, 470], 700, 22
         rows = [["구분", "세부", "1분기", "2분기"], ["수입", "매출", "100", "110"], ["", "기타", "5", "7"], ["", "이자", "1", "2"],
                 ["합계", "", "106", "119"]]
@@ -3801,7 +3805,9 @@ class TestRuledTables:
 
         result = convert(_korean_pdf(draw), "a.pdf")
 
-        assert ("| 수입 | 매출 | 100 | 110 |\n| 수입 | 기타 | 5 | 7 |\n| 수입 | 이자 | 1 | 2 |\n| 합계 | | 106 | 119 |"
+        # the table has a cell over two columns, so it is HTML, and the merge over three rows is a span of three rows
+        assert ('<tr><td rowspan="3">수입</td><td>매출</td><td>100</td><td>110</td></tr>\n<tr><td>기타</td><td>5</td><td>7</td></tr>\n'
+                '<tr><td>이자</td><td>1</td><td>2</td></tr>\n<tr><td colspan="2">합계</td><td>106</td><td>119</td></tr>'
                 in result.sections[0].text)
 
     def test_text_right_outside_a_cell_on_the_same_line_as_the_cell_text_is_kept(self):
