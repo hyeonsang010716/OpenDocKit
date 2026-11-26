@@ -17,7 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   from 0.7761 to 0.7797 on the benchmark. Where the boxes do not lay the grid out one to a place (a cell that holds a
   table, a box over others), or a step after the search wrote the rows again (a table given the header of the table
   on the previous page, one read from the right, a two-level header merged into one row), the table is written as
-  before; a table continued from the previous page with the same columns keeps its spans. A table
+  before; a table continued from the previous page with the same columns keeps its spans, and so does a table with a
+  picture in a cell over several rows. A table
   read from the tags of a tagged PDF and with a cell over several columns is written with the spans its structure tree
   states: table structure rises from 0.8464 to 0.8673 on the tagged PDF twins.
 

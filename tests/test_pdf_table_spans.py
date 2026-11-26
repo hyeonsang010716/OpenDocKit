@@ -225,15 +225,16 @@ class TestSpanningHtml:
         assert down.spanning_html() is None and down.render().startswith("| a | b |")
 
 
-def _spanned_grid(pdf, rows: list[list[str]], top: float, widths: list[float], spans: list[tuple[int, int, int, int]]) -> None:
-    """A ruled table drawn downwards from `top` (rows of 20pt, 10pt text), with cells merged over (column, row) to
+def _spanned_grid(pdf, rows: list[list[str]], top: float, widths: list[float], spans: list[tuple[int, int, int, int]],
+                  height: float = 20) -> None:
+    """A ruled table drawn downwards from `top` (rows of `height`, 10pt text), with cells merged over (column, row) to
     (column, row) as reportlab's SPAN takes them."""
     from reportlab.lib import colors
     from reportlab.platypus import Table, TableStyle
 
     from tests.test_pdf import _FONT
 
-    table = Table(rows, colWidths=widths, rowHeights=20)
+    table = Table(rows, colWidths=widths, rowHeights=height)
     table.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), _FONT, 10), ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
                                *(("SPAN", (left, first), (right, last)) for left, first, right, last in spans)]))
     _, height = table.wrapOn(pdf, 0, 0)
@@ -322,3 +323,38 @@ class TestContinuedTables:
                        bands=tuple((10.0 * row, 10.0 * row + 10.0) for row in range(3)))
 
         assert _spanned_text(table).startswith("2024년 매출 현황 (단위: 천원)\n\n<table>")
+
+
+class TestPicturesInMergedCells:
+    def test_a_picture_in_a_cell_over_rows_keeps_the_spans(self):
+        """The picture goes into the first place of the cell it lies in (`_place_images_in_cells`), and the rows under it
+        hold the copy of its text from before: taken for text of their own, the table was written without its spans."""
+        from tests.test_pdf import _korean_pdf
+        from tests.test_pdf_images import _image
+
+        rows = [["구분", "제품", "", "단가"], ["세트", "마우스", "무선", "25,000"], ["", "키보드", "유선", "89,000"],
+                ["단품", "모니터", "27인치", "320,000"]]
+
+        def draw(pdf, index):
+            _spanned_grid(pdf, rows, 800, [90, 90, 90, 90], [(1, 0, 2, 0), (0, 1, 0, 2)], height=30)
+            pdf.drawImage(_image(120, 120, seed=1), 82, 714, 45, 45)  # inside the cell over two rows
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert len(result.images) == 1
+        assert result.text == ('<table>\n<tr><th>구분</th><th colspan="2">제품</th><th>단가</th></tr>\n'
+                               '<tr><td rowspan="2">[Image]<br>세트</td><td>마우스</td><td>무선</td><td>25,000</td></tr>\n'
+                               "<tr><td>키보드</td><td>유선</td><td>89,000</td></tr>\n"
+                               "<tr><td>단품</td><td>모니터</td><td>27인치</td><td>320,000</td></tr>\n</table>")
+
+    def test_a_copy_is_the_text_without_its_picture_lines_only(self):
+        from opendockit.extractors._pdf_ruled_tables import _without_pictures
+        from opendockit.models import image_marker
+
+        assert _without_pictures(f"{image_marker(0)}\n세트") == "세트"
+        assert _without_pictures(f"세트 {image_marker(0)}") == f"세트 {image_marker(0)}"  # not a line of its own
+        assert _without_pictures(f"{image_marker(0)} 세트") == f"{image_marker(0)} 세트"
+        assert _without_pictures(f"세트\n{image_marker(0)}\n상품") == "세트\n상품"  # the lines of the text stay lines
+        rows = [[f"세트\n{image_marker(0)}", "", "값"], ["세트", "", "1"], ["나", "다", "2"]]
+        assert _spanned_text(_table(rows, ((0, 0, 2, 2),))).startswith("<table>")
+        assert _spanned_text(_table([rows[0], ["세트 외", "", "1"], rows[2]], ((0, 0, 2, 2),))) == "as before"
