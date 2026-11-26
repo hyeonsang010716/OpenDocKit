@@ -943,6 +943,127 @@ class TestTextOfOneAlphabet:
         assert encoding == "cp1258"
 
 
+def _guess(encoding: str):
+    """A statistical guess of charset-normalizer, made by hand so that a test does not hang on its ranking."""
+    from charset_normalizer import CharsetMatch
+
+    return CharsetMatch(b"", encoding, 0.0, False, [("Unknown", 0.5)])
+
+
+class TestReadingsNobodyWrites:
+    """The language statistics of a short text cannot tell Latin code pages apart, and they ranked readings nobody writes
+    first: Czech `Každý má právo` came out as `Ka˛dż mį prįvo`, a Danish name in an Indonesian sentence as `S°ren`, and with
+    charset-normalizer 3.5.3 Finnish `Ketään` as `Ket‰‰n` and Spanish `distinción` as `distinciˇn`, which 3.5.2 still read
+    right. A reading with a sign between two letters, a capital inside a small word or a stray mark is no candidate, so the
+    answer no longer hangs on the version of the library."""
+
+    @pytest.mark.parametrize(
+        ("text", "encoding"),
+        [
+            ("Každý má právo na život, svobodu a osobní bezpečnost.", "cp1250"),
+            ("Majelis Umum dengan ini memproklamasikan Søren ok.", "cp1252"),
+            ("GIZA ESKUBIDEEN ALDARRIKAPEN Jørgensen ok.", "cp1252"),
+            ("ANO Ģenerālā Asambleja pieņēmusi 1948. gada 10. decembrī Søren ok.", "cp1257"),
+            ("Ketään ei saa mielivaltaisesti pidättää, vangita tai ajaa maanpakoon.", "cp1252"),
+            ("Todos son iguales ante la ley y tienen, sin distinción, derecho a igual protección de la", "cp1252"),
+        ],
+        ids=["czech", "indonesian-with-a-danish-name", "basque-with-a-danish-name", "latvian-with-a-danish-name", "finnish",
+             "spanish"],
+    )
+    def test_a_text_is_read_in_its_code_page(self, text, encoding):
+        assert decode_text(text.encode(encoding)) == (text, encoding)
+
+    @pytest.mark.parametrize(
+        "reading",
+        ["Ket‰‰n", "pid‰tt‰‰", "distinciˇn", "gef³hrt", "cooperaÓÐo", "Mill\u0080er", " \u0303ór", "₫egns", "xÉcole",
+         "Kрbenhavn"],
+        ids=["signs-inside-a-word", "a-sign-inside-a-word", "a-modifier-inside-a-word", "a-figure-inside-a-word",
+             "capitals-inside-a-small-word", "a-control", "a-mark-after-a-space", "a-currency-sign-against-a-letter",
+             "a-capital-behind-a-small-letter", "a-letter-of-another-script-inside-a-word"],
+    )
+    def test_what_nobody_writes(self, reading):
+        from opendockit.extractors._encoding import _unwritten
+
+        assert _unwritten().search(reading) is not None
+
+    @pytest.mark.parametrize(
+        "reading",
+        ["Ketään", "it’s fine", "naïve", "col·legi", "São Paulo", "5 µm", "€10 and 10€", "«x»", "Ørsted", "École SESSIÓ",
+         "well\u2011known", "Hawai\u02bci", "\u00a0 a\u00adb", "x² + y²", "Nº 5, 1.ª",
+         " \u064eب ", "ภาษาไทย ผ\u0e39\u0e49"],
+        ids=["finnish", "apostrophe", "diaeresis", "catalan-middle-dot", "portuguese", "micro-sign", "euro", "guillemets",
+             "capital-at-a-word-start", "capitals", "non-breaking-hyphen", "letter-apostrophes", "no-break-and-soft-hyphen",
+             "superscripts-after-letters", "ordinals", "arabic-mark-after-a-space", "thai-marks-stacked"],
+    )
+    def test_what_people_write(self, reading):
+        from opendockit.extractors._encoding import _unwritten
+
+        assert _unwritten().search(reading) is None
+
+    def test_a_reading_nobody_writes_is_left_out_of_the_guesses(self):
+        """`Ket‰‰n` goes. A reading in letters of another alphabet stays, a known gap: `Ketððn` in HP Roman-8 and `Ketńńn`
+        in DOS Latin 2 are written as far as shapes tell."""
+        from charset_normalizer import CharsetMatches
+
+        from opendockit.extractors._encoding import _written_readings
+
+        sample = "Ketään ei saa pidättää.".encode("cp1252")
+
+        assert [match.encoding for match in _written_readings(
+            CharsetMatches([_guess("mac_iceland"), _guess("cp1252"), _guess("cp1250")]), sample)] == ["cp1252", "cp1250"]
+        assert [match.encoding for match in _written_readings(
+            CharsetMatches([_guess("mac_iceland"), _guess("hp_roman8"), _guess("cp852"), _guess("cp1252")]), sample)] == [
+            "hp_roman8", "cp852", "cp1252"]
+
+    def test_guesses_are_kept_when_every_reading_is_one_nobody_writes(self):
+        from charset_normalizer import CharsetMatches
+
+        from opendockit.extractors._encoding import _written_readings
+
+        sample = "Ket‰‰n".encode("mac_roman")   # nothing reads it as text but the code page that is not offered
+        guesses = CharsetMatches([_guess("cp1252"), _guess("cp437")])
+
+        assert [match.encoding for match in _written_readings(guesses, sample)] == ["cp1252", "cp437"]
+
+    @pytest.mark.parametrize("encoding", ["cp932", "gb18030", "big5", "utf_16_le", "cp037", "cp500", "cp424", "no-such-codec"])
+    def test_code_pages_of_several_bytes_or_without_ascii_are_not_judged(self, encoding):
+        """A Japanese `、` stands between two ideographs, and EBCDIC reads ASCII bytes as other letters or as nothing (EBCDIC
+        Hebrew leaves some undefined): no shape of Latin text says anything there."""
+        from opendockit.extractors._encoding import _judged
+
+        assert not _judged(encoding)
+        assert _judged("cp1252") and _judged("mac_roman") and _judged("cp1251")
+
+    def test_text_in_ebcdic_hebrew_is_still_read(self):
+        """Judging whether a guess could be judged decoded the bytes of ASCII strictly, and raised for EBCDIC Hebrew: eight
+        files of a public data set were refused as corrupted."""
+        text = "Source: haggadah\nשלום עולם, מה נשמע? " * 30
+
+        decoded, encoding = decode_text(text.encode("cp424"))
+
+        assert (decoded, encoding) == (text, "cp424")
+
+    def test_the_first_thousand_places_are_judged(self):
+        """A code page that misreads a text misreads the same bytes everywhere, so only the first places outside ASCII are
+        looked at: a 200 KB sample took 5 ms more to judge whole."""
+        from charset_normalizer import CharsetMatches
+
+        from opendockit.extractors._encoding import _JUDGED_PLACES, _written_readings
+
+        filler = " \xa9 ".encode("cp1252") * _JUDGED_PLACES   # one place each, read alike by both code pages
+        spot = "pid\xe4tt ok".encode("cp1252")   # `pid‰tt` in Macintosh Roman
+        guesses = CharsetMatches([_guess("mac_roman"), _guess("cp1252")])
+
+        assert [match.encoding for match in _written_readings(guesses, spot + filler)] == ["cp1252"]
+        assert [match.encoding for match in _written_readings(guesses, filler + spot)] == ["mac_roman", "cp1252"]
+
+    def test_arabic_with_a_mark_after_a_space_keeps_its_code_page(self):
+        """Arabic text holds a vowel mark after a space now and then: that is no Latin shape, and Windows-1256 stays."""
+        text = "يولد جميع الناس أحرار\u064bا متساوين في الكرامة والحقوق. " * 20 + " \u064eالحرية"
+
+        assert decode_text(text.encode("cp1256")) == (text, "cp1256")
+
+
 class TestHtmlDeclaredCharset:
     """HTML did not look at the document's charset declaration, so documents declaring `windows-1252` or `shift_jis` were garbled
     as CP949, without a warning."""

@@ -16,6 +16,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   sheet declares `encoding="cp20866"`, were converted on Windows under Python 3.14 and refused as corrupted
   everywhere else. Such a name is now one Python does not know, as it always was on Linux and macOS, where nothing
   changes.
+- **Text without a stated charset: a guess that reads it as something nobody writes is not taken.** The statistics of
+  a short text cannot tell Latin code pages apart, and ranked first readings with a sign inside a word or a capital
+  inside a small one: Czech `Každý má právo` came out as `Ka˛dż mį prįvo`, `Søren` in another language as `S°ren`.
+  With charset-normalizer 3.5.3, which a new install has had since 2026-11-23, Finnish `Ketään` came out as
+  `Ket‰‰n` and Spanish `distinción` as `distinciˇn` as well. Of 47,684 samples in 60 languages, 34,770 are read
+  right, from 32,798, and none that was right is wrong now. Of 5,146 labelled files of two public data sets 188 more
+  are read right, among them Arabic, Chinese and Cyrillic files a Latin code page had been taken for, and two whose own
+  text was already garbled (`Ã¥`) are read otherwise.
 
 ## [0.3.16] - 2026-11-25
 
