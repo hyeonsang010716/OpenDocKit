@@ -6,11 +6,16 @@ import base64
 import email
 import email.message
 import email.policy
+import email.utils
+import itertools
+import sys
+import urllib.parse
 
 import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
+from opendockit.extractors import _mail
 from opendockit.extractors._mail import parse_mail
 from tests.timing import fastest
 
@@ -583,6 +588,160 @@ class TestTransferEncodingWithWhiteSpaceAround:
         message = parse_mail((_HEAD + "Content-Type: text/plain \r\nContent-Transfer-Encoding: \t7bit \r\nX-Note: a  \r\n\r\nx\r\n").encode())
 
         assert (message["Content-Transfer-Encoding"], message["Content-Type"], message["X-Note"]) == ("7bit", "text/plain ", "a  ")
+
+
+def _decode_params_up_to_3_13_4(params):
+    """`email.utils.decode_params` as every release of Python 3.12 and 3.13.0 to 3.13.4 have it: the pieces of an RFC 2231
+    parameter are sorted whole, so a piece without a number among numbered ones is a TypeError, and two pieces of one
+    number are joined in the order of their values."""
+    new_params = [params[0]]
+    pieces = {}
+    for name, value in params[1:]:
+        encoded = name.endswith("*")
+        value = email.utils.unquote(value)
+        match = email.utils.rfc2231_continuation.match(name)
+        if match:
+            name, number = match.group("name", "num")
+            pieces.setdefault(name, []).append((None if number is None else int(number), value, encoded))
+        else:
+            new_params.append((name, f'"{email.utils.quote(value)}"'))
+    for name, continuations in pieces.items():
+        continuations.sort()
+        extended = any(encoded for _, _, encoded in continuations)
+        value = email.utils.quote("".join(urllib.parse.unquote(s, encoding="latin-1") if encoded else s
+                                          for _, s, encoded in continuations))
+        if extended:
+            charset, language, value = email.utils.decode_rfc2231(value)
+            new_params.append((name, (charset, language, f'"{value}"')))
+        else:
+            new_params.append((name, f'"{value}"'))
+    return new_params
+
+
+@pytest.fixture
+def older_parameters(monkeypatch):
+    """The standard library joins the pieces of an RFC 2231 parameter as Python 3.12 and 3.13.0 to 3.13.4 do, on whatever
+    Python runs the test."""
+    monkeypatch.setattr(email.utils, "decode_params", _decode_params_up_to_3_13_4)
+
+
+_ATTACHED = 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nSee attached.\r\n--B\r\n'
+_UTF8_BODY = "회의는 내일입니다."
+_IN_PIECES = {
+    "boundary": (_HEAD + "Content-Type: multipart/mixed; boundary*=AA; boundary*0=BB\r\n\r\n--BB\r\nContent-Type: text/plain\r\n"
+                 "\r\nHello body\r\n--BB--\r\n").encode(),
+    "charset": (_HEAD + "Content-Type: text/plain; charset*=euc-kr; charset*0=utf-8\r\n\r\n" + _UTF8_BODY + "\r\n").encode(),
+    "charset-of-a-part": (_HEAD + 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain; '
+                          "charset*=euc-kr; charset*0=utf-8\r\n\r\n" + _UTF8_BODY + "\r\n--B--\r\n").encode(),
+    "charset-of-a-page": (_HEAD + 'Content-Type: multipart/alternative; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain; '
+                          "charset=utf-8\r\n\r\n" + _UTF8_BODY + "\r\n--B\r\nContent-Type: text/html; charset*=euc-kr; "
+                          "charset*0=utf-8\r\n\r\n<p>" + _UTF8_BODY + "</p>\r\n--B--\r\n").encode(),
+    "charset-of-a-forwarded-mail": (_HEAD + "Content-Type: message/rfc822\r\n\r\nSubject: inner\r\nFrom: p@q.r\r\nMIME-Version: 1.0"
+                                    "\r\nContent-Type: text/plain; charset*=euc-kr; charset*0=utf-8\r\n\r\n" + _UTF8_BODY
+                                    + "\r\n").encode(),
+    "a-parameter-nothing-reads": (_HEAD + "Content-Type: text/plain; charset=utf-8; xnote*=a; xnote*1=b\r\n\r\n" + _UTF8_BODY
+                                  + "\r\n").encode(),
+    "format": (_HEAD + "Content-Type: text/plain; charset=utf-8; format*=flow; format*1=ed\r\n\r\nOne line \r\ngoes on.\r\n").encode(),
+    "filename": (_HEAD + _ATTACHED + "Content-Type: application/pdf\r\nContent-Disposition: attachment; filename*=utf-8''a; "
+                 "filename*1=b.pdf\r\n\r\nAAAA\r\n--B--\r\n").encode(),
+    "name": (_HEAD + _ATTACHED + "Content-Type: application/pdf; name*=utf-8''a; name*1=b.pdf\r\n\r\nAAAA\r\n--B--\r\n").encode(),
+    "filename-beside-a-piece-0": (_HEAD + _ATTACHED + "Content-Type: application/pdf\r\nContent-Disposition: attachment; "
+                                  "filename*=utf-8''a.pdf; filename*0=b.pdf\r\n\r\nAAAA\r\n--B--\r\n").encode(),
+    "two-pieces-of-one-number": (_HEAD + _ATTACHED + "Content-Type: application/pdf\r\nContent-Disposition: attachment; "
+                                 "filename*0=b; filename*0=a.pdf\r\n\r\nAAAA\r\n--B--\r\n").encode(),
+}
+
+
+def _attachment_warning(name: str) -> list[str]:
+    return [f"1 mail attachment(s) ({name}) were not read. Convert attachments separately."]
+
+
+class TestParameterInPieces:
+    """A parameter written in RFC 2231 pieces, one of them without a number (`filename*=…; filename*1=…`). Every release of
+    Python 3.12 and 3.13.0 to 3.13.4 sort the pieces whole: a piece without a number among numbered ones raised a TypeError
+    out of every reader of the header, so a mail with such a piece in a boundary, a charset or any parameter beside them was
+    rejected as corrupted, and an attachment with such a name was counted as unnamed; two pieces of one number were joined
+    in the order of their values. 3.13.5 and later join them by number, the one without a number counted as 0, or left out
+    beside a 0. The mails are read with that rule on every version (`_mail._MailMessage`); `older_parameters` gives the
+    standard library the older one, so these tests read the mails as those versions would on any Python."""
+
+    def test_the_standard_library_joins_as_the_older_versions_do(self, older_parameters):
+        with pytest.raises(TypeError):
+            email.utils.decode_params([("text/plain", ""), ("charset*", "euc-kr"), ("charset*0", "utf-8")])
+        assert email.utils.decode_params([("x", ""), ("a*0", "b"), ("a*0", "a")]) == [("x", ""), ("a", '"ab"')]
+
+    def test_a_mail_split_at_a_boundary_in_pieces(self, older_parameters):
+        result = convert(_IN_PIECES["boundary"], "a.eml")
+
+        assert result.text.endswith("Hello body") and "--BB" not in result.text
+
+    @pytest.mark.parametrize("name", ["charset", "charset-of-a-part", "charset-of-a-page", "charset-of-a-forwarded-mail",
+                                      "a-parameter-nothing-reads"])
+    def test_a_body_is_read_in_its_charset(self, older_parameters, name):
+        """The piece numbered 0 is the charset: the one without a number beside it is left out."""
+        assert convert(_IN_PIECES[name], "a.eml").text.endswith(_UTF8_BODY)
+
+    def test_a_body_with_its_format_in_pieces_is_read(self, older_parameters):
+        """`format*=…` makes the value an RFC 2231 one, which no version takes for `flowed`: the lines stay apart."""
+        assert convert(_IN_PIECES["format"], "a.eml").text.endswith("One line\ngoes on.")
+
+    @pytest.mark.parametrize(("name", "expected"), [("filename", "ab.pdf"), ("name", "ab.pdf"), ("filename-beside-a-piece-0", "b.pdf"),
+                                                    ("two-pieces-of-one-number", "ba.pdf")])
+    def test_an_attachment_name_is_read(self, older_parameters, name, expected):
+        """Pieces of one number are joined in the order they are written, not in the order of their values."""
+        result = convert(_IN_PIECES[name], "a.eml")
+
+        assert (result.text.endswith("See attached."), result.warnings) == (True, _attachment_warning(expected))
+
+    @pytest.mark.parametrize("name", list(_IN_PIECES))
+    def test_a_mail_reads_as_on_the_versions_that_have_the_rule(self, request, name):
+        mail = _IN_PIECES[name]
+        expected = convert(mail, "a.eml")
+        request.getfixturevalue("older_parameters")
+
+        result = convert(mail, "a.eml")
+
+        assert (result.text, result.warnings) == (expected.text, expected.warnings)
+
+    def test_every_part_of_a_mail_reads_its_parameters_with_the_rule(self):
+        """Parts, a forwarded mail and its parts: the parser makes each one with the policy's message factory."""
+        inner = ("Subject: inner\r\nFrom: p@q.r\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"I\"\r\n\r\n"
+                 "--I\r\nContent-Type: text/plain\r\n\r\nInner.\r\n--I--\r\n")
+        mail = (_HEAD + 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nOuter.\r\n'
+                "--B\r\nContent-Type: message/rfc822\r\n\r\n" + inner + "--B--\r\n").encode()
+
+        parts = list(parse_mail(mail).walk())
+
+        assert len(parts) == 5 and all(type(part) is _mail._MailMessage for part in parts)
+
+    @pytest.mark.skipif(sys.version_info < (3, 13, 5), reason="the rule is the standard library's from Python 3.13.5")
+    def test_the_rule_is_that_of_the_later_versions(self):
+        """Every list of up to three pieces of one parameter, numbered or not, encoded or not, with what comes beside them."""
+        cases = _pieces_of_a_parameter()
+
+        assert all(_mail._decode_params(case) == email.utils.decode_params(case) for case in cases)
+
+    @pytest.mark.skipif(sys.version_info >= (3, 13, 5), reason="the older rule is the standard library's up to Python 3.13.4")
+    def test_the_older_rule_is_that_of_the_older_versions(self):
+        """What `older_parameters` gives the standard library is what it has there: the same answer or the same error."""
+        def answer(decode, case):
+            try:
+                return decode(case)
+            except TypeError:
+                return TypeError
+
+        assert all(answer(_decode_params_up_to_3_13_4, case) == answer(email.utils.decode_params, case)
+                   for case in _pieces_of_a_parameter())
+
+
+def _pieces_of_a_parameter() -> list[list[tuple[str, str]]]:
+    pieces = ["a*", "a*0", "a*1", "a*0*", "a*1*", "a*2", "b", "a"]
+    values = ["x", "utf-8''%EA%B0%80", "''y", '"q;r"']
+    cases = [[("text/plain", ""), *zip(names, chosen, strict=True)]
+             for count in (1, 2, 3) for names in itertools.product(pieces, repeat=count)
+             for chosen in itertools.product(values, repeat=count)]
+    assert len(cases) > 30_000
+    return cases
 
 
 class TestReadablePartsOfForwardedMails:
