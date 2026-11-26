@@ -8,6 +8,7 @@ because one start takes seconds and should not compete with the parallel group.
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
+import json
 import os
 from pathlib import Path
 import re
@@ -34,7 +35,7 @@ from opendockit import (
 )
 from opendockit.extractors import legacy
 from opendockit.isolated import _DEFAULT_TIMEOUT
-from tests import builder, wait_until_gone
+from tests import CONSOLE_PROBE, builder, run_without_a_console, wait_until_gone
 
 
 _FAKE_PROGRAM = "/nonexistent/soffice"
@@ -758,6 +759,41 @@ class TestRunner:
         monkeypatch.setattr(sys, "executable", r"C:\Program Files\MyApp\MyApp.exe")
 
         assert legacy._start_windows_guard(tmp_path) is None
+
+    @pytest.mark.skipif(os.name != "nt", reason="a console window is Windows'")
+    def test_a_console_launcher_opens_no_window_from_a_process_without_a_console(self, tmp_path):
+        """A process without a console (a desktop program under pythonw, one started detached) gives every console program
+        it starts a console of its own, with a window. With LibreOffice's folder on PATH, `soffice` is its `soffice.com`,
+        a console program, and every .doc or .ppt opened a window on the user's desktop while it converted. The launcher
+        is started with CREATE_NO_WINDOW: a console program gets a console without a window, and a program with windows of
+        its own, as `soffice.exe` is, is not changed by it. The stand-in is a `.cmd`, a console program as `soffice.com`
+        is; its paths reach it through the environment, as those of `_windows_launcher` do."""
+        launcher = tmp_path / "soffice.cmd"
+        launcher.write_bytes(b'@echo off\r\n"%OPENDOCKIT_TEST_PYTHON%" -I -S "%OPENDOCKIT_TEST_CHILD%" "%OPENDOCKIT_TEST_RECORD%"\r\n')
+        child = tmp_path / "child.py"
+        child.write_text(CONSOLE_PROBE + "import json, sys\njson.dump(console_state(), open(sys.argv[1], 'w', encoding='utf-8'))\n",
+                         encoding="utf-8")
+        script = tmp_path / "convert.py"
+        script.write_text(CONSOLE_PROBE + (
+            "import json, os, sys\n"
+            "from opendockit import ConversionError, convert\n"
+            "os.environ.update(OPENDOCKIT_SOFFICE=sys.argv[1], OPENDOCKIT_TEST_PYTHON=sys.executable,\n"
+            "                  OPENDOCKIT_TEST_CHILD=sys.argv[2], OPENDOCKIT_TEST_RECORD=sys.argv[3])\n"
+            "state = console_state()\n"
+            "try:\n"
+            "    convert(open(sys.argv[4], 'rb').read(), 'a.doc')\n"
+            "except ConversionError:\n"
+            "    pass   # the stand-in writes no document\n"
+            "json.dump(state, open(sys.argv[5], 'w', encoding='utf-8'))\n"), encoding="utf-8")
+        document = tmp_path / "a.doc"
+        document.write_bytes(_doc())
+        record, report = tmp_path / "launcher.json", tmp_path / "converting.json"
+
+        ran = run_without_a_console([str(script), str(launcher), str(child), str(record), str(document), str(report)], timeout=120)
+
+        assert ran.returncode == 0, "the converting script failed"
+        assert json.loads(report.read_text(encoding="utf-8")) == {"console": False, "window": False}, "the converting process had a console"
+        assert json.loads(record.read_text(encoding="utf-8")) == {"console": True, "window": False}
 
     @pytest.mark.skipif(os.name != "posix", reason="the guard process is the POSIX mechanism")
     def test_guard_is_started_only_with_a_python_interpreter(self, monkeypatch, tmp_path):

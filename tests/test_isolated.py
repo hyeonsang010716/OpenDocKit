@@ -2,6 +2,7 @@
 worker, end as a failure of that file only?"""
 
 import asyncio
+import json
 import os
 import signal
 import sys
@@ -17,7 +18,7 @@ from opendockit import (
     IsolatedConverter,
     convert,
 )
-from tests import process_is_alive
+from tests import CONSOLE_PROBE, process_is_alive, run_without_a_console
 from tests.timing import Fastest
 
 
@@ -377,6 +378,34 @@ class TestIsolatedConverter:
             time.sleep(0.2)
         _hard_kill(worker)   # do not leave it behind when the test fails
         pytest.fail("the worker of a killed server process was still running after 15 seconds")
+
+    @pytest.mark.skipif(os.name != "nt", reason="a console window is Windows'")
+    def test_a_server_without_a_console_starts_its_workers_without_a_window(self, tmp_path):
+        """A server without a console (started with DETACHED_PROCESS by the program that runs it) gave every worker a console
+        of its own, and with it a window on the user's desktop: one for every file, since every file has a worker of its
+        own. The workers of such a server are started with CREATE_NO_WINDOW and get a console without a window. A
+        server with a console is not asked: its workers share it, as before. The probe runs in the converter's own pool,
+        so it is a worker as the converter starts it: with its job and its watch on the server."""
+        script = tmp_path / "server.py"   # a file, not `-c`: a spawned worker imports the main module to find the probe
+        script.write_text(CONSOLE_PROBE + (
+            "import asyncio, json, sys\n"
+            "from opendockit import IsolatedConverter\n"
+            "async def main(report):\n"
+            "    async with IsolatedConverter(workers=1) as converter:\n"
+            "        text = (await converter.convert('첫 줄'.encode(), 'a.txt')).text\n"
+            "        workers = [await asyncio.wrap_future(converter._pools[0].submit(console_state)) for _ in range(2)]\n"
+            "    with open(report, 'w', encoding='utf-8') as stream:\n"
+            "        json.dump({'server': console_state(), 'text': text, 'workers': workers}, stream)\n"
+            "if __name__ == '__main__':\n"
+            "    asyncio.run(main(sys.argv[1]))\n"), encoding="utf-8")
+        report = tmp_path / "report.json"
+
+        ran = run_without_a_console([str(script), str(report)], timeout=120)
+
+        assert ran.returncode == 0, "the server script failed"
+        assert json.loads(report.read_text(encoding="utf-8")) == {
+            "server": {"console": False, "window": False}, "text": "첫 줄",
+            "workers": [{"console": True, "window": False}, {"console": True, "window": False}]}
 
     def test_closed_converter_refuses_new_files(self):
         async def scenario():

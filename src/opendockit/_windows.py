@@ -25,7 +25,8 @@ fail, which is why neither is treated as an error worth ending a conversion for.
 says that a limit was not applied.
 
 Two things about files belong here as well: the long form of a path (`long_path`, `openable`), and telling a file another
-program holds open from one this user may not read (`held_by_another_program`).
+program holds open from one this user may not read (`held_by_another_program`). And one about the processes this one starts:
+whether it has a console for them to share (`has_console`).
 """
 
 import ctypes
@@ -170,7 +171,23 @@ def _kernel32() -> ctypes.WinDLL:
     library.QueryInformationJobObject.restype = wintypes.BOOL
     library.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
                                                   ctypes.POINTER(wintypes.DWORD)]
+    library.GetConsoleProcessList.restype = wintypes.DWORD
+    library.GetConsoleProcessList.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
     return library
+
+
+def has_console() -> bool:
+    """Whether this process has a console, with a window or without one.
+
+    A process that has none — started detached, a service, a program with windows of its own such as `pythonw` — gives
+    every console program it starts a console of its own, and that console opens a window on the desktop. A process that
+    has one passes it on, and its children open nothing. Nothing raises: an answer that cannot be had is True, which leaves
+    the processes this one starts as they were.
+    """
+    try:
+        return _kernel32().GetConsoleProcessList((wintypes.DWORD * 1)(), 1) != 0   # 0: the call failed, there is no console
+    except (OSError, AttributeError, ValueError):
+        return True
 
 
 def new_job_name() -> str:

@@ -26,6 +26,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Windows: a server or a program without a console no longer opens a window for every document.** A process without
+  a console — started with DETACHED_PROCESS, or a desktop program under `pythonw` — gives every console program it
+  starts a console of its own, and that console opens a window on the desktop. `IsolatedConverter` starts a worker for
+  every file, and in a server started detached each one opened a window while it converted: three files, three windows.
+  With LibreOffice's folder on `PATH`, `soffice` is its `soffice.com`, a console program, and every `.doc` or `.ppt`
+  converted from such a process opened one too. The workers of a server without a console, and LibreOffice, are now
+  started without a window; a server with a console starts its workers as before, sharing it with them.
+
 - **A PDF with a JPEG 2000 picture pdfium cannot draw no longer ends the program converting it.** pdfium stops the
   process, with a check that ends it rather than an error, when a JPEG 2000 picture's colour space asks for more
   components than the picture holds (a DeviceN of four colorants over two components), and when an image mask's

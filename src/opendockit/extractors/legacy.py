@@ -339,8 +339,13 @@ def _run(command: list[str], working_folder: Path) -> None:
     process = None
     try:
         try:
+            # CREATE_NO_WINDOW, as for the guard and taskkill: with LibreOffice's folder on PATH, `soffice` is `soffice.com`,
+            # a console program, and started from a process without a console (pythonw, a program started detached) it
+            # opened a window for every document (Pinned by: test_legacy.py::TestRunner::
+            # test_a_console_launcher_opens_no_window_from_a_process_without_a_console). `soffice.exe` is not changed by it.
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                       cwd=working_folder, start_new_session=own_group, shell=False)
+                                       cwd=working_folder, start_new_session=own_group, shell=False,
+                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except OSError as exc:
             raise ProgramNotStarted from exc
         if guard is not None and own_group:   # the Windows guard watches this process, so there is nothing to tell it
