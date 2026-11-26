@@ -191,16 +191,19 @@ def _spanned_text(table: _Table) -> str:
     The spans are kept only while the rows are the rows they were found in: same count, same width, and every place a
     merged cell covers empty or, in the first column of a cell over several rows, the copy of its text `_cell_rows` put
     there. Any other text there would be hidden by the span, so the table is written as before; and so it is when a step
-    after the search wrote the rows again — a table continued from the previous page (`continued`, or a header carried over
-    to it, which clears `merges`), one read from the right (`from_the_right`) — and when the rows are no longer as many as
-    the bands found with them. A table read from the tags of a tagged PDF (`stated`) has the spans its tree states
+    after the search wrote the rows again — a header carried over to a table continued from the previous page, which
+    clears `merges`, one read from the right (`from_the_right`) — and when the rows are no longer as many as the bands
+    found with them. A table continued from the previous page with the same columns (`continued`) keeps its spans: the
+    text of an open cell carried into its top rows (`_carry_open_cells`) is, where a cell over rows covers them, that
+    cell's copy, which the check above takes, and its top row is a title only by the rule its Markdown follows
+    (`_merged_title`). A table read from the tags of a tagged PDF (`stated`) has the spans its tree states
     (`_pdf_tagged_tables._trusted_cells`), and no cell boxes or bands to hold them to: its rows are as wide as each other
     as they were built. The table is written as before too when the drawing would leave out rows for the
     conversion's grid budget (`TableGrid.omitted_rows`): `text` holds them, and nothing would say they are gone. Known
     accepted gaps: those tables, a ruled table whose two-level header was merged into one row,
     and borderless tables, keep the place of a merged cell's text in the column its middle falls in."""
     rows = table.rows
-    if not table.merges or table.continued or table.from_the_right or not rows:
+    if not table.merges or table.from_the_right or not rows:
         return table.text
     width = len(rows[0]) if table.stated else len(table.spans)
     if any(len(row) != width for row in rows):
@@ -229,8 +232,23 @@ def _spanned_text(table: _Table) -> str:
             if (row, column) not in covered:
                 row_span, column_span = starts.get((row, column), (1, 1))
                 grid.place(row, column, text or "", row_span=row_span, col_span=column_span)
-    html = grid.spanning_html()
+    html = grid.spanning_html(titles=not table.continued or _merged_title(rows, table.merges))
     return html if html is not None and not grid.omitted_rows() else table.text
+
+
+def _merged_title(rows: list[list[str]], merges: tuple[tuple[int, int, int, int], ...]) -> bool:
+    """Whether the top row of a table continued from the previous page is a title: one cell holds text, and every other
+    column that holds text anywhere is covered there by a merged cell — the rule `_pdf_paragraphs._table_text` writes such a
+    table by (`merged_titles_only`). The piece of a row split at the end of the page is one cell with text among empty
+    ones, and taken for a title it became a paragraph above the table (Pinned by:
+    test_pdf_table_spans.py::TestContinuedTables::test_the_piece_of_a_row_split_at_the_page_end_is_no_title)."""
+    filled = [column for column, text in enumerate(rows[0]) if (text or "").strip()]
+    if len(filled) != 1:
+        return False
+    covered = {column for row, start, height, width in merges if row == 0
+               for column in range(start, start + width) if column != start}
+    used = {column for row in rows for column, text in enumerate(row) if (text or "").strip()}
+    return all(column in covered for column in used - set(filled))
 
 
 def _with_open_below(table: _Table, lookups: _TableLookups) -> _Table:

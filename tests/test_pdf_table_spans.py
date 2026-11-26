@@ -170,7 +170,7 @@ class TestSpannedText:
         rows = [["구분", "", "값"], ["가", "나", "1"]]
         merges = ((0, 0, 1, 2),)
         assert _spanned_text(_table(rows, merges)).startswith("<table>")
-        assert _spanned_text(_table(rows, merges, continued=True)) == "as before"
+        assert _spanned_text(_table(rows, merges, continued=True)).startswith("<table>")  # continued: spans kept
         assert _spanned_text(_table(rows, merges, from_the_right=True)) == "as before"
         assert _spanned_text(_table([*rows, ["다", "라", "2", "3"]], merges)) == "as before"  # a row of another width
         assert _spanned_text(_table(rows, ())) == "as before"
@@ -223,3 +223,79 @@ class TestSpanningHtml:
         down.place(0, 1, "b")
         down.place(1, 1, "c")
         assert down.spanning_html() is None and down.render().startswith("| a | b |")
+
+
+def _spanned_grid(pdf, rows: list[list[str]], top: float, widths: list[float], spans: list[tuple[int, int, int, int]]) -> None:
+    """A ruled table drawn downwards from `top` (rows of 20pt, 10pt text), with cells merged over (column, row) to
+    (column, row) as reportlab's SPAN takes them."""
+    from reportlab.lib import colors
+    from reportlab.platypus import Table, TableStyle
+
+    from tests.test_pdf import _FONT
+
+    table = Table(rows, colWidths=widths, rowHeights=20)
+    table.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), _FONT, 10), ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                               *(("SPAN", (left, first), (right, last)) for left, first, right, last in spans)]))
+    _, height = table.wrapOn(pdf, 0, 0)
+    table.drawOn(pdf, 60, top - height)
+
+
+_HEADER = ["ID", "요구사항명", "상세 내용", "우선순위"]
+_WIDTHS = [90, 90, 200, 95]
+
+
+def _continued(second: list[list[str]], spans: list[tuple[int, int, int, int]]) -> list[str]:
+    """The pages of a two-page document: a ruled table of a header and one row at the foot of the first page, and its rows
+    going on in a table of the same columns on the second, with merged cells. A table of fewer than three rows gives the
+    next page no header (`_carry_table_headers`): the rows there are read as the table's own, continued."""
+    from tests.test_pdf import _korean_pdf
+    from tests.test_pdf_table_columns import _ruled_table
+
+    def draw(pdf, index):
+        if index == 0:
+            _ruled_table(pdf, [_HEADER, ["REQ-001", "기능 1", "조회 화면에서 조건을 입력한다", "상"]], 80, _WIDTHS)
+        else:
+            _spanned_grid(pdf, second, 800, _WIDTHS, spans)
+
+    return [section.text for section in convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).sections]
+
+
+class TestContinuedTables:
+    def test_a_table_continued_with_the_same_columns_is_written_with_its_spans(self):
+        second = [["REQ-100", "기능 100", "결과를 내려받을 수 있어야 한다", "중"], ["REQ-101", "기능 101 과 102 를 함께 처리", "", "하"],
+                  ["REQ-103", "기능 103", "이력을 조회할 수 있어야 한다", "하"]]
+
+        pages = _continued(second, [(1, 1, 2, 1)])
+
+        assert pages[1] == ('<table>\n<tr><th>REQ-100</th><th>기능 100</th><th>결과를 내려받을 수 있어야 한다</th><th>중</th></tr>\n'
+                            '<tr><td>REQ-101</td><td colspan="2">기능 101 과 102 를 함께 처리</td><td>하</td></tr>\n'
+                            "<tr><td>REQ-103</td><td>기능 103</td><td>이력을 조회할 수 있어야 한다</td><td>하</td></tr>\n</table>")
+
+    def test_the_piece_of_a_row_split_at_the_page_end_is_no_title(self):
+        """The top row of a table continued from the previous page is a title only when it is a merged cell over the other
+        columns: the piece of a row split at the end of the page, one cell with text among empty ones, became a
+        paragraph above the table, as it did in Markdown before `merged_titles_only`."""
+        second = [["", "", "있어야 한다.", ""], ["REQ-100", "기능 100 과 101 을 함께 처리", "", "중"],
+                  ["REQ-102", "기능 102", "이력을 조회할 수 있어야 한다", "하"]]
+
+        pages = _continued(second, [(1, 1, 2, 1)])
+
+        assert pages[1].startswith("<table>\n<tr><th></th><th></th><th>있어야 한다.</th><th></th></tr>\n")
+
+    def test_a_merged_top_row_of_a_continued_table_is_still_a_title(self):
+        second = [["요구사항 목록 (계속)", "", "", ""], ["REQ-100", "기능 100 과 101 을 함께 처리", "", "중"],
+                  ["REQ-102", "기능 102", "이력을 조회할 수 있어야 한다", "하"]]
+
+        pages = _continued(second, [(0, 0, 3, 0), (1, 1, 2, 1)])
+
+        assert pages[1].startswith("요구사항 목록 (계속)\n\n<table>\n<tr><th>REQ-100</th>")
+
+    def test_the_rule_of_a_merged_title(self):
+        from opendockit.extractors._pdf_ruled_tables import _merged_title
+
+        rows = [["제목", "", "", ""], ["a", "b", "c", "d"]]
+        assert _merged_title(rows, ((0, 0, 1, 4),))
+        assert not _merged_title(rows, ((0, 0, 1, 3),))  # the last column is an empty cell of its own
+        assert _merged_title([["제목", "", "", ""], ["a", "b", "c", ""]], ((0, 0, 1, 3),))  # a column without text
+        assert not _merged_title([["제목", "", "끝", ""], ["a", "b", "c", "d"]], ((0, 0, 1, 2),))  # two cells with text
+        assert not _merged_title([["", "", "", ""], ["a", "b", "c", "d"]], ())
