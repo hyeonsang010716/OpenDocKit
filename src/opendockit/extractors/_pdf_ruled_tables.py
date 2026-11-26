@@ -30,6 +30,7 @@ from opendockit.extractors._pdf_pdfminer import _INFLATE_BUDGET
 from opendockit.extractors._pdf_shaded_tables import _column_edges, _is_inner_part, _mark_filled_cells, _rule_line, _with_shaded_rows
 from opendockit.extractors._pdf_table_filters import _dropping_page_indexes
 from opendockit.markdown import TableGrid, render_table
+from opendockit.models import IMAGE_MARKER
 
 
 # Share of the page area for a table to count as a page frame. In slide PDFs the whole page is often a frame box. A table this
@@ -190,8 +191,9 @@ def _spanned_text(table: _Table) -> str:
 
     The spans are kept only while the rows are the rows they were found in: same count, same width, and every place a
     merged cell covers empty or, in the first column of a cell over several rows, the copy of its text `_cell_rows` put
-    there. Any other text there would be hidden by the span, so the table is written as before; and so it is when a step
-    after the search wrote the rows again — a header carried over to a table continued from the previous page, which
+    there (its text from before a picture was put in its first place, `_without_pictures`). Any other text there would
+    be hidden by the span, so the table is written as before; and so it is when a step after the search wrote the rows
+    again — a header carried over to a table continued from the previous page, which
     clears `merges`, one read from the right (`from_the_right`) — and when the rows are no longer as many as the bands
     found with them. A table continued from the previous page with the same columns (`continued`) keeps its spans: the
     text of an open cell carried into its top rows (`_carry_open_cells`) is, where a cell over rows covers them, that
@@ -217,12 +219,13 @@ def _spanned_text(table: _Table) -> str:
         if row + row_span > len(rows) or column + column_span > width:
             return table.text
         first = rows[row][column] or ""
+        copied = _without_pictures(first)
         for below in range(row, row + row_span):
             for right in range(column, column + column_span):
                 if (below, right) == (row, column):
                     continue
                 text = rows[below][right] or ""
-                if text.strip() and not (right == column and text == first):
+                if text.strip() and not (right == column and text in (first, copied)):
                     return table.text
                 covered.add((below, right))
         starts[row, column] = (row_span, column_span)
@@ -234,6 +237,14 @@ def _spanned_text(table: _Table) -> str:
                 grid.place(row, column, text or "", row_span=row_span, col_span=column_span)
     html = grid.spanning_html(titles=(1 if _merged_title(rows, table.merges) else 0) if table.continued else None)
     return html if html is not None and not grid.omitted_rows() else table.text
+
+
+def _without_pictures(text: str) -> str:
+    """Cell text without the lines a picture placeholder was put in as (`_pdf_paragraphs._with_pictures`): the text the
+    rows under the first of a cell over rows hold, copied there before its picture went into the first (`_cell_rows`).
+    With them taken for text of their own, a table holding a picture in a cell over rows was written without its spans
+    (Pinned by: test_pdf_table_spans.py::TestPicturesInMergedCells)."""
+    return "\n".join(line for line in text.split("\n") if not IMAGE_MARKER.fullmatch(line))
 
 
 def _merged_title(rows: list[list[str]], merges: tuple[tuple[int, int, int, int], ...]) -> bool:
