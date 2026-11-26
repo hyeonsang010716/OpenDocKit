@@ -316,11 +316,20 @@ def _counts(card: dict) -> dict:
     return {"totals": card["totals"], "documents": documents}
 
 
+_NAMES_SHOWN = 40  # how many documents of the baseline that are not in a run are named
+
+
 def compare(card: dict, baseline: dict) -> tuple[list[str], bool]:
     """Lines saying what changed against `baseline`, and whether a document loses more than it did."""
     lines, worse = [], False
     for key in ("documents", "converted", "words", "missing", "joined", "private_use"):
         lines.append(f"{key:<12}{baseline['totals'].get(key, 0):>10}{card['totals'][key]:>10}")
+    # a folder fetched again without a document the source no longer serves has smaller totals than the baseline's, which
+    # do not say why: the documents are named (each of the others is still compared on its own line below)
+    absent = sorted(baseline["documents"].keys() - card["documents"].keys())
+    if absent:
+        shown = ", ".join(absent[:_NAMES_SHOWN]) + (f" and {len(absent) - _NAMES_SHOWN} more" if len(absent) > _NAMES_SHOWN else "")
+        lines.append(f"documents of the baseline not in this run: {len(absent)} ({shown})")
     for name, entry in sorted(card["documents"].items()):
         was = baseline["documents"].get(name)
         if was is None:

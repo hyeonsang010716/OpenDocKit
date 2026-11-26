@@ -33,6 +33,7 @@ PLAIN_OPTIONS = ConvertOptions(page_markers=False, extract_images=False, keep_em
 WORKERS = 4
 MOVED = 0.02  # a document is listed when one of its metrics moved by more than this
 CHANGED_SHOWN = 40  # how many of the documents whose text changed without a score moving are named
+ABSENT_SHARE = 0.1  # the share of a baseline's documents a run may lack and still be compared (2 of 60 Korean pairs are gone)
 
 
 def _convert(path: Path, plain: bool = False) -> tuple[str, float]:
@@ -64,7 +65,8 @@ def _score_document(job: tuple[str, str | None, str | None, str, str | None, boo
 def _means(documents: dict[str, dict[str, float | None]]) -> dict[str, dict[str, float | int | None]]:
     means: dict[str, dict[str, float | int | None]] = {}
     for metric in METRICS:
-        values = [scores[metric] for scores in documents.values() if scores[metric] is not None]
+        # a baseline written before a metric was added has no number for it
+        values = [scores[metric] for scores in documents.values() if scores.get(metric) is not None]
         means[metric] = {"mean": round(sum(values) / len(values), 4) if values else None, "documents": len(values)}
     return means
 
@@ -94,10 +96,30 @@ def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path 
 def compare(card: dict, baseline: dict, tolerance: float, gate: tuple[str, ...] = METRICS) -> tuple[list[str], bool]:
     """The lines of a comparison with `baseline`, and whether the mean of a metric in `gate` fell by more than `tolerance`."""
     lines, fell = [], False
+    # A document of the baseline that is not in this run (korea.kr no longer serves it, a folder was left out), or one of
+    # the run that is not in the baseline, would move a mean without the reader having changed: the means are then those
+    # of the documents in both, on both sides, and the line above the table names the others.
+    before_means, now_means = baseline["means"], card["means"]
+    absent = sorted(baseline["documents"].keys() - card["documents"].keys())
+    added = sorted(card["documents"].keys() - baseline["documents"].keys())
+    if absent or added:
+        both = baseline["documents"].keys() & card["documents"].keys()
+        before_means = _means({name: baseline["documents"][name] for name in both})
+        now_means = _means({name: card["documents"][name] for name in both})
+        for count, names, where in ((len(absent), absent, "of the baseline not in this run"),
+                                    (len(added), added, "of this run not in the baseline")):
+            if count:
+                shown = ", ".join(names[:CHANGED_SHOWN]) + (f" and {count - CHANGED_SHOWN} more" if count > CHANGED_SHOWN else "")
+                lines.append(f"documents {where}: {count} ({shown})")
+        # a fetch that broke, or a folder of other documents, would be compared on what little is left, and pass
+        if not both or len(absent) > len(baseline["documents"]) * ABSENT_SHARE:
+            lines.append(f"too few documents of the baseline in this run to compare: {len(both)} of {len(baseline['documents'])}")
+            return lines, True
+        lines.append(f"the means below are those of the {len(both)} documents in both")
     lines.append(f"{'metric':8} {'baseline':>9} {'now':>9} {'change':>9}")
     for metric in METRICS:
         # a baseline written before a metric was added has no number for it
-        before, now = baseline["means"].get(metric, {}).get("mean"), card["means"][metric]["mean"]
+        before, now = before_means.get(metric, {}).get("mean"), now_means[metric]["mean"]
         if before is None or now is None:
             continue
         mark = ""
@@ -155,6 +177,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.baseline is None:
         return 0
     if args.update_baseline:
+        try:  # a baseline written from a run that lacks documents compares later runs without them
+            dropped = sorted(json.loads(args.baseline.read_text(encoding="utf-8"))["documents"].keys() - card["documents"].keys())
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):  # none yet, or not one: it is written anew
+            dropped = []
+        if dropped:
+            shown = ", ".join(dropped[:CHANGED_SHOWN]) + (f" and {len(dropped) - CHANGED_SHOWN} more" if len(dropped) > CHANGED_SHOWN else "")
+            print(f"documents of the old baseline not in the new one: {len(dropped)} ({shown})")
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps({key: card[key] for key in ("means", "documents", "texts")}, indent=1) + "\n", encoding="utf-8")
         return 0

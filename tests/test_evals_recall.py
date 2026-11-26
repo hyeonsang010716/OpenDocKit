@@ -177,6 +177,18 @@ class TestBaseline:
         assert "  a.hwpx: missing 0 -> 1" in lines
         assert "1 of 1 documents converted, 3 words: 0 missing, 0 joined; 0 private-use characters" in capsys.readouterr().out
 
+    def test_a_document_of_the_baseline_not_in_the_run_is_named(self, tmp_path):
+        """A folder fetched again without a release the source no longer serves has smaller totals; the release is named."""
+        _hwpx(tmp_path, "<hp:p><hp:run><hp:t>첫째 둘째 셋째</hp:t></hp:run></hp:p>")
+        card = run(tmp_path)
+        baseline = _counts(card)
+        assert not any("not in this run" in line for line in compare(card, baseline)[0])
+        baseline["documents"]["gone.hwpx"] = dict(baseline["documents"]["a.hwpx"])
+
+        lines, worse = compare(card, baseline)
+
+        assert not worse and "documents of the baseline not in this run: 1 (gone.hwpx)" in lines
+
     def test_a_document_cut_at_the_character_limit_is_not_compared(self, tmp_path, monkeypatch):
         """Its last words are missing because the caller's limit says so, not because a reader lost them."""
         from evals import recall
