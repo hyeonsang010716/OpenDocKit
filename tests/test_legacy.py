@@ -653,7 +653,7 @@ class TestRunner:
         removed — there is no guard process to do it (docs/decisions/legacy-office.md).
         """
         pid_file = tmp_path / "child.pid"
-        launcher = _windows_launcher(tmp_path, pid_file)
+        launcher, paths = _windows_launcher(tmp_path, pid_file)
         script = ("import sys, tempfile\n"
                   "from opendockit import convert\n"
                   "from opendockit.extractors import legacy\n"
@@ -662,7 +662,7 @@ class TestRunner:
                   "convert(open(sys.argv[3], 'rb').read(), 'a.doc')\n")
         document = tmp_path / "a.doc"
         document.write_bytes(_doc())
-        worker = subprocess.Popen([sys.executable, "-c", script, str(scratch), launcher, str(document)])
+        worker = subprocess.Popen([sys.executable, "-c", script, str(scratch), launcher, str(document)], env={**os.environ, **paths})
         try:
             deadline = time.monotonic() + 30
             while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
@@ -818,16 +818,23 @@ class TestRunner:
         assert list(scratch.iterdir()) == []
 
 
-def _windows_launcher(folder: Path, pid_file: Path) -> str:
+def _windows_launcher(folder: Path, pid_file: Path) -> tuple[str, dict[str, str]]:
     """A `.cmd` standing in for `soffice.exe`, which starts a long-lived child and waits for it, as the real launcher starts
-    `soffice.bin`. The child writes its pid, so a test can ask whether it outlived the conversion."""
+    `soffice.bin`. The child writes its pid, so a test can ask whether it outlived the conversion.
+
+    The paths it runs reach it as environment variables, returned with it for the process that starts it, and are not
+    written into it. cmd.exe reads a batch file in the console's code page, so a path outside ASCII in its text names no
+    file there: with the interpreter under a folder of a Korean name and code page 949, the default of Korean Windows, the
+    child never started and the test failed after 30 s. A variable is expanded from the environment, which holds the
+    path as it is. The file itself is ASCII, written byte for byte."""
     child = folder / "child.py"
     child.write_text("import os, sys, time\n"
                      "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
                      "time.sleep(60)\n", encoding="utf-8")
     script = folder / "soffice.cmd"
-    script.write_text(f'@echo off\r\n"{sys.executable}" "{child}" "{pid_file}"\r\n', encoding="utf-8")
-    return str(script)
+    script.write_bytes(b'@echo off\r\n"%OPENDOCKIT_TEST_PYTHON%" "%OPENDOCKIT_TEST_CHILD%" "%OPENDOCKIT_TEST_PID_FILE%"\r\n')
+    return str(script), {"OPENDOCKIT_TEST_PYTHON": sys.executable, "OPENDOCKIT_TEST_CHILD": str(child),
+                         "OPENDOCKIT_TEST_PID_FILE": str(pid_file)}
 
 
 def _launcher(folder: Path, body: str) -> str:
