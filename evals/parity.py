@@ -26,6 +26,7 @@ from pathlib import Path
 import sys
 
 from opendockit import ConversionError, convert_file
+from opendockit.cli import _write_output_as_utf8_lines
 
 
 def _text(path: Path) -> str | None:
@@ -107,4 +108,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())

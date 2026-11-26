@@ -27,6 +27,8 @@ import tempfile
 import unicodedata
 import zipfile
 
+from opendockit.cli import _write_output_as_utf8_lines
+
 
 # folder → what LibreOffice is asked to convert to
 FORMATS = {"odt": "odt", "rtf": "rtf", "pdf": "pdf",
@@ -122,4 +124,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())

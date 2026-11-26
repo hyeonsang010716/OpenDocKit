@@ -15,7 +15,8 @@ uv run python -m evals.run --documents $C/pdfs --gold $C/ground-truth/markdown -
 The run takes about 20 seconds, prints the mean of every metric beside the baseline, lists each document that moved
 by more than 0.02, and ends with status 1 when a mean fell by more than 0.002. `--out <dir>` keeps the converted
 Markdown to read; `--update-baseline` writes the run as the new baseline. The `Scorecard` workflow runs the same
-command on pull requests that touch the PDF reader.
+command on pull requests that touch the PDF reader. Every script here writes its output as UTF-8 with LF line ends,
+whatever the code page, as the command line does, so a report sent to a file keeps the words of every script.
 
 ## Rule
 

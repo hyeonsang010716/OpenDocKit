@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import sys
 
+from opendockit.cli import _write_output_as_utf8_lines
+
 
 SOURCES = (  # (repository, revision, folder of the samples)
     ("hwplib", "f59018d8e31acb285e180f00f5637ae36532df16", "sample_hwp"),
@@ -64,4 +66,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())
