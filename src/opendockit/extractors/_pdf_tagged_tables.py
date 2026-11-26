@@ -337,9 +337,10 @@ def _extract_tagged_tables(page: _Page) -> None:
     used: set[int] = set()
     for tagged in page.tagged:
         boxes = [box for row in tagged.rows for _, box, _, _ in row if box is not None]
-        grid = _trusted_grid(tagged)
-        if grid is None or not boxes:
+        trusted = _trusted_cells(tagged)
+        if trusted is None or not boxes:
             continue
+        grid, merges = trusted
         x0, top = min(box[0] for box in boxes), min(box[1] for box in boxes)
         x1, bottom = max(box[2] for box in boxes), max(box[3] for box in boxes)
         if any(table.top < bottom and table.bottom > top and table.x0 < x1 and table.x1 > x0 for table in page.tables):
@@ -349,7 +350,8 @@ def _extract_tagged_tables(page: _Page) -> None:
                   and top - _OVERLAP_TOLERANCE <= (line.top + line.bottom) / 2 <= bottom + _OVERLAP_TOLERANCE]
         if not inside or not all(_in_a_cell(line.x0, line.x1, (line.top + line.bottom) / 2, boxes) for line in inside):
             continue
-        page.tables.append(_Table(top=top, text=render_table(grid), bottom=bottom, x0=x0, x1=x1, rows=grid, stated=True))
+        page.tables.append(_Table(top=top, text=render_table(grid), bottom=bottom, x0=x0, x1=x1, rows=grid, stated=True,
+                                  merges=merges))
         used.update(id(original) for line in inside for original in _original_lines_of(line))
     if used:
         page.lines = [line for line in page.lines if id(line) not in used]
@@ -365,10 +367,21 @@ def _in_a_cell(x0: float, x1: float, middle: float, boxes: list[tuple[float, flo
 
 
 def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
-    """The rows of a tagged table as a grid of cell text, or None when the page does not agree with the tags.
+    """The rows of a tagged table as a grid of cell text, or None when the page does not agree with the tags
+    (`_trusted_cells`)."""
+    trusted = _trusted_cells(tagged)
+    return None if trusted is None else trusted[0]
+
+
+def _trusted_cells(tagged: _TaggedTable) -> tuple[list[list[str]], tuple[tuple[int, int, int, int], ...]] | None:
+    """The rows of a tagged table as a grid of cell text, with the cells the tree says span rows or columns as (row,
+    column, rows, columns) in it; None when the page does not agree with the tags.
 
     A cell that spans rows has its text on every row it covers and one that spans columns in the first of them, as the
-    tables of every format are written (`docs/decisions/core.md`).
+    tables of every format are written (`docs/decisions/core.md`); the spans are those the tree states, which the table
+    is written with (`_pdf_ruled_tables._spanned_text`). They are left out when two of them would cover one place (a
+    span over the cells a span from above already covers, in a tree that says so), and then the table is written
+    without them, as before.
     """
     rows = tagged.rows
     if len(rows) < 2:
@@ -391,6 +404,9 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
             previous_top = min(tops)
     grid: list[list[str | None]] = [[] for _ in rows]
     covered: dict[tuple[int, int], str] = {}  # the cells under a cell that spans rows
+    merges: list[tuple[int, int, int, int]] = []
+    spanned: set[tuple[int, int]] = set()  # the places the spans cover
+    overlapping = False
     for index, row in enumerate(rows):
         column = 0
         for text, _, row_span, col_span in row:
@@ -401,6 +417,12 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
             for below in range(index + 1, min(index + row_span, len(rows))):
                 for offset in range(col_span):
                     covered[below, column + offset] = text if offset == 0 else ""
+            height = min(row_span, len(rows) - index)
+            if height > 1 or col_span > 1:
+                merges.append((index, column, height, col_span))
+                places = {(index + down, column + right) for down in range(height) for right in range(col_span)}
+                overlapping = overlapping or not places.isdisjoint(spanned)
+                spanned |= places
             column += col_span
         while (index, column) in covered:
             grid[index].append(covered[index, column])
@@ -409,4 +431,6 @@ def _trusted_grid(tagged: _TaggedTable) -> list[list[str]] | None:
     if width < 2 or width * len(grid) > _MAX_TABLE_CELLS:
         return None
     filled = [[cell or "" for cell in row] + [""] * (width - len(row)) for row in grid]
-    return filled if sum(1 for row in filled if any(row)) >= 2 else None
+    if sum(1 for row in filled if any(row)) < 2:
+        return None
+    return filled, () if overlapping else tuple(merges)

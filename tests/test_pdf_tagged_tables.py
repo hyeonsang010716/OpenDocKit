@@ -121,11 +121,57 @@ class TestTablesFromTheTree:
 
         text = _text(_tagged_pdf(pieces, [("P", [0]), _table(rows), ("P", [10])]))
 
-        # a value that spans rows is written on each of them, as in every format; the row that spans all columns keeps
-        # the table HTML (`docs/decisions/core.md`)
-        assert "North" in text and text.count("North") == 2
-        assert "Battambang" in text and "Siem Reap" in text and "Closed offices are not listed" in text
+        # the spans the tree states are those the table is written with: the row over every column makes it HTML, and
+        # the value over two rows is one cell over both (`docs/decisions/core.md`, `_pdf_ruled_tables._spanned_text`)
+        assert ('<tr><td rowspan="2">North</td><td>Battambang</td><td>2012</td></tr>\n<tr><td>Siem Reap</td><td>2015</td></tr>\n'
+                '<tr><td colspan="3">Closed offices are not listed</td></tr>') in text
+        assert text.count("North") == 1
         assert text.startswith(_INTRO) and text.endswith(_AFTER)
+
+    _GROUPED = [(72, 100, _INTRO), (72, 140, "Item"), (200, 140, "2024"), (200, 154, "Q1"), (330, 154, "Q2"),
+                (72, 168, "Sales"), (200, 168, "10"), (330, 168, "12"), (72, 182, "Costs"), (200, 182, "7"), (330, 182, "8"),
+                (72, 230, _AFTER)]
+
+    def test_a_header_over_two_columns_is_written_with_the_spans_the_tree_states(self):
+        """The tree says which columns a cell covers; the grid left the covered ones empty, and '2024' stood over the
+        first of its two quarters in a Markdown table, the label over two rows repeated on the second."""
+        rows = [[([1], {"RowSpan": 2}), ([2], {"ColSpan": 2})], [[3], [4]], [[5], [6], [7]], [[8], [9], [10]]]
+
+        text = _text(_tagged_pdf(self._GROUPED, [("P", [0]), _table(rows), ("P", [11])]))
+
+        assert text == (f"{_INTRO}\n\n<table>\n"
+                        '<tr><th rowspan="2">Item</th><th colspan="2">2024</th></tr>\n<tr><td>Q1</td><td>Q2</td></tr>\n'
+                        "<tr><td>Sales</td><td>10</td><td>12</td></tr>\n<tr><td>Costs</td><td>7</td><td>8</td></tr>\n"
+                        f"</table>\n\n{_AFTER}")
+
+    def test_spans_that_would_cover_one_place_twice_are_left_out(self):
+        """A cell over two columns that runs into the place a cell from the row above covers: the tree cannot be drawn as
+        it says, and the table is written without spans, as before."""
+        from opendockit.extractors._pdf_tagged_tables import _TaggedTable, _trusted_cells
+
+        def cell(text, x0, top, rows=1, columns=1):
+            return (text, (x0, top, x0 + 60.0, top + 10.0), rows, columns)
+
+        stated = [[cell("Item", 72, 140), cell("2024", 200, 140, rows=2), cell("Note", 330, 140)],
+                  [cell("Q1", 72, 154, columns=2), cell("Q2", 330, 154)],
+                  [cell("Sales", 72, 168), cell("10", 200, 168), cell("12", 330, 168)]]
+        grid, merges = _trusted_cells(_TaggedTable(stated))
+
+        assert merges == ()
+        stated[1][0] = cell("Q1", 72, 154)  # one column: no two spans cover one place
+        assert _trusted_cells(_TaggedTable(stated))[1] == ((0, 1, 2, 1),)
+        stated[1][1] = cell("Q2", 330, 154, rows=9)  # a span past the last row is one to the last row
+        assert _trusted_cells(_TaggedTable(stated))[1] == ((0, 1, 2, 1), (1, 2, 2, 1))
+
+    def test_a_table_spanned_only_down_its_rows_is_written_as_before(self):
+        rows = [[[1], [2], [3]], [([4], {"RowSpan": 2}), [5], [6]], [[7], [8]]]
+        pieces = [(72, 100, _INTRO), (72, 140, "Region"), (200, 140, "Office"), (330, 140, "Opened"),
+                  (72, 154, "North"), (200, 154, "Battambang"), (330, 154, "2012"), (200, 168, "Siem Reap"), (330, 168, "2015"),
+                  (72, 230, _AFTER)]
+
+        text = _text(_tagged_pdf(pieces, [("P", [0]), _table(rows), ("P", [9])]))
+
+        assert "| North | Battambang | 2012 |\n| North | Siem Reap | 2015 |" in text
 
     def test_rows_on_two_pages_are_a_table_on_each(self):
         pieces = [*_PIECES[:8], (72, 100, "Siem Reap"), (300, 100, "2015"), (72, 114, "Kampot"), (300, 114, "2019"),

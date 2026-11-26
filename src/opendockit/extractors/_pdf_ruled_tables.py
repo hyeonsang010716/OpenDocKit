@@ -193,16 +193,20 @@ def _spanned_text(table: _Table) -> str:
     there. Any other text there would be hidden by the span, so the table is written as before; and so it is when a step
     after the search wrote the rows again — a table continued from the previous page (`continued`, or a header carried over
     to it, which clears `merges`), one read from the right (`from_the_right`) — and when the rows are no longer as many as
-    the bands found with them. The table is written as before too when the drawing would leave out rows for the
+    the bands found with them. A table read from the tags of a tagged PDF (`stated`) has the spans its tree states
+    (`_pdf_tagged_tables._trusted_cells`), and no cell boxes or bands to hold them to: its rows are as wide as each other
+    as they were built. The table is written as before too when the drawing would leave out rows for the
     conversion's grid budget (`TableGrid.omitted_rows`): `text` holds them, and nothing would say they are gone. Known
     accepted gaps: those tables, a ruled table whose two-level header was merged into one row,
     and borderless tables, keep the place of a merged cell's text in the column its middle falls in."""
     rows = table.rows
-    if not table.merges or table.continued or table.from_the_right or table.stated:
+    if not table.merges or table.continued or table.from_the_right or not rows:
         return table.text
-    width = len(table.spans)
-    if (not rows or any(len(row) != width for row in rows) or len(table.bands) != len(rows)
-            or not all(math.isfinite(edge) for band in table.bands for edge in band)):
+    width = len(rows[0]) if table.stated else len(table.spans)
+    if any(len(row) != width for row in rows):
+        return table.text
+    if not table.stated and (len(table.bands) != len(rows)
+                             or not all(math.isfinite(edge) for band in table.bands for edge in band)):
         return table.text
     starts: dict[tuple[int, int], tuple[int, int]] = {}
     covered: set[tuple[int, int]] = set()
