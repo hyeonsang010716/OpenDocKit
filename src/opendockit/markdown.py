@@ -1133,11 +1133,12 @@ class TableGrid:
         finally:
             self._room = None
 
-    def spanning_html(self, *, titles: bool = True) -> str | None:
+    def spanning_html(self, *, titles: int | None = None) -> str | None:
         """What `render` writes when that is HTML because a cell still spans columns after the empty rows and columns are
         removed; None when it would write Markdown, and for a table holding a table. For a reader that keeps its own Markdown
-        for a table without such a cell (`_pdf_ruled_tables._spanned_text`). Without `titles` no top row is taken out as a
-        title: the reader has told that the top row is none (a row of a table continued from the previous page)."""
+        for a table without such a cell (`_pdf_ruled_tables._spanned_text`). `titles` is how many top rows may be taken
+        out as titles (None: as many as are titles): the reader may know better (a table continued from the previous
+        page, whose top row is a title only when it is a merged cell, and no row under it is)."""
         if self._embedded:
             return None
         return self._html(self._grid(filled_only=True), titled=titles)
@@ -1302,7 +1303,7 @@ class TableGrid:
         return rows[:kept], cols
 
     def _html(self, rows: list[list[str]], *, force: bool = False, inline: bool = False, headless: bool = False,
-              titled: bool = True) -> str | None:
+              titled: int | None = None) -> str | None:
         """The HTML (rowspan, colspan) of a table that still has horizontally spanning cells. None if no spanning cell remains — it
         is drawn as Markdown.
 
@@ -1315,7 +1316,7 @@ class TableGrid:
         top (`_title_of`) goes into a paragraph above the table and the columns are picked again, and the first row is used as
         the header row (th). A title row spanning all columns alone does not make it HTML — the output is as before. Text
         visible in the Markdown grid is not lost in HTML either (a spot not covered by a start cell keeps the grid's text).
-        Without `titled` no title row is taken out (`spanning_html`).
+        At most `titled` rows are taken out as titles when it is given (`spanning_html`).
         """
         row_keys, col_keys = self._axes(filled_only=True)
         has_lines = _once_per_text(lambda cell: bool(_cell_lines(cell)))
@@ -1339,7 +1340,8 @@ class TableGrid:
         # row (that was quadratic in the number of rows).
         spanning = {row for (row, _), (_, row_span, _) in starts.items() if row_span > 1}
         titles: list[str] = []
-        while (titled and not inline and not headless and len(kept_cols) >= 2 and len(titles) < len(kept_rows) - 1 and len(titles) not in spanning
+        while ((titled is None or len(titles) < titled) and not inline and not headless and len(kept_cols) >= 2
+               and len(titles) < len(kept_rows) - 1 and len(titles) not in spanning
                and not any(_EMBED.search(rows[kept_rows[len(titles)]][col]) for col in kept_cols)):
             row = kept_rows[len(titles)]
             title = _title_of([_clean_cell(rows[row][col]) for col in kept_cols if filled[row][col]], len(kept_cols),

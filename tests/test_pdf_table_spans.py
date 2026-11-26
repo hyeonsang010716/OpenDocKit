@@ -299,3 +299,26 @@ class TestContinuedTables:
         assert _merged_title([["제목", "", "", ""], ["a", "b", "c", ""]], ((0, 0, 1, 3),))  # a column without text
         assert not _merged_title([["제목", "", "끝", ""], ["a", "b", "c", "d"]], ((0, 0, 1, 2),))  # two cells with text
         assert not _merged_title([["", "", "", ""], ["a", "b", "c", "d"]], ())
+        assert not _merged_title([["A", "", "B", ""], ["a", "b", "c", "d"]], ((0, 0, 1, 2), (0, 2, 1, 2)))
+        assert not _merged_title([["조각", "", "", ""], ["x", "", "", ""], ["p", "q", "", ""]], ((1, 0, 1, 2),))  # another row's
+        assert not _merged_title([["제목", "", "", ""], ["a", "", "c", ""]], ((0, 0, 1, 2), (0, 2, 1, 2)))  # a start
+
+    def test_under_a_merged_title_no_row_is_a_title(self):
+        """Markdown takes no row under the title of a continued table for a title (`merged_titles_only`): a unit row
+        merged over every column stays the table's first row."""
+        rows = [["요구사항 목록 (계속)", "", "", ""], ["단위: 건", "", "", ""], ["REQ-1", "기능 1 과 2", "", "상"], ["REQ-3", "기능 3", "x", "하"]]
+        merges = ((0, 0, 1, 4), (1, 0, 1, 4), (2, 1, 1, 2))
+        table = _Table(top=0.0, text="as before", bottom=40.0, x0=0.0, x1=40.0, rows=rows, continued=True, merges=merges,
+                       spans=((0.0, 10.0), (10.0, 20.0), (20.0, 30.0), (30.0, 40.0)),
+                       bands=tuple((10.0 * row, 10.0 * row + 10.0) for row in range(4)))
+
+        assert _spanned_text(table).startswith('요구사항 목록 (계속)\n\n<table>\n<tr><th colspan="4">단위: 건</th></tr>')
+
+    def test_a_table_not_continued_takes_its_titles_as_any_html_table(self):
+        """A title with a unit note at the top of a table that is not continued is taken out above it, as for any table."""
+        rows = [["2024년 매출 현황", "", "", "(단위: 천원)"], ["구분", "1분기", "", "합계"], ["매출", "10", "20", "30"]]
+        table = _Table(top=0.0, text="as before", bottom=30.0, x0=0.0, x1=40.0, rows=rows, merges=((1, 1, 1, 2),),
+                       spans=((0.0, 10.0), (10.0, 20.0), (20.0, 30.0), (30.0, 40.0)),
+                       bands=tuple((10.0 * row, 10.0 * row + 10.0) for row in range(3)))
+
+        assert _spanned_text(table).startswith("2024년 매출 현황 (단위: 천원)\n\n<table>")

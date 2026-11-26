@@ -232,15 +232,15 @@ def _spanned_text(table: _Table) -> str:
             if (row, column) not in covered:
                 row_span, column_span = starts.get((row, column), (1, 1))
                 grid.place(row, column, text or "", row_span=row_span, col_span=column_span)
-    html = grid.spanning_html(titles=not table.continued or _merged_title(rows, table.merges))
+    html = grid.spanning_html(titles=(1 if _merged_title(rows, table.merges) else 0) if table.continued else None)
     return html if html is not None and not grid.omitted_rows() else table.text
 
 
 def _merged_title(rows: list[list[str]], merges: tuple[tuple[int, int, int, int], ...]) -> bool:
     """Whether the top row of a table continued from the previous page is a title: one cell holds text, and every other
     column that holds text anywhere is covered there by a merged cell — the rule `_pdf_paragraphs._table_text` writes such a
-    table by (`merged_titles_only`). The piece of a row split at the end of the page is one cell with text among empty
-    ones, and taken for a title it became a paragraph above the table (Pinned by:
+    table by (`merged_titles_only`), which takes no row under it for a title. The piece of a row split at the end of the
+    page is one cell with text among empty ones, and taken for a title it became a paragraph above the table (Pinned by:
     test_pdf_table_spans.py::TestContinuedTables::test_the_piece_of_a_row_split_at_the_page_end_is_no_title)."""
     filled = [column for column, text in enumerate(rows[0]) if (text or "").strip()]
     if len(filled) != 1:
