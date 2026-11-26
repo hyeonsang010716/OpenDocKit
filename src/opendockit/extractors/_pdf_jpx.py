@@ -80,6 +80,7 @@ class _Document:
         self._packed: bytes | None = None
         self._defaults: bool | None = None
         self._named: dict[str, list[object]] | None = None
+        self._looked_up: dict[tuple[str, bool], list[tuple[str, int]]] = {}
 
     def get(self, objid: int) -> object:
         return self.pdf.getobj(objid)
@@ -143,6 +144,15 @@ class _Document:
                         for key, value in spaces.items():
                             self._named.setdefault(str(key), []).append(value)
         return self._named.get(name, [])
+
+    def looked_up(self, name: str, named: bool, read: object) -> list[tuple[str, int]]:
+        """The distinct readings of the spaces the resources give under `name` (`read` reads one), worked out once per
+        document: worked out again for every picture over every resource dictionary, a scan of 3,000 pages that each
+        name a default space took 12 s, the square of its pages."""
+        key = (name, named)
+        if key not in self._looked_up:
+            self._looked_up[key] = list(dict.fromkeys(reading for value in self.named(name) for reading in read(value)))
+        return self._looked_up[key]
 
 
 def _dictionaries(value: object) -> list[dict]:
@@ -322,16 +332,17 @@ def _readings(space: object, document: _Document, *, resources: bool, named: boo
             family = _STOCK[name]
             readings = [(family, _DEVICE_COMPONENTS[family])]
             if resources and document.defaults():
-                for default in document.named(_DEFAULTS[family]):
-                    if named and _family(document.resolve(default), document) == "ICCB":
-                        readings.append(("", _DEVICE_COMPONENTS[family]))
-                    else:
-                        readings += _readings(default, document, resources=False, depth=depth + 1)
+
+                def default(value: object) -> list[tuple[str, int]]:
+                    if named and _family(document.resolve(value), document) == "ICCB":
+                        return [("", _DEVICE_COMPONENTS[family])]
+                    return _readings(value, document, resources=False, depth=depth + 1)
+
+                readings += document.looked_up(_DEFAULTS[family], named, default)
             return readings
         if name == "Pattern" or not resources:
             return []
-        return [reading for value in document.named(name)
-                for reading in _readings(value, document, resources=False, depth=depth + 1)]
+        return document.looked_up(name, False, lambda value: _readings(value, document, resources=False, depth=depth + 1))
     if not isinstance(space, list) or not space:
         return []
     if len(space) == 1:

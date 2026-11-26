@@ -120,6 +120,32 @@ def _packed_resources(picture: bytes, space: str, resources: str, objects: tuple
     return bytes(pdf)
 
 
+def _book(pages: int) -> bytes:
+    """A PDF of `pages` pages, each drawing a JPEG 2000 picture of its own in DeviceGray, whose resources each name the
+    same DefaultGray ICC profile and a space /CS0."""
+    numbered: dict[int, bytes] = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 3: _stream("/N 1", b"\x00" * 128)}
+    picture, kids = _picture("L"), []
+    for index in range(pages):
+        page, content, image = 10 + 3 * index, 11 + 3 * index, 12 + 3 * index
+        kids.append(f"{page} 0 R")
+        numbered[page] = (f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents {content} 0 R /Resources << "
+                          f"/XObject << /Im0 {image} 0 R >> /ColorSpace << /DefaultGray [/ICCBased 3 0 R] /CS0 /DeviceGray >> >> >>").encode()
+        numbered[content] = _stream("", b"q 200 0 0 200 50 50 cm /Im0 Do Q")
+        numbered[image] = _stream("/Type /XObject /Subtype /Image /Width 16 /Height 16 /BitsPerComponent 8 /Filter /JPXDecode "
+                                  "/ColorSpace /DeviceGray", picture)
+    numbered[2] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {pages} >>".encode()
+    pdf, offsets = bytearray(b"%PDF-1.7\n"), {}
+    for number in sorted(numbered):
+        offsets[number] = len(pdf)
+        pdf += f"{number} 0 obj\n".encode() + numbered[number] + b"\nendobj\n"
+    size = max(numbered) + 1
+    table = len(pdf)
+    pdf += f"xref\n0 {size}\n".encode() + b"".join(
+        (f"{offsets[number]:010d} 00000 n \n" if number in offsets else "0000000000 65535 f \n").encode() for number in range(size))
+    pdf += f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n".encode()
+    return bytes(pdf)
+
+
 def _stream(dictionary: str, body: bytes) -> bytes:
     return f"<< {dictionary} /Length {len(body)} >>\nstream\n".encode() + body + b"\nendstream"
 
@@ -224,6 +250,13 @@ _CASES = {
                      objects=_device_n(4)[1]), True),
     "a name for DeviceGray over 2 components": (lambda: _pdf(_picture("LA"), "/CS0", resources="/ColorSpace << /CS0 /DeviceGray >>"), False),
     "a name the resources do not give": (lambda: _pdf(_picture("LA"), "/CS9"), False),
+    # a default space is read without the resources: a name there is no space, and pdfium decodes nothing
+    "a DefaultGray that is a name the resources give for a DeviceN of 4, over 2 components": (
+        lambda: _pdf(_picture("LA"), "/DeviceGray", resources="/ColorSpace << /DefaultGray /CS0 /CS0 [/DeviceN [/A /B /C /D] /DeviceRGB 6 0 R] >>",
+                     objects=_device_n(4)[1]), False),
+    # arrays of one element are followed a long way (pdfium follows them without a limit; past 16 the guard stops)
+    "a DeviceN of 4 inside 20 arrays of one element, over 2 components": (
+        lambda: _pdf(_picture("LA"), "[" * 20 + _device_n(4)[0] + "]" * 20, objects=_device_n(4)[1]), True),
     # pdfium tells an array's family by the first four letters of its first name, and takes no other
     "an array of DeviceRGB with 4 names over 3 components": (
         lambda: _pdf(_picture("RGB"), "[/DeviceRGB [/A /B /C /D] /DeviceRGB 6 0 R]", objects=_device_n(4)[1]), True),
@@ -339,6 +372,15 @@ class TestWhatIsNotJudged:
 
         assert stops_the_renderer(broken) is True
 
+    def test_a_document_of_more_objects_than_are_read_counts_as_stopping_it(self, monkeypatch):
+        """Known accepted gap: a document whose resources must be read whole (a default space, a space named there) and
+        that holds more objects than are read loses its pictures."""
+        monkeypatch.setattr(_pdf_jpx, "_MAX_OBJECTS", 20)
+        assert stops_the_renderer(_book(3)) is False  # 12 objects
+        assert stops_the_renderer(_book(6)) is True  # 21 objects
+        monkeypatch.setattr(_pdf_jpx, "_MAX_OBJECTS", 200_000)
+        assert stops_the_renderer(_book(6)) is False
+
     def test_an_object_the_cross_reference_table_does_not_name_is_not_judged(self):
         """Nothing draws it: counted as stopping pdfium, it cost a document its pictures."""
         orphan = (b"99 0 obj\n<< /Filter /JPXDecode /ColorSpace /DeviceCMYK /Length 4 >>\nstream\nxxxx\nendstream\n"
@@ -398,5 +440,14 @@ class TestCost:
         small, large = holding(250_000), holding(1_000_000)
 
         assert fastest(lambda: stops_the_renderer(large)) < 8 * fastest(lambda: stops_the_renderer(small)) + 0.05
+        assert stops_the_renderer(large) is False
+
+    @pytest.mark.timing
+    def test_a_default_space_named_on_every_page_takes_linear_time(self):
+        """The default spaces were read again for every picture over every resource dictionary: a scan of 3,000 pages that
+        each name DefaultGray took 12 s, the square of its pages."""
+        small, large = _book(250), _book(2000)  # eight times the pages: 27 times the time before, 10 times now
+
+        assert fastest(lambda: stops_the_renderer(large)) < 16 * fastest(lambda: stops_the_renderer(small)) + 0.05
         assert stops_the_renderer(large) is False
 
