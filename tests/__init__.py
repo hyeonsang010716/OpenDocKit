@@ -5,6 +5,8 @@ from contextlib import contextmanager
 import ctypes
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 
 import pytest
@@ -108,3 +110,33 @@ def wait_until_gone(pid: int, seconds: float = 5.0) -> bool:
             return True
         time.sleep(0.05)
     return not process_is_alive(pid)
+
+
+def run_without_a_console(arguments: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """Run this Python with `arguments` in a process that has no console at all, as one started with DETACHED_PROCESS runs
+    it (Windows). Standard input and output go nowhere; the caller reads a file.
+
+    The interpreter itself is started, not the launcher of a virtual environment: started detached, the launcher gives the
+    interpreter it starts a console of its own, and the process asked about would have one. `__PYVENV_LAUNCHER__` tells that
+    interpreter whose environment it runs in, as multiprocessing tells its workers.
+    """
+    executable, environment = sys.executable, None
+    if os.path.normcase(sys.executable) != os.path.normcase(sys._base_executable):
+        executable, environment = sys._base_executable, {**os.environ, "__PYVENV_LAUNCHER__": sys.executable}
+    return subprocess.run([executable, *arguments], env=environment, creationflags=subprocess.DETACHED_PROCESS,
+                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout,
+                          check=False)
+
+
+# Read by a script run without a console (`run_without_a_console`): whether this process has a console, and whether that
+# console has a window — a console made with CREATE_NO_WINDOW has none.
+CONSOLE_PROBE = """
+import ctypes
+from ctypes import wintypes
+
+def console_state() -> dict:
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.GetConsoleWindow.restype = wintypes.HWND
+    return {"console": kernel32.GetConsoleProcessList((wintypes.DWORD * 1)(), 1) > 0,
+            "window": bool(kernel32.GetConsoleWindow())}
+"""

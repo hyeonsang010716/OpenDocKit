@@ -13,6 +13,7 @@ rationale and measurements are in docs/server.md.
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from functools import lru_cache
 import multiprocessing
 from multiprocessing.context import BaseContext
 import os
@@ -20,6 +21,7 @@ import socket
 import sys
 import threading
 import time
+import types
 from typing import TYPE_CHECKING
 
 
@@ -231,6 +233,12 @@ class IsolatedConverter:
 
 
 def _worker_context() -> BaseContext:
+    # A Windows server without a console starts its workers without a window: started as spawn starts them, every worker of
+    # such a server got a console of its own and opened a window on the desktop, one for every file (Pinned by:
+    # test_isolated.py::TestIsolatedConverter::test_a_server_without_a_console_starts_its_workers_without_a_window). A
+    # server with a console is left as it was: its workers share it, its Ctrl+C reaches them and what they print is seen.
+    if _windows is not None and not _windows.has_console() and _windowless_popen() is not None:
+        return _WindowlessSpawnContext()
     # Where the forkserver would die, every worker is spawned instead: a fresh interpreter per file, about 0.1 s against a few
     # ms, and no conversion lost (Pinned by: test_isolated.py::TestStartMethod).
     if "forkserver" not in multiprocessing.get_all_start_methods() or _forkserver_can_die():
@@ -240,6 +248,59 @@ def _worker_context() -> BaseContext:
     # them loaded (Pinned by: test_converter.py::TestExtractorsImportedOnFirstUse::test_forkserver_preloads_every_extractor)
     context.set_forkserver_preload(["opendockit", "opendockit.extractors.all"])
     return context
+
+
+if os.name == "nt":
+    import _winapi
+
+    class _WithoutAWindow:
+        """`_winapi` as the spawn code of `_windowless_popen` sees it: `CreateProcess` adds CREATE_NO_WINDOW to the flags it
+        is given, and every other name is the module's own."""
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(_winapi, name)
+
+        @staticmethod
+        def CreateProcess(*arguments: object) -> object:
+            # Application, command line, process and thread attributes, inherit handles, creation flags, environment,
+            # folder, startup information: a call of another shape is passed on as it was made.
+            if len(arguments) == 9 and isinstance(arguments[5], int):
+                arguments = (*arguments[:5], arguments[5] | _winapi.CREATE_NO_WINDOW, *arguments[6:])
+            return _winapi.CreateProcess(*arguments)
+
+    @lru_cache(maxsize=1)
+    def _windowless_popen() -> type | None:
+        """The `Popen` of spawn, starting the worker with CREATE_NO_WINDOW. None where that `Popen` is not shaped as this
+        expects, and the workers are started as before.
+
+        A console program started by a process without a console gets a console of its own, which opens a window unless
+        CREATE_NO_WINDOW says it is to have none; spawn starts its workers with no flags at all, and has no way to be asked
+        for one. Deliberate: CPython's own `__init__` is run, with `_winapi` in its globals standing for `_WithoutAWindow`
+        — the way it starts a worker differs between versions (3.14 passes a `STARTUPINFO`, 3.12 none), and a copy of it
+        would follow neither. Nothing global changes: another thread starting a process at the same moment calls the
+        real `_winapi`. Should a later Python start its workers elsewhere than in this `__init__`, the stand-in is not
+        called and the workers have their window again, which the pinning test of `_worker_context` says.
+        """
+        from multiprocessing import popen_spawn_win32
+
+        start = popen_spawn_win32.Popen.__init__
+        if not {"_winapi", "CreateProcess"} <= set(start.__code__.co_names):
+            return None
+        names = {**vars(popen_spawn_win32), "_winapi": _WithoutAWindow()}
+        windowless = types.FunctionType(start.__code__, names, start.__name__, start.__defaults__, start.__closure__)
+        windowless.__kwdefaults__ = start.__kwdefaults__
+        return type("_WindowlessPopen", (popen_spawn_win32.Popen,), {"__init__": windowless, "__module__": __name__})
+
+    class _WindowlessSpawnProcess(multiprocessing.context.SpawnProcess):
+        """A spawned worker started without a window (`_windowless_popen`). A class of this module, not of a function: the
+        process object is sent to the worker, which finds its class by name."""
+
+        @staticmethod
+        def _Popen(process_obj: object) -> object:
+            return _windowless_popen()(process_obj)
+
+    class _WindowlessSpawnContext(multiprocessing.context.SpawnContext):
+        Process = _WindowlessSpawnProcess
 
 
 def _forkserver_can_die() -> bool:
