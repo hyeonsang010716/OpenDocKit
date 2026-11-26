@@ -332,7 +332,8 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
     """Filter layout boxes out of the ruled tables: page frames (a box that covers the page but has hardly any cells), outer boxes
     that enclose another table, and boxes whose content is a single column.
 
-    The characters of a filtered-out box are read as body flow. Returns (bbox, cell matrix, list of cell boxes).
+    The characters of a filtered-out box are read as body flow. Returns (bbox, cell matrix, list of cell boxes, the two
+    rows of a two-level header merged into the top row of the matrix as they were found, or None).
     """
     if _too_many_rules(page):
         budget = _INFLATE_BUDGET.get()

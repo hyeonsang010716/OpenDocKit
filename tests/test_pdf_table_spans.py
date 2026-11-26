@@ -440,3 +440,19 @@ class TestTwoLevelHeaders:
 
         assert _spanned_text(table) == ('<table>\n<tr><th rowspan="2">구분</th><th colspan="2">2025-2026</th></tr>\n'
                                         "<tr><td>1월</td><td>2월</td></tr>\n<tr><td>가</td><td>1</td><td>2</td></tr>\n</table>")
+
+    def test_where_the_spans_cannot_be_written_the_header_is_merged_into_one_row(self):
+        """A table continued from the previous page that repeats the two-level header keeps the Markdown: its header
+        merged into one row, as it was before the spans ('문의 1월 | 문의 2월'), not two raw rows."""
+        header = [["구분", "문의", "", "비고"], ["", "1월", "2월", ""]]
+        spans = [(0, 0, 0, 1), (1, 0, 2, 0), (3, 0, 3, 1)]
+
+        def draw(pdf, index):
+            rows = [["가", "1", "2", "a"], ["나", "3", "4", "b"], ["다", "5", "6", "c"]] if index == 0 else \
+                [["라", "7", "8", "d"], ["마", "9", "10", "e"]]
+            _spanned_grid(pdf, header + rows, 200 if index == 0 else 800, [80, 80, 80, 80], spans)
+
+        text = convert(_korean_pdf(draw, pages=2), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.count("<table>") == 1
+        assert "| 구분 | 문의 1월 | 문의 2월 | 비고 |\n| --- | --- | --- | --- |\n| 라 | 7 | 8 | d |\n| 마 | 9 | 10 | e |" in text
