@@ -481,8 +481,8 @@ rows of ASCII), as text and as HTML, and compares what the reader gives with wha
 
 | samples | number | read right |
 |---|---|---|
-| of one language | 12,348 | 8,709 |
-| with a name or a sign of another language behind them | 35,336 | 24,089 |
+| of one language | 12,348 | 8,928 |
+| with a name or a sign of another language behind them | 35,336 | 25,842 |
 
 - **The second row is the one that found the defect.** A rule that looked the accented letters up in the alphabets of
   each code page read 10,191 of the first row right, and read French with `Žižek` in it as Czech (`thčse ŕ la
@@ -497,10 +497,13 @@ rows of ASCII), as text and as HTML, and compares what the reader gives with wha
   of Python: 12 of 47,684 samples are read otherwise under 3.13 and 3.14, and a run there ends with status 1 on code
   that did not change. The card names the versions of Python and of charset-normalizer it was made with, the workflow
   runs 3.12, and a run with other versions says so before its comparison.
-- **And with charset-normalizer 3.5.2, the version of the lockfile.** With 3.5.3, which a new install resolves to since
-  2026-11-23, the same samples give 8,726 and 24,020: more of the first row, fewer of the second, and samples that were
-  read right read wrong (Finnish and Spanish in Windows-1252, Estonian in Windows-1257). The rules of this reader come
-  before the guess and do not change with it; what the library guesses for the rest does.
+- **And with charset-normalizer 3.5.2, the version of the lockfile.** Which code page the library ranks first among
+  those a short text reads as letters in is close to chance, and it moves with the version. 3.5.3, which a new install
+  resolves to since 2026-11-23, read 145 samples of the baseline of the time wrong — `Ketään` as `Ket‰‰n`, `distinción`
+  as `distinciˇn` — where 3.5.2 had offered no single-byte reading at all and Windows-1252 was taken. Since the guesses
+  that read as something nobody writes are left out (`docs/decisions/encoding.md`), the two versions differ in 163
+  samples instead of 238: 3.5.3 reads 8,970 and 25,867 right, and 48 samples of this baseline wrong, each in letters of
+  another alphabet (`Kųbenhavn`).
 - **Most of what is read wrong is no defect of a rule but a text that reads two ways.** `è` is `č` in Windows-1250, a
   Czech sentence in Windows-1250 is a row of Western letters in Windows-1252, and DOS and Macintosh text is hardly
   guessed at all (`docs/decisions/encoding.md`). The numbers say where the reader stands, not what it should reach.

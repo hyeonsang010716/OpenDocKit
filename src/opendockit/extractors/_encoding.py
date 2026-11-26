@@ -5,6 +5,7 @@ Western single-byte text, declared charsets, BOM-less UTF-16, and the warning fo
 import codecs
 from collections import Counter
 import functools
+import itertools
 import re
 import unicodedata
 
@@ -44,6 +45,8 @@ _WESTERN_SIGNS = frozenset("‘’‚“”„–—…€«»‹›°·•")
 _UPPERCASE_ACCENT_SYLLABLES = frozenset(
     syllable for syllable in _EVERYDAY_HANGUL
     if all(0xC0 <= byte <= 0xDE and byte != 0xD7 for byte in syllable.encode("euc_kr")))
+# How many places of bytes outside ASCII a statistical guess is judged on (`_written_readings`).
+_JUDGED_PLACES = 1000
 # A run of three or more non-ASCII bytes. Accents and punctuation in Western European text sit one or two at a time between
 # ASCII letters, while Cyrillic, Greek or Thai text and text in multi-byte encodings runs on for whole words.
 _HIGH_BYTE_RUN = re.compile(rb"[\x80-\xff]{3}")
@@ -149,7 +152,8 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
     almost UTF-8 (only when the end is cut or very few bytes are broken, or UTF-8 is declared and has a complete multi-byte
     character per broken one; replacement) → declared charset, strict → BOM-less UTF-16 → strict CP949 → CP949 with
     replacement (only when very few bytes are broken) → the Latin code page whose alphabet the letters fit
-    (`_alphabet_page`) → statistical detection → UTF-8 with replacement characters. The name
+    (`_alphabet_page`) → statistical detection, without the readings nobody writes (`_written_readings`) → UTF-8 with
+    replacement characters. The name
     of an encoding decoded with replacement characters (�) gets `(replaced)` appended (`decoding_warning` turns it into a warning).
     Checking CP949 before statistical detection is deliberate: charset-normalizer sometimes misjudges short CP949 Hangul as
     UTF-16, Big5 etc. and emits unrelated characters in the Hangul syllable range. Strict CP949 decoding mostly fails on
@@ -264,7 +268,9 @@ def decode_text(data: bytes, declared: str | None = None, *, markup: bool = Fals
         text = _strict(data, page)
         if text is not None:
             return text, page
-    matches = from_bytes(sample)
+    # A reading nobody writes is no candidate, whatever its language statistics say: `Ketään` is not `Ket‰‰n`
+    # (Pinned by: test_text_html.py::TestReadingsNobodyWrites)
+    matches = _written_readings(from_bytes(sample), sample)
     best = _plausible_best(matches, sample)
     if sparse and _reads_as_western(data, matches, best):
         return data.decode(_WESTERN), _WESTERN
@@ -352,6 +358,87 @@ _WIDE_SCRIPT_HEAD = 20_000
 # A text of one script other than CJK is preferred to the CJK reading of the same bytes in the other byte order from this many
 # letters on (`_wide_text_rank`); one or two characters read as an ideograph either way.
 _WIDE_SCRIPT_MIN_LETTERS = 3
+
+
+def _written_readings(matches: CharsetMatches, sample: bytes) -> CharsetMatches:
+    """The statistical guesses of a text whose bytes outside ASCII stand one or two at a time, without those of a single-byte
+    code page that reads it as something nobody writes (`_unwritten`): the language statistics of a short text cannot tell
+    Latin code pages apart, and they ranked such readings first. In Finnish `Ketään` read as Macintosh Icelandic is `Ket‰‰n`,
+    a sign inside a word; Spanish `distinción` as DOS Central European is `distinciˇn`, German `geführt` as DOS Baltic
+    `gef³hrt`, Portuguese `cooperação` as ISO 8859-14 `cooperaÓÐo`. Which of them came first changed with the version of
+    charset-normalizer (3.5.3 put them ahead of Windows-1252 where 3.5.2 offered no single-byte reading at all), so the
+    answer depended on the version installed; with them left out it does not. When every reading is one nobody writes, the
+    guesses are kept as they are. Known accepted gaps: a reading with letters of another alphabet in it (`Kųbenhavn` for
+    `København`) is written as far as this can tell; and a text that already holds such shapes (`Ã¥`, the UTF-8 of `å` read
+    as Windows-1252 before it was saved) can lose its own reading."""
+    if b"\x00" in sample:
+        return matches
+    around: bytes | None = None
+    kept: list[CharsetMatch] = []
+    best = western = False
+    for position, match in enumerate(matches):
+        if best and western:
+            # What comes after the first guess and the first Windows-1252 one is never looked at (`_plausible_best`,
+            # `_reads_as_western`): it is kept unjudged
+            kept.extend(list(matches)[position:])
+            break
+        if _judged(match.encoding):
+            if around is None:
+                # A code page that misreads a text misreads the same bytes everywhere: the first places tell
+                places = itertools.islice(_HIGH_BYTES.finditer(sample), _JUDGED_PLACES)
+                around = b"\n".join({sample[max(found.start() - 1, 0):found.end() + 1] for found in places})
+            if _reads_unwritten(around, match.encoding):
+                continue
+        kept.append(match)
+        best = best or not match.encoding.startswith(("utf_16", "utf_32"))
+        western = western or _WESTERN in (match.encoding, *match.could_be_from_charset)
+    return CharsetMatches(kept) if kept else matches
+
+
+def _reads_unwritten(around: bytes, encoding: str) -> bool:
+    """Does a single-byte code page read the bytes around those outside ASCII as something nobody writes?"""
+    try:
+        return _unwritten().search(around.decode(encoding)) is not None
+    except (UnicodeDecodeError, LookupError):
+        return False
+
+
+@functools.cache
+def _judged(encoding: str) -> bool:
+    """Is this a code page of one byte a character that reads ASCII as ASCII? Another (CJK, UTF-16, EBCDIC) is not judged."""
+    # Pinned by: test_text_html.py::TestReadingsNobodyWrites::test_code_pages_of_several_bytes_or_without_ascii_are_not_judged
+    # (EBCDIC Hebrew leaves bytes of ASCII undefined: a strict decoding raised, and its files were refused)
+    try:
+        return (bytes(range(0x80)).decode(encoding, errors="replace") == bytes(range(0x80)).decode("ascii")
+                and len(bytes(range(0x80, 0x100)).decode(encoding, errors="replace")) == 0x80)
+    except LookupError:
+        return False
+
+
+@functools.cache
+def _unwritten() -> re.Pattern[str]:
+    """What nobody writes next to a character outside ASCII, in Latin text: a control; a character that is no Latin letter
+    and no mark, or a run of them, between two Latin letters (a sign, a figure, a letter of another script) but for the
+    signs words hold (`_SIGNS_INSIDE_WORDS`); a currency sign against a letter; a capital behind a small letter, or between an ASCII capital
+    and a small letter; a small letter that no letter precedes before an ASCII capital; a combining mark that follows no
+    letter and no mark, before a Latin letter. The same shapes as those of `_alphabet_bytes`, on characters instead of the
+    bytes of one code page: any code page can be judged, and the marks of Arabic or Thai after a space are left alone."""
+    characters = [chr(code) for code in range(0x80, 0x3000)]
+    latin = [ch for ch in characters if ch.isalpha() and unicodedata.name(ch, "").startswith("LATIN ")]
+    small = "".join(ch for ch in latin if ch.islower())
+    capital = "".join(ch for ch in latin if ch.isupper())
+    marks = "".join(ch for ch in characters if unicodedata.category(ch)[0] == "M")
+    currency = "".join(ch for ch in characters if unicodedata.category(ch) == "Sc")
+    inside = _SIGNS_INSIDE_WORDS.decode(_WESTERN) + "\u02bc\u2010\u2011"   # the letter apostrophe, the hyphens
+    letter = "A-Za-z" + re.escape("".join(latin))
+    small, capital, marks, currency, inside = map(re.escape, (small, capital, marks, currency, inside))
+    return re.compile(
+        "[\x80-\x9f]"
+        f"|(?<=[{letter}])[^\x00-\x7f{letter}{marks}{inside}]+(?=[{letter}])"
+        f"|(?<=[{letter}])[{currency}]|[{currency}](?=[{letter}])"
+        f"|(?<=[a-z{small}])[{capital}]|(?<=[A-Z])[{capital}](?=[a-z{small}])"
+        f"|(?<![{letter}])[{small}](?=[A-Z])"
+        f"|(?<![^\\W\\d_])(?<![{marks}])[{marks}](?=[{letter}])")
 
 
 def _plausible_best(matches: CharsetMatches, sample: bytes) -> CharsetMatch | None:
