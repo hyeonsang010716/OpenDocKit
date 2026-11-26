@@ -23,6 +23,16 @@ they are run separately (as CI does).
 Optional: `uvx pre-commit install` runs the linter before each commit. LibreOffice is optional too: without it the tests
 that start a real LibreOffice are skipped, and `examples/run_examples.py` skips the `.doc` / `.ppt` samples.
 
+On Windows the sample documents, the shell scripts and the Dockerfile are checked out with LF whatever `core.autocrlf`
+says (`.gitattributes`), so the readers are run on the bytes Git stores. A clone made before that keeps them with CR LF
+until they are checked out again, which a plain `git checkout` does not do. Commit or stash any change to them, then, in
+Git Bash:
+
+```bash
+files() { git ls-files -z -- examples/samples benchmarks/cases '*.sh' benchmarks/Dockerfile; }
+files | xargs -0 rm -- && files | xargs -0 git checkout --
+```
+
 Tests that call a real vision model are skipped by default because they cost money. To run them (after changing
 `describe.py` or its prompts):
 

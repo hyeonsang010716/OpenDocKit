@@ -1,0 +1,12 @@
+# Line ends (docs/decisions/core.md). Only the files below have attributes: every other file is checked out as each
+# checkout asks (core.autocrlf), as it was before. A pattern for all files (`* text=auto`) would not leave them so: Git
+# checks a file marked text out with `core.eol`, which is CR LF on Windows, also where `core.autocrlf` is false.
+
+# Documents the readers are run on: checked out with the line ends they are stored with, on every system. Git decides by
+# their content which are binary, and never converts those; one it takes for text is stored with LF, as every one was.
+examples/samples/** text=auto eol=lf
+benchmarks/cases/** text=auto eol=lf
+
+# Read by a POSIX shell or by Docker, from a Windows checkout too (a container the checkout is mounted into, WSL).
+*.sh text eol=lf
+benchmarks/Dockerfile text eol=lf
