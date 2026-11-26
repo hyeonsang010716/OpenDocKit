@@ -50,6 +50,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   right, from 32,798, and none that was right is wrong now. Of 5,146 labelled files of two public data sets 188 more
   are read right, among them Arabic, Chinese and Cyrillic files a Latin code page had been taken for, and two whose own
   text was already garbled (`Ã¥`) are read otherwise.
+- **A mail reads the same on every supported Python.** Two fixes of the standard library came in patch releases, and
+  the Python of Ubuntu 24.04, 3.12.3, has neither: up to 3.12.7 and in 3.13.0 a header value that starts on the next
+  line (`Content-Transfer-Encoding:` and then ` base64`) kept the line break in front of it, and up to 3.12.8 and in
+  3.13.0 and 3.13.1 a transfer encoding with white space around it (`base64 `) was not recognised. Such a body came
+  out as its base64 or quoted-printable text instead of being decoded, and a mail that declares one boundary and
+  writes another, with such a header in a part, came out as its delimiter lines and part headers. Mails are now read
+  as the later versions read them, on every version.
 
 ## [0.3.16] - 2026-11-25
 

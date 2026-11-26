@@ -3,11 +3,15 @@ ISO-8859-1, a NUL byte in the charset, a multipart without a boundary, a bounce 
 deeply nested multipart."""
 
 import base64
+import email
+import email.message
+import email.policy
 
 import pytest
 
 from opendockit import convert
 from opendockit.exceptions import CorruptedDocumentError
+from opendockit.extractors._mail import parse_mail
 from tests.timing import fastest
 
 
@@ -441,6 +445,144 @@ class TestMultipartSplitAtTheDelimiterInUse:
         result = convert(self._mail('multipart/mixed; boundary="AAA"', body + "본문\r\n"), "a.eml")
 
         assert "본문" in result.text and "--U1" not in result.text and "--U2" in result.text
+
+
+def _header_rule_up_to_3_12_7(self, sourcelines):
+    """`Compat32.header_source_parse` as Python 3.12.0 to 3.12.7 and 3.13.0 have it: a value that starts on the next line
+    keeps the line break in front of it."""
+    name, value = sourcelines[0].split(":", 1)
+    value = value.lstrip(" \t") + "".join(sourcelines[1:])
+    return (name, value.rstrip("\r\n"))
+
+
+_GET_PAYLOAD = email.message.Message.get_payload
+
+
+def _get_payload_up_to_3_12_8(self, i=None, decode=False):
+    """`Message.get_payload` as Python 3.12.0 to 3.12.8, 3.13.0 and 3.13.1 have it, where it reads otherwise: the transfer
+    encoding is compared as it is written, so a body under `base64 ` comes back as it is, undecoded."""
+    cte = str(self.get("content-transfer-encoding", ""))
+    if not decode or self.is_multipart() or cte.lower() == cte.strip().lower():
+        return _GET_PAYLOAD(self, i, decode)
+    payload = self._payload
+    if not isinstance(payload, str):
+        return payload
+    try:
+        return payload.encode("ascii", "surrogateescape")
+    except UnicodeEncodeError:
+        return payload.encode("raw-unicode-escape")
+
+
+@pytest.fixture
+def older_python(monkeypatch):
+    """The standard library reads mails as Python 3.12.0 to 3.12.7 and 3.13.0 do, on whatever Python runs the test."""
+    monkeypatch.setattr(email.policy.Compat32, "header_source_parse", _header_rule_up_to_3_12_7)
+    monkeypatch.setattr(email.message.Message, "get_payload", _get_payload_up_to_3_12_8)
+
+
+_FOLDED_AFTER_THE_COLON = {
+    "subject": b"Subject:\r\n Quarterly report\r\nFrom: Kim <a@b.c>\r\nDate: Tue, 1 Dec 2026 10:00:00 +0900\r\n"
+               b"MIME-Version: 1.0\r\nContent-Type: text/plain\r\n\r\nBody.\r\n",
+    "encoded-subject": b"Subject:\r\n =?utf-8?B?7ZWc6riA?=\r\nFrom: Kim <a@b.c>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain\r\n\r\nBody.\r\n",
+    "from": b"Subject: x\r\nFrom:\r\n Kim <a@b.c>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain\r\n\r\nBody.\r\n",
+    "content-type": b"Subject: x\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type:\r\n text/plain; charset=utf-8\r\n\r\n"
+                    + "한글 본문".encode() + b"\r\n",
+    "attachment-name": b"Subject: x\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"B\"\r\n\r\n"
+                       b"--B\r\nContent-Type: text/plain\r\n\r\nSee attached.\r\n--B\r\nContent-Type: application/pdf\r\n"
+                       b"Content-Disposition:\r\n attachment; filename=\"plan.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                       b"JVBERg==\r\n--B--\r\n",
+    "picture-id": b"Subject: x\r\nFrom: a@b.c\r\nMIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=\"B\"\r\n\r\n"
+                  b"--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Hello <img src=\"cid:p1\"></p>\r\n--B\r\n"
+                  b"Content-Type: image/png\r\nContent-ID:\r\n <p1>\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--B--\r\n",
+    "split-at-the-delimiter-in-use": (_HEAD + 'Content-Type: multipart/mixed; boundary="AAA"\r\n\r\n--BBB\r\nContent-Type: '
+                                      "text/plain\r\nContent-ID:\r\n <part1.0123@example.org>\r\n\r\nHello body\r\n--BBB--\r\n").encode(),
+    "transfer-encoding": (_HEAD + "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding:\r\n base64\r\n\r\n"
+                          + base64.b64encode("회의는 내일입니다.".encode()).decode() + "\r\n").encode(),
+    "transfer-encoding-quoted-printable": (_HEAD + "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding:\r\n"
+                                           " quoted-printable\r\n\r\ncaf=C3=A9 au lait\r\n").encode(),
+    "transfer-encoding-of-a-part": (_HEAD + 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain; '
+                                    "charset=utf-8\r\nContent-Transfer-Encoding:\r\n base64\r\n\r\n"
+                                    + base64.b64encode("회의는 내일입니다.".encode()).decode() + "\r\n--B--\r\n").encode(),
+    "transfer-encoding-of-a-forwarded-mail": (_HEAD + "Content-Type: message/rfc822\r\n\r\nSubject: inner\r\nFrom: p@q.r\r\n"
+                                              "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n"
+                                              "Content-Transfer-Encoding:\r\n base64\r\n\r\n"
+                                              + base64.b64encode("회의는 내일입니다.".encode()).decode() + "\r\n").encode(),
+}
+
+
+class TestHeaderValueOnTheNextLine:
+    """A header whose value starts on the next line (`Content-Transfer-Encoding:` and then ` base64`). Up to Python 3.12.7
+    and in 3.13.0 the standard library kept the line break in front of the value: a body with such a transfer encoding came
+    out as its base64 or quoted-printable text, and a mail split at the delimiter it really uses was not split when a part
+    had such a header. The mails are parsed with the rule of the later versions on every version (`_mail._POLICY`);
+    `older_python` gives the standard library the rule of the older ones, so these tests read the mails as those versions
+    would on any Python."""
+
+    def test_the_standard_library_reads_as_the_older_versions_do(self, older_python):
+        assert email.message_from_bytes(b"Content-ID:\r\n <p1@host>\r\n\r\n")["Content-ID"] == "\r\n <p1@host>"
+        assert email.message_from_bytes(b"Content-Transfer-Encoding: base64 \r\n\r\naGk=\r\n").get_payload(decode=True) == b"aGk=\r\n"
+
+    def test_a_value_starts_at_its_first_character(self, older_python):
+        message = parse_mail(_FOLDED_AFTER_THE_COLON["picture-id"])
+
+        assert message.get_payload()[1]["Content-ID"] == "<p1>"
+        assert parse_mail(_FOLDED_AFTER_THE_COLON["from"])["From"] == "Kim <a@b.c>"
+
+    @pytest.mark.parametrize("name", ["transfer-encoding", "transfer-encoding-of-a-part", "transfer-encoding-of-a-forwarded-mail"])
+    def test_a_body_is_decoded(self, older_python, name):
+        assert convert(_FOLDED_AFTER_THE_COLON[name], "a.eml").text.endswith("회의는 내일입니다.")
+
+    def test_a_quoted_printable_body_is_decoded(self, older_python):
+        assert convert(_FOLDED_AFTER_THE_COLON["transfer-encoding-quoted-printable"], "a.eml").text.endswith("café au lait")
+
+    def test_a_mail_split_at_the_delimiter_in_use(self, older_python):
+        result = convert(_FOLDED_AFTER_THE_COLON["split-at-the-delimiter-in-use"], "a.eml")
+
+        assert result.text.endswith("Hello body") and "--BBB" not in result.text
+
+    @pytest.mark.parametrize("name", list(_FOLDED_AFTER_THE_COLON))
+    def test_a_mail_reads_as_on_the_versions_that_have_the_rule(self, request, name):
+        mail = _FOLDED_AFTER_THE_COLON[name]
+        expected = convert(mail, "a.eml")
+        request.getfixturevalue("older_python")
+
+        result = convert(mail, "a.eml")
+
+        assert (result.text, result.warnings) == (expected.text, expected.warnings)
+
+
+class TestTransferEncodingWithWhiteSpaceAround:
+    """`Content-Transfer-Encoding: base64 `, with a space behind the value. Up to Python 3.12.8 and in 3.13.0 and 3.13.1
+    `get_payload` compared the value as it was written, and the body came out as its base64 or quoted-printable text."""
+
+    @staticmethod
+    def _mail(encoding: str, body: str) -> bytes:
+        return (_HEAD + f"Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: {encoding}\r\n\r\n{body}\r\n").encode()
+
+    @pytest.mark.parametrize("encoding", ["base64 ", "base64\t", "BASE64  "])
+    def test_base64_is_decoded(self, older_python, encoding):
+        mail = self._mail(encoding, base64.b64encode("회의는 내일입니다.".encode()).decode())
+
+        assert convert(mail, "a.eml").text.endswith("회의는 내일입니다.")
+
+    def test_quoted_printable_is_decoded(self, older_python):
+        assert convert(self._mail("quoted-printable ", "caf=C3=A9 au lait"), "a.eml").text.endswith("café au lait")
+
+    def test_a_part_and_a_forwarded_mail_are_decoded(self, older_python):
+        encoded = base64.b64encode("회의는 내일입니다.".encode()).decode()
+        part = (_HEAD + 'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain; charset=utf-8\r\n'
+                f"Content-Transfer-Encoding: base64 \r\n\r\n{encoded}\r\n--B--\r\n").encode()
+        forwarded = (_HEAD + "Content-Type: message/rfc822\r\n\r\nSubject: inner\r\nFrom: p@q.r\r\nMIME-Version: 1.0\r\n"
+                     f"Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64 \r\n\r\n{encoded}\r\n").encode()
+
+        assert convert(part, "a.eml").text.endswith("회의는 내일입니다.")
+        assert convert(forwarded, "a.eml").text.endswith("회의는 내일입니다.")
+
+    def test_the_value_is_kept_whole_otherwise(self):
+        """Only the white space around the value goes, and only from this one header."""
+        message = parse_mail((_HEAD + "Content-Type: text/plain \r\nContent-Transfer-Encoding: \t7bit \r\nX-Note: a  \r\n\r\nx\r\n").encode())
+
+        assert (message["Content-Transfer-Encoding"], message["Content-Type"], message["X-Note"]) == ("7bit", "text/plain ", "a  ")
 
 
 class TestReadablePartsOfForwardedMails:

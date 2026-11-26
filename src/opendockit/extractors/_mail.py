@@ -19,6 +19,7 @@ import email.header
 from email.header import Header, decode_header
 from email.message import Message, _parseparam
 from email.parser import BytesHeaderParser
+from email.policy import Compat32
 import email.quoprimime
 import email.utils
 import quopri
@@ -34,6 +35,32 @@ from opendockit.models import name_in_warning
 _ATTACHMENT_NAMES_SHOWN = 10
 # Maximum characters of one name in that warning (`_one_line`).
 _ATTACHMENT_NAME_CHARS = 100
+
+
+class _MailReadAsTheLaterVersionsRead(Compat32):
+    """`compat32`, the policy every mail here is parsed with, reading headers as Python 3.12.9, 3.13.2 and later do.
+
+    Two fixes of the standard library came in patch releases, so a mail read otherwise on the earlier ones, Ubuntu 24.04's
+    Python 3.12.3 among them:
+    - a header whose value starts on the next line (`Content-Transfer-Encoding:` and then ` base64`) gives its value from
+      that line on: up to 3.12.7 and in 3.13.0 the line break in front of it stayed (`'\\r\\n base64'`);
+    - the transfer encoding is read without the white space around it (`base64 ` is base64): up to 3.12.8 and in 3.13.0 and
+      3.13.1 `get_payload` compared it as it was written.
+    On those versions such a body was not decoded and came out as its base64 or quoted-printable text, and a mail split at
+    the delimiter it really uses with such a header in a part was not split (Pinned by:
+    test_core_malformed_mail_and_html.py::TestHeaderValueOnTheNextLine, TestTransferEncodingWithWhiteSpaceAround). The
+    first rule is the one the later versions have, word for word. The second takes the white space off the value here,
+    which is all `get_payload` does with it there, and every reader of the value in this module strips it as well: where
+    the later versions run nothing changes."""
+
+    def header_source_parse(self, sourcelines: list[str]) -> tuple[str, str]:
+        name, value = sourcelines[0].split(":", 1)
+        value = "".join((value, *sourcelines[1:])).lstrip(" \t\r\n").rstrip("\r\n")
+        # `Message.get` finds a header by its name in lower case, so this is the header `get_payload` reads
+        return (name, value.strip() if name.lower() == "content-transfer-encoding" else value)
+
+
+_POLICY = _MailReadAsTheLaterVersionsRead()
 
 
 # The header line names of the MIME header block (`mime_header_block`) and the headers used to identify mail. MHTML detection for
@@ -210,7 +237,7 @@ def parse_mail(data: bytes) -> Message:
     if exceeded == "forward":
         raise CorruptedDocumentError(f"Mail forwarded inside forwarded mails more than {_MAX_FORWARD_NESTING} levels deep cannot be read. "
                                      "The file may be corrupted.")
-    message = email.message_from_bytes(data)
+    message = email.message_from_bytes(data, policy=_POLICY)
     _readable_parts(message)
     return message
 
@@ -393,7 +420,7 @@ def _part_structure(header: bytes) -> tuple[str, bytes | None]:
     if b"multipart/" not in lowered and b"message/" not in lowered:
         return "", None
     try:
-        part = BytesHeaderParser().parsebytes(header)
+        part = BytesHeaderParser(policy=_POLICY).parsebytes(header)
         content_type = part.get_content_type()
         boundary = part.get_boundary() if content_type.startswith("multipart/") else None
         separator = None if boundary is None else b"--" + boundary.encode("ascii", errors="surrogateescape")
@@ -435,7 +462,7 @@ def _readable_parts(message: Message) -> None:
             # The headers of the mail a bounce returns (Postfix, Exchange): which mail it was. Only the headers written before a
             # body are kept; the rest are routing and signatures. Unread, the part vanished without a warning
             # (Pinned by: test_core_malformed_mail_and_html.py::TestReadablePartsOfForwardedMails::test_parts_of_a_report_are_read).
-            _as_text(part, mail_head_text(BytesHeaderParser().parsebytes(part_content(part) or b"")))
+            _as_text(part, mail_head_text(BytesHeaderParser(policy=_POLICY).parsebytes(part_content(part) or b"")))
         elif part.get_content_maintype() == "multipart" and not part.is_multipart():
             done = _split_at_the_delimiter_in_use(part) if split < _MAX_PARTS_SPLIT_AGAIN else None
             split += done is not None  # a body parsed again counts, whether parts were found or not
@@ -515,7 +542,7 @@ def _split_at_the_delimiter_in_use(part: Message) -> bool | None:
     source = b"Content-Type: " + part.get_content_type().encode("ascii", "replace") + b'; boundary="' + token + b'"\r\n\r\n' + body
     if _mime_nesting_exceeds(source, _MAX_NESTING_SPLIT_AGAIN) is not None:
         return None
-    parsed = email.message_from_bytes(source)
+    parsed = email.message_from_bytes(source, policy=_POLICY)
     parts = parsed.get_payload()
     if not parsed.is_multipart() or not parts:
         return False
