@@ -410,7 +410,7 @@ class TestLeftAsIs:
                   "notes": [["Company confidential"]]} for number in (1, 2, 3, 4)]
         text = _text(*pages)
 
-        assert "——————" not in text and "Company confidential" not in text
+        assert "——————" not in text and text.count("Company confidential") == 1
 
     def test_notes_under_dashes_as_large_as_the_body(self):
         """A line of em dashes is a rule only as a drawn one is: a numbered list under it in the body size is not notes."""

@@ -22,7 +22,7 @@ class TestPdf:
         assert result.metadata["page_count"] == "3"
 
     def test_removes_header_and_page_numbers_repeated_on_every_page(self, result):
-        assert "사내 보고서 머리글" not in result.text
+        assert result.text.count("사내 보고서 머리글") == 1
         assert "- 1 -" not in result.text
 
     def test_marks_larger_font_as_heading(self, result):
@@ -405,6 +405,132 @@ _FONT = "HYSMyeongJo-Medium"
 _ROMAN_NUMERALS = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"]
 
 
+class TestRepeatedLineKeptOnce:
+    """A line repeated on every page goes from every page but for one copy, when it says what nothing else in the text says:
+    in a document that is one long list the title stands in the page header and nowhere else."""
+
+    @staticmethod
+    def _pages(draw, pages: int = 4) -> str:
+        def page(pdf, index):
+            for line in range(5):
+                pdf.drawString(72, 700 - line * 30, f"Row {index * 5 + line + 1} of the list holds a name and a sum.")
+            draw(pdf, index)
+
+        return convert(_korean_pdf(page, pages=pages), "a.pdf").text
+
+    def test_title_that_stands_in_the_page_header_alone_stays_once_where_it_first_stands(self):
+        """'LISTADO DE PERSONAS CON MONTOS A DEVOLVER' over 217 pages of names: every copy went, and the rows came out with
+        nothing saying what they are rows of."""
+        text = self._pages(lambda pdf, index: pdf.drawString(72, 800, "List of persons with sums to be returned"))
+
+        assert text.count("List of persons with sums to be returned") == 1
+        assert text.index("List of persons") < text.index("Row 1 of the list") < text.index("<!-- Page 2 -->")
+
+    def test_what_stays_is_written_outside_the_flow_of_its_page(self):
+        """Left among the lines of its page, the two pieces of a head row above a paper set in two columns came out between
+        the two lines of its title. A head stays before the text of its page and a foot after it."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Proceedings of the Harbour Conference")
+            pdf.drawString(72, 40, "Harbour Authority Press")
+
+        text = self._pages(draw)
+        first = text[:text.index("<!-- Page 2 -->")]
+
+        assert first.index("Proceedings of the Harbour Conference") < first.index("Row 1 of the list")
+        assert first.index("Row 5 of the list") < first.index("Harbour Authority Press")
+        assert text.count("Proceedings of the Harbour Conference") == text.count("Harbour Authority Press") == 1
+
+    def test_running_head_that_the_body_already_says_goes_from_every_page(self):
+        """The running head of a book or a report is its title or the title of the chapter, which the body has: no copy
+        of the head stays beside it."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Report of the harbour")
+            if index == 0:
+                pdf.drawString(72, 740, "Annual Report of the Harbour Authority")
+
+        text = self._pages(draw)
+
+        assert text.count("eport of the") == 1 and "Annual Report of the Harbour Authority" in text
+
+    @pytest.mark.parametrize("count", ["Seite {} von 4", "Página {} de 4", "Page {} sur 4", "Blz. {} van 4", "Sida {} av 4",
+                                       "Seite {}", "Stránka {}", "str. {}"])
+    def test_page_count_in_the_words_of_another_language_goes(self, count):
+        """What differs from page to page is the number of the page: it goes with the word that joins it to the total and
+        the total, and one word left is its label, whatever the language."""
+        text = self._pages(lambda pdf, index: pdf.drawString(280, 40, count.format(index + 1)))
+
+        assert not any(line.startswith(count.split()[0]) for line in text.splitlines())
+
+    def test_text_in_one_piece_with_its_page_count_stays_without_the_count(self):
+        text = self._pages(lambda pdf, index: pdf.drawString(72, 40, f"Tidewater Shipping - Page {index + 1} of 4"))
+
+        assert [line for line in text.splitlines() if "Tidewater" in line] == ["Tidewater Shipping"]
+
+    def test_running_head_whose_words_the_body_has_goes_from_every_page(self):
+        """The head of a paper names its authors and a short form of its title: no word of it is news, and a copy of it
+        before the second page would be noise in every paper."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Row sums of a list" if index % 2 else "A name et al.")
+            if index == 0:
+                pdf.drawString(72, 760, "Row sums of a list of names, by a name et al.")
+
+        text = self._pages(draw, pages=6)
+
+        assert text.count("Row sums of a list") == 1 and text.count("et al.") == 1
+
+    def test_scan_whose_only_text_is_a_stamp_on_every_page_stays_without_text(self):
+        """A copy of the stamp on the first page would make that page one with text: it would leave the warning that the
+        pages need OCR, and the document would no longer be one from which no text was read."""
+        from opendockit.extractors import _pdf_margins
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        pages = [_Page(number=number, width=595, height=842, tables=[], has_images=True, view=(0, 0, 595, 842),
+                       lines=[_Line(top=20, bottom=30, x0=50, x1=300, text="Scanned with a scanner of the harbour", size=10)])
+                 for number in (1, 2, 3, 4)]
+
+        _pdf_margins._remove_repeated_margins(pages)
+
+        assert [(page.lines, page.head_lines, page.foot_lines) for page in pages] == [([], [], [])] * 4
+
+    def test_head_or_foot_is_told_by_what_is_seen_of_the_page(self):
+        """A sheet of which the lower part is seen: a line at the top of that part is a head, though it stands in the
+        lower half of the sheet."""
+        from opendockit.extractors import _pdf_margins
+        from opendockit.extractors._pdf_model import _Line, _Page
+
+        def page(number):
+            lines = [_Line(top=810, bottom=820, x0=50, x1=300, text="Register of the harbour", size=10),
+                     *(_Line(top=900 + 20 * row, bottom=910 + 20 * row, x0=50, x1=300, text=f"Vessel {number} berth {row}", size=10)
+                       for row in range(10))]
+            return _Page(number=number, width=595, height=1400, lines=lines, tables=[], has_images=False,
+                         view=(0, 800, 595, 1400), text_view=(0, 800, 595, 1400))
+
+        pages = [page(number) for number in (1, 2, 3)]
+        _pdf_margins._remove_repeated_margins(pages)
+
+        assert [(page.head_lines, page.foot_lines) for page in pages] == [(["Register of the harbour"], []), ([], []), ([], [])]
+
+    def test_word_for_a_page_standing_apart_from_its_number_goes(self):
+        def draw(pdf, index):
+            pdf.drawString(400, 800, "PAGE")
+            pdf.drawString(500, 800, str(index + 1))
+
+        assert "PAGE" not in self._pages(draw)
+
+    def test_line_at_the_head_and_at_the_foot_of_every_page_stays_once(self):
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Harbour Authority of the North")
+            pdf.drawString(72, 40, "Harbour Authority of the North")
+
+        assert self._pages(draw).count("Harbour Authority of the North") == 1
+
+    def test_every_copy_stays_when_the_removal_is_off(self):
+        text = convert(_korean_pdf(lambda pdf, index: pdf.drawString(72, 800, "List of persons"), pages=4), "a.pdf",
+                       ConvertOptions(remove_repeated_page_lines=False)).text
+
+        assert text.count("List of persons") == 4
+
+
 class TestRepeatedMarginsAndBorderlessTables:
     def test_repeated_margin_removal_keeps_rows_of_a_borderless_table_spanning_pages(self):
         """In a borderless table spanning several pages the header row ('성명|지급액|지급일') repeats on every page, and the amount and
@@ -446,7 +572,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(data, "a.pdf")
 
-        assert "자유 문화" not in result.text
+        assert result.text.count("자유 문화") == 1
         assert "해적질" not in result.text
         assert result.text.count("본문 첫 줄입니다.") == 10
         assert result.text.count("본문 가운데 줄입니다.") == 10
@@ -518,7 +644,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(_korean_pdf(draw, pages=4), "a.pdf")
 
-        assert "Confidential" not in result.text and "of 4" not in result.text
+        assert result.text.count("Confidential") == 1 and "of 4" not in result.text
         assert all(f"{count}건" in result.text for count in counts)
 
     @pytest.mark.parametrize("pieces", [
@@ -539,7 +665,9 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(_korean_pdf(draw, pages=6), "a.pdf")
 
-        assert [text for text in pieces(3) if text in result.text] == []
+        beside = [text for text in pieces(1) if text in pieces(3)]  # the text beside the count: the same on every page
+        assert beside and all(result.text.count(text) == 1 for text in beside)
+        assert not any(text in result.text for page in range(1, 7) for text in pieces(page) if text not in beside)
         assert "Body line 5 of page 6" in result.text
 
     @pytest.mark.parametrize(("height", "pieces"), [
@@ -620,7 +748,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(_korean_pdf(draw, pages=6), "a.pdf")
 
-        assert "Preface" not in result.text
+        assert result.text.count("Preface") == 1  # no heading of the body says it, so the first copy stays
         assert [line for line in result.text.splitlines() if line in _ROMAN_NUMERALS] == []
 
     @pytest.mark.parametrize("numbers", [_ROMAN_NUMERALS, [f"- {numeral} -" for numeral in _ROMAN_NUMERALS],
@@ -748,7 +876,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(_korean_pdf(draw, pages=4), "a.pdf")
 
-        assert "대외 공개 금지" not in result.text
+        assert result.text.count("대외 공개 금지") == 1
         assert "/ 4" not in result.text
         assert "3쪽 본문 내용입니다." in result.text
 
@@ -788,8 +916,8 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(_korean_pdf(draw, pages=4), "a.pdf")
 
-        assert "사업 계획 보고" not in result.text
-        assert "경영기획팀" not in result.text
+        assert result.text.count("사업 계획 보고") == 1
+        assert result.text.count("경영기획팀") == 1
         assert "3쪽의 1번째 본문 줄입니다." in result.text
 
     def test_label_value_rows_in_the_margin_area_keep_their_values(self):
@@ -811,7 +939,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         assert result.sections[2].text.endswith("계약 건수 128\n미수금 건수 17\n해지 건수 5")
         assert result.sections[0].text.endswith("계약 건수 38\n미수금 건수 39\n해지 건수 40")
-        assert "한빛테크" not in result.text
+        assert result.text.count("한빛테크") == 1
 
     def test_large_page_titles_that_differ_only_in_a_number_are_kept(self):
         """Page titles in the top margin band ('2025년 3월 영업 실적') differ only in a number and were all removed as repeated lines. A
@@ -831,7 +959,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         for index, section in enumerate(result.sections):
             assert f"2025년 {index + 1}월 영업 실적" in section.text
-        assert "월간 보고" not in result.text
+        assert result.text.count("월간 보고") == 1
         assert "- 3 -" not in result.text
 
     def test_large_running_header_with_the_same_text_on_every_page_is_still_removed(self):
@@ -847,7 +975,7 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         result = convert(_korean_pdf(draw, pages=5), "a.pdf")
 
-        assert "사업 계획서" not in result.text
+        assert result.text.count("사업 계획서") == 1
         assert "- 3 -" not in result.text
         assert "3쪽의 1번째 본문 문장이다." in result.text
 
@@ -872,7 +1000,8 @@ class TestRepeatedMarginsAndBorderlessTables:
 
         _pdf_margins._remove_repeated_margins(pages)
 
-        assert [line.text for line in pages[0].lines] == [f"Item {index % 10}" for index in range(300)]
+        assert all([line.text for line in page.lines] == [f"Item {index % 10}" for index in range(300)] for page in pages)
+        assert [page.foot_lines for page in pages] == [["Company confidential"], [], []]  # the first copy, out of the flow
         assert len(compared) == 3 * 4  # the top two and bottom two rows of each page (453 before)
 
     @pytest.mark.parametrize("values", [["김담당", "이담당", "박담당"], [f"{number * 7919 % 500000:,}" for number in range(1, 39)]])

@@ -15,6 +15,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **PDF: a line repeated on every page is written once when it holds a word nothing else in the text holds.** Every
+  copy of a repeated header or footer was removed, the first too. In a document that is one long list or table the
+  title stands in the page header alone, and it went with the page numbers; so did the name of a journal, the period
+  of a report, a case number. Such a line is now written once, before the text of the first page that has it (after
+  it for a footer), without its page number. A running head whose words the body has (the title of the chapter, the
+  authors of a paper) goes from every page as before, and so does every page number. A document whose pages hold
+  nothing else stays without text. `remove_repeated_page_lines=False` still keeps every copy.
+
 - **A PDF saved by Hangul gives back the tables of its document.** Hangul's own PDF export (Producer `Hancom PDF`)
   sets a clipping path around each table cell before it draws the cell, and those boxes are the cells of the table
   as the document had them: its columns, its rows, its merged cells and the tables inside its cells. They are read

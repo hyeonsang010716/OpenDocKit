@@ -55,6 +55,8 @@ _PAGE_NUMBER_APART = 0.25
 # digit groups with one dot ('6.8'). A date written with dots ('2024.01.05') has three digit groups and is not a decimal.
 _VALUE_TOKEN = re.compile(r"\d,\d{3}(?!\d)|[%‰₩$€£¥]|^\D*\d+\.\d+\D*$")
 _NON_WORD = re.compile(r"[\W_]+")
+# A word of a repeated line (`_says`): two letters or more of any script
+_WORD = re.compile(r"[^\W\d_]{2,}")
 _TOKEN = re.compile(r"\S+")
 
 
@@ -192,9 +194,102 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
     sides = {side: _repeated_keys([keys for page, keys in zip(pages, per_page, strict=True) if page.number % 2 == side],
                                   _SIDE_REPEAT_RATIO)
              for side in (0, 1)}
-    for page, keys in zip(pages, per_page, strict=True):
-        drop = {id(line) for key in repeated | sides[page.number % 2] for line in keys.get(key, [])}
+    removed = [repeated | sides[page.number % 2] for page in pages]
+    drops = [{id(line) for key in gone for line in keys.get(key, [])} for keys, gone in zip(per_page, removed, strict=True)]
+    _keep_the_first_copy(pages, per_page, removed, drops, numbered)
+    for page, drop in zip(pages, drops, strict=True):
         page.lines = [line for line in page.lines if id(line) not in drop]
+
+
+def _keep_the_first_copy(pages: list[_Page], per_page: list[dict[str, list[_Line]]], removed: list[set[str]],
+                         drops: list[set[int]], numbered: set[int] | frozenset) -> None:
+    """Notes on its page (`head_lines`, `foot_lines`) the first copy of each repeated line that holds a word the text
+    left does not hold. The line itself goes from the body flow with its other copies: left among the lines of its
+    page, the two pieces of a head row above a paper set in two columns came out between the two lines of its title.
+
+    Deliberate: every copy of a repeated line used to go, the first too. In a document that is one long list or table
+    the title stands in the page header and nowhere else ('LISTADO DE PERSONAS CON MONTOS A DEVOLVER' over 217 pages of
+    names), and it went with the page numbers: the rows came out with nothing saying what they are rows of. So did the
+    name of the journal, the period of a report, a case number, the title and the sample number of a certificate of
+    five pages: of 1,310 real documents of three pages or more, 281 lost words found nowhere else in their text.
+
+    A piece stays, once, when what it says (`_what_it_says`: nothing for a page number, and no number that counts with
+    the pages) holds a word that no line or table left on any page holds and no piece kept before it holds. The
+    running head of a book or a paper is its title, the title of the chapter or the names of the authors, whose words
+    the body has: it goes as before. It is noted on the first page that has it and has text left: a scan whose only
+    text is the stamp of the scanner on every page stays without text, and says so. What stays is written before the
+    text of its page when it stood in the upper half of what is seen of the page, after it otherwise (Pinned by:
+    test_pdf.py::TestRepeatedLineKeptOnce)."""
+    copies: dict[tuple[str, int], list[tuple[int, _Line]]] = {}  # each piece of a repeated line → (page, piece) of its copies
+    for index, (keys, gone) in enumerate(zip(per_page, removed, strict=True)):
+        for key in gone:
+            for place, line in enumerate(keys.get(key, ())):
+                copies.setdefault((key, place), []).append((index, line))
+    saying = [(found, text) for found in copies.values() if (text := _what_it_says([line for _, line in found], numbered))]
+    if not saying:
+        return
+    wanted = {word for _, text in saying for word in _words(text)}
+    has_text = []
+    for page, drop in zip(pages, drops, strict=True):  # the words the text left holds, a page at a time
+        left = [line.text for line in page.lines if id(line) not in drop] + [table.text for table in page.tables]
+        has_text.append(bool(left))
+        for text in left:
+            for match in _WORD.finditer(text) if wanted else ():  # one word at a time: a line can be the whole text
+                wanted.discard(match.group().casefold())
+    if not wanted:
+        return
+    homes = []  # each piece on the first page that has it and has text left
+    for found, text in saying:
+        home = next(((index, line) for index, line in found if has_text[index]), None)
+        if home is not None:
+            homes.append((*home, text))
+    for index, line, text in sorted(homes, key=lambda home: (home[0], home[1].top, home[1].x0)):
+        new = wanted.intersection(_words(text))
+        if new:
+            wanted -= new  # the same words at the head and at the foot of the page stay once
+            page = pages[index]
+            _, top, _, bottom = page.text_view or (0.0, 0.0, page.width, page.height)
+            (page.head_lines if (line.top + line.bottom) / 2 < (top + bottom) / 2 else page.foot_lines).append(text)
+
+
+def _words(text: str) -> set[str]:
+    """The words of a text as they are compared: two letters or more of any script, without case."""
+    return {word.casefold() for word in _WORD.findall(text)}
+
+
+def _what_it_says(lines: list[_Line], numbered: set[int] | frozenset) -> str:
+    """What the copies `lines` of one piece of a repeated line say on every page: the text to keep, or '' when the
+    piece says nothing.
+
+    A page number says nothing (`_is_page_number`, `_is_page_count`). A piece whose copies are the same says its text
+    when it holds a word besides the words a page is counted with ('PAGE' standing apart from its number). Of a piece
+    whose copies differ from page to page, what differs is the number of the page: it goes with the word that joins it
+    to a total and the total ('3 von 10', '3 de 10'), and with the page words; what is left says something when it
+    holds two words or more ('Seite 3 von 10' leaves 'Seite', 'ACME Corp - Page 3 of 6' leaves 'ACME Corp'). Copies of
+    different numbers of pieces are not set beside each other and say nothing."""
+    first = lines[0]
+    if _is_page_number(first, numbered) or _is_page_count(first.text):
+        return ""
+    spellings = {line.text for line in lines}
+    need = 1
+    text = first.text
+    if len(spellings) > 1:
+        rows = [spelling.split() for spelling in spellings]
+        tokens = first.text.split()
+        if any(len(row) != len(tokens) for row in rows):
+            return ""
+        gone = {place for place, token in enumerate(tokens) if any(row[place] != token for row in rows)}
+        for place in sorted(gone):
+            if place + 2 < len(tokens) and _DIGITS.search(tokens[place + 2]) and not _DIGITS.search(tokens[place + 1]):
+                gone.update((place + 1, place + 2))
+        rest = [token for place, token in enumerate(tokens)
+                if place not in gone and _NON_WORD.sub("", token).casefold() not in _PAGE_COUNT_WORDS]
+        while rest and not any(char.isalnum() for char in rest[0]):
+            del rest[0]
+        while rest and not any(char.isalnum() for char in rest[-1]):
+            del rest[-1]
+        need, text = 2, " ".join(rest)
+    return text if len(_words(text) - _PAGE_COUNT_WORDS) >= need else ""
 
 
 def _row_shape(row: list[_Line]) -> str:
