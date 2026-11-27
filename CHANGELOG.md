@@ -43,6 +43,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **PDF: the text a Canon scanner recognised is read.** IJ Scan Utility writes the text of a scan in a font whose
+  ToUnicode map gives the letters under 128 with a destination of one byte. Each was read as nothing: a scanned
+  page came out as its accented letters alone, with no warning. The byte is read as the number it is.
+
 - **HWP, HWPX: a headline broken by hand in two lines is a heading.** The title of a Korean press release stands in a
   box, and as often as not it is one paragraph with a line break in it. Such a paragraph was no heading, so the
   release had its headline as text: 13 of 118 releases. It is read as one title line now, as two paragraphs of one
