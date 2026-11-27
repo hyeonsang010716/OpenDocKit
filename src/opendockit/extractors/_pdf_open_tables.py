@@ -5,8 +5,6 @@ rules merged back.
 from bisect import bisect_left, bisect_right, insort
 from collections.abc import Callable
 
-from pdfplumber.table import Table
-
 from opendockit.extractors._pdf_model import (
     _MIN_FIGURE_POINTS,
     _TABLE_SETTINGS,
@@ -28,19 +26,20 @@ _VERTICAL_JOIN_GAP = 1.5
 
 
 def _within_its_region(table: object, box: tuple[float, float, float, float]) -> object | None:
-    """The table found in a region of the page with the cells that lie in that region; None when none does.
+    """The table found in a region of the page, or None when one of its cells reaches out of that region (2pt of slack).
 
     The region is cut out of the page, and the cells of the table are read from what was cut out. A rule that runs on
     past the region (the frame around a whole page, of which the region is the lower part) made a cell that reaches out
     of it: the text of that cell outside the region was not among the characters it was read from, so the cell came out
     empty, and its box took that text out of the body of the page — the title, the series line and the opening
-    paragraph of a leaflet were in the output nowhere, with no warning
+    paragraph of a leaflet were in the output nowhere, with no warning. Such a table is not one of the region: the page
+    is read as if this search had found nothing there. Deliberate: the whole table is given up, not the cell alone — a
+    table of the cells that are left passed the filters the whole one did not, and a drawing came out as tables of its
+    labels, each written on every row it stood beside
     (Pinned by: test_pdf.py::TestRuledTables::test_a_cell_reaching_out_of_the_region_of_an_open_sided_table_takes_no_text)."""
-    cells = [cell for cell in table.cells
-             if cell[0] >= box[0] - 2 and cell[1] >= box[1] - 2 and cell[2] <= box[2] + 2 and cell[3] <= box[3] + 2]
-    if len(cells) == len(table.cells):
-        return table
-    return Table(table.page, cells) if cells else None
+    inside = all(cell[0] >= box[0] - 2 and cell[1] >= box[1] - 2 and cell[2] <= box[2] + 2 and cell[3] <= box[3] + 2
+                 for cell in table.cells)
+    return table if inside else None
 
 
 def _open_sided_tables(page: object) -> list[object]:

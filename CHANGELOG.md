@@ -46,7 +46,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **PDF: text in a frame above a table open at its sides is no longer lost.** Such a table is looked for in a region
   cut out of the page. A frame drawn around the whole page made one of its cells reach from the top of the page down
   into that region, and the cell was read from the region alone: the title and the opening paragraph of a leaflet
-  came out nowhere, with no warning. Only the cells inside the region are the table's now.
+  came out nowhere, with no warning, and a word at the edge of such a cell was cut short. A table with a cell
+  that reaches out of its region is no longer taken from that search.
 
 - **PDF: a letter TeX sets under an accent is the accented letter.** TeX draws `é` as two glyphs, the accent and
   then the letter under it, wherever its font has no glyph for both, and every such letter of a French, Spanish or
