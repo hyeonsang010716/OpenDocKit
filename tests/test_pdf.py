@@ -471,6 +471,8 @@ class TestRepeatedLineKeptOnce:
         ("Department of the Treasury - Page {}", "Department of the Treasury"),
         ("{} University of Oslo", "University of Oslo"),
         ("Yellow Pages Directory {}", "Yellow Pages Directory"),
+        ("Tidewater Annual Report 2024 - Page {}", "Tidewater Annual Report 2024"),
+        ("Tidewater Studies ISSN 1234-5678 {}", "Tidewater Studies ISSN 1234-5678"),
     ])
     def test_what_stays_is_one_stretch_of_the_line_as_it_is_written(self, foot, kept):
         """The page words were taken out wherever they stood: 'Bank England Quarterly Bulletin', which no page says."""
@@ -486,6 +488,27 @@ class TestRepeatedLineKeptOnce:
 
         assert foot.split()[0] not in text
 
+    def test_word_standing_inside_another_by_chance_is_news(self):
+        """Looked for anywhere inside longer words, 'multi' was found in 'multiple' and the line went."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Category: Multi Asset")
+            if index == 0:
+                pdf.drawString(72, 760, "The category of multiple assets and their sums.")
+
+        assert self._pages(draw).count("Category: Multi Asset") == 1
+
+    def test_many_short_words_of_a_foot_do_not_keep_a_word_with_an_ending_from_being_found(self):
+        """Only so many words were looked for inside longer ones, the shortest first, and the short ones are never found there."""
+        short = " ".join(f"q{number:03d}" for number in range(70))
+
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Hafenbericht")
+            pdf.drawString(72, 40, short)
+            if index == 0:
+                pdf.drawString(72, 760, "Stand des Hafenberichts")
+
+        assert "\nHafenbericht\n" not in self._pages(draw)
+
     def test_number_that_only_the_line_says_keeps_it(self):
         """A case number or the number of a form is what such a line is for, and its words ('case', 'no') the body has."""
         def draw(pdf, index):
@@ -495,7 +518,8 @@ class TestRepeatedLineKeptOnce:
 
         assert self._pages(draw).count("Case No. 2021/1234") == 1
 
-    @pytest.mark.parametrize(("head", "body"), [("사업계획서", "사업계획서를 제출합니다"), ("Hafenbericht", "Stand des Hafenberichts")])
+    @pytest.mark.parametrize(("head", "body"), [("사업계획서", "사업계획서를 제출합니다"), ("사업계획서", "사업계획서에서는 밝힙니다"),
+                                                ("Hafenbericht", "Stand des Hafenberichts")])
     def test_word_standing_inside_a_longer_word_of_the_body_is_no_news(self, head, body):
         """A script written without spaces has the head inside a clause, and an inflected language has it with an ending."""
         def draw(pdf, index):

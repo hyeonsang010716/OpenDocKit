@@ -4,7 +4,6 @@ pages, and the body font size and line gap of the document.
 
 from collections import Counter
 from collections.abc import Iterator
-from functools import lru_cache
 import re
 
 from opendockit.extractors._pdf_aligned_tables import _aligned_table_runs
@@ -60,15 +59,20 @@ _NON_WORD = re.compile(r"[\W_]+")
 # A word of a repeated line (`_keep_the_first_copy`): two letters or digits or more of any script. A number is one, so that a
 # case number or the number of a form can be what a line alone says
 _WORD = re.compile(r"[^\W_]{2,}")
-# Words looked for inside longer words of the text left, and tokens of a piece set beside its copies (`_Piece.says`)
-_INSIDE_WORDS = 64
-_STRETCH = 1 << 20
-# A word stands inside a longer one for a reason of the language (`_inside`) when its script is written without spaces, or when
-# it is the start of the longer word, of `_STEM` characters or Hangul, with an ending of at most `_ENDING` characters
+# Tokens of a piece set beside its copies (`_Piece.set_beside`): a longer piece says nothing
+_COUNTED_TOKENS = 64
+# A word of a repeated line is held by the text left also where it stands inside a longer word for a reason of the language,
+# and not by chance (`_keep_the_first_copy`): as the start of a word with an ending of `_ENDING` characters at most, when it
+# has `_STEM` characters ('Hafenbericht' in 'Hafenberichts') or is Hangul, whose endings run to `_HANGUL_ENDING` syllables
+# ('사업계획서' in '사업계획서에서는'); anywhere, when its script is written without spaces (`_UNSPACED`: '年度报告' in
+# '本年度报告显示'), for `_UNSPACED_WORDS` words at most, each being looked for in every word of such a script. Looked for
+# anywhere in every script, 'multi' was found in 'multiple' and 'li' in most words, and titles that say something went
 _UNSPACED = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]")
 _HANGUL = re.compile(r"[\uac00-\ud7a3]")
 _STEM = 5
 _ENDING = 2
+_HANGUL_ENDING = 4
+_UNSPACED_WORDS = 64
 # A word of letters: a piece that holds none (a date, a telephone number) says nothing by itself (`_Piece.says`)
 _LETTERS = re.compile(r"[^\W\d_]{2,}")
 _COUNTED_TOKENS = 64
@@ -236,9 +240,10 @@ def _keep_the_first_copy(pages: list[_Page], per_page: list[dict[str, list[_Line
 
     A piece stays, once, when what it says (`_Piece.says`: nothing for a page number, and no number that counts with
     the pages) holds a word (`_WORD`) that stands nowhere in the text left on any page — its lines, tables, text read
-    sideways and form values — and in no piece kept before it. Nowhere means not inside a longer word either: a
-    script written without spaces has the head inside a clause ('年度报告' in '本年度报告显示'), and an inflected
-    language has it with an ending. The running head of a book or a paper is its title, the title of the chapter or
+    sideways and form values — and in no piece kept before it. Nowhere means not inside a longer word for a reason of
+    the language either (`_STEM`, `_UNSPACED`): a script written without spaces has the head inside a clause
+    ('年度报告' in '本年度报告显示'), and an inflected language has it with an ending. The running head of a
+    book or a paper is its title, the title of the chapter or
     the names of the authors, whose words the body has: it goes as before. A piece is noted on the first page that
     has it and has text left: a scan whose only text is the stamp of the scanner on every page stays without text,
     and says so. What stays is written before the text of its page when it stood in the upper half of what is seen
@@ -263,20 +268,26 @@ def _keep_the_first_copy(pages: list[_Page], per_page: list[dict[str, list[_Line
     if not saying:
         return
     wanted = {word for _, text in saying for word in _words(text)}
-    for page, keys, gone in zip(pages, per_page, removed, strict=True):  # the words the text left holds, one at a time
-        for text in _left(page, _dropped(keys, gone)):
-            for match in _WORD.finditer(text) if wanted else ():
-                wanted.discard(match.group().casefold())
-    # ... and those standing inside a longer word. Each is looked for in the whole text, so no more than `_INSIDE_WORDS` of
-    # them are, the shortest first; the others count as found nowhere
-    inside = sorted(wanted, key=lambda word: (len(word), word))[:_INSIDE_WORDS]
+    # A word is held by the text left as a word of its own, or inside a longer one for a reason of the language (`_STEM`,
+    # `_UNSPACED`). One pass, a word of the text at a time: a line can be the whole text of a document
+    stems = {word for word in wanted if not _UNSPACED.search(word) and (len(word) >= _STEM or _HANGUL.search(word))}
+    unspaced = sorted(word for word in wanted if _UNSPACED.search(word))[:_UNSPACED_WORDS]
+    longest = max(map(len, wanted)) + _HANGUL_ENDING
     for page, keys, gone in zip(pages, per_page, removed, strict=True):
-        for text in _left(page, _dropped(keys, gone)) if inside else ():
-            if not inside:
-                break
-            found = _standing_in(text, inside)
-            wanted.difference_update(found)
-            inside = [word for word in inside if word not in found]
+        for text in _left(page, _dropped(keys, gone)) if wanted else ():
+            for match in _WORD.finditer(text):
+                start, end = match.span()
+                for held in [other for other in unspaced if text.find(other, start, end) >= 0]:
+                    wanted.discard(held)
+                    unspaced.remove(held)
+                if end - start > longest:
+                    continue  # longer than any word looked for with its ending: not copied out of the text
+                word = text[start:end].casefold()
+                wanted.discard(word)
+                for ending in range(1, min(_HANGUL_ENDING, len(word) - 1) + 1) if stems else ():
+                    stem = word[:-ending]
+                    if stem in stems and (ending <= _ENDING or _HANGUL.search(stem)):
+                        wanted.discard(stem)
     for (index, line), text in sorted(saying, key=lambda said: (said[0][0], said[0][1].top, said[0][1].x0)) if wanted else ():
         new = wanted.intersection(_words(text))
         if new:
@@ -284,32 +295,6 @@ def _keep_the_first_copy(pages: list[_Page], per_page: list[dict[str, list[_Line
             page = pages[index]
             _, top, _, bottom = page.text_view or (0.0, 0.0, page.width, page.height)
             (page.head_lines if (line.top + line.bottom) / 2 < (top + bottom) / 2 else page.foot_lines).append(text)
-
-
-def _standing_in(text: str, words: list[str]) -> set[str]:
-    """Those of `words` (without case) that stand in `text` inside a longer word (`_inside`). The text is gone through a
-    stretch at a time, each reaching into the next by the longest word: a line can be the whole text of a document."""
-    pattern = _inside(tuple(words))
-    reach = max(map(len, words)) + _ENDING + 1
-    found: set[str] = set()
-    for start in range(0, len(text), _STRETCH):
-        found.update(match.group(1) or match.group(2)
-                     for match in pattern.finditer(text[start:start + _STRETCH + reach].casefold()))
-    return found
-
-
-@lru_cache(maxsize=8)
-def _inside(words: tuple[str, ...]) -> re.Pattern[str]:
-    """Finds a word where it stands inside a longer one for a reason of the language, and not by chance: anywhere, when
-    it is written in a script without spaces (`_UNSPACED`: '年度报告' in '本年度报告显示'); at the start of a word with an
-    ending of `_ENDING` characters at most, when it has `_STEM` characters or is Hangul ('Hafenbericht' in
-    'Hafenberichts', '사업계획서' in '사업계획서를'). Looked for anywhere, 'astrologer' was found in 'astrologers', 'multi' in
-    'multiple' and 'li' in most words, and titles that say something went ('Kategorie: MULTI ASSET')."""
-    unspaced = [word for word in words if _UNSPACED.search(word)]
-    stems = [word for word in words if not _UNSPACED.search(word) and (len(word) >= _STEM or _HANGUL.search(word))]
-    anywhere = "|".join(map(re.escape, unspaced)) or "(?!)"
-    with_ending = "|".join(map(re.escape, stems)) or "(?!)"
-    return re.compile(rf"({anywhere})|(?<![^\W_])({with_ending})[^\W_]{{1,{_ENDING}}}(?![^\W_])")
 
 
 def _left(page: _Page, drop: set[int]) -> Iterator[str]:
@@ -366,8 +351,8 @@ class _Piece:
         A page number says nothing (`_is_page_number`, `_is_page_count`). A piece whose copies are the same says its
         text when it holds a word besides the words a page is counted with ('PAGE' standing apart from its number). In
         a piece whose copies differ from page to page what differs is the number of the page. It is taken with what
-        belongs to it on either side (`_belongs_to_the_count`: the page words, other numbers, punctuation, and a word
-        of letters between two numbers, 'von' in '3 von 10'), and the piece says what stands before that or after it,
+        belongs to it: on either side the page words and marks (`_is_count_mark`), after it the word that joins it to
+        a total and the total ('von 10', '/ 10'). The piece says what stands before that or after it,
         when that is two words or more: 'ACME Corp - Page 3 of 6' says 'ACME Corp', 'Seite 3 von 10' nothing. A piece
         with text on both sides of its count, one that differs in two places with words between, one of more than
         `_COUNTED_TOKENS` tokens and copies of different numbers of tokens say nothing."""
@@ -381,25 +366,29 @@ class _Piece:
         if any(_WORD.search(tokens[place]) and not _DIGITS.search(tokens[place])
                for place in range(start, end) if place not in self.differ):
             return ""
-        while start > 0 and _belongs_to_the_count(tokens, start - 1):
+        while start > 0 and _is_count_mark(tokens[start - 1]):
             start -= 1
-        while end < len(tokens) and _belongs_to_the_count(tokens, end):
-            end += 1
+        while end < len(tokens):
+            if _is_count_mark(tokens[end]):
+                end += 1
+            elif end + 1 < len(tokens) and tokens[end].isalpha() and _DIGITS.search(tokens[end + 1]):
+                end += 2  # the word that joins the number to a total, and the total: 'von 10'
+            elif _NON_WORD.sub("", tokens[end]).isdigit() and end - 1 not in self.differ and _is_count_mark(tokens[end - 1]):
+                end += 1  # the total after a mark or a page word: '/ 10', 'of 10'
+            else:
+                break
         if start > 0 and end < len(tokens):
             return ""
         rest = " ".join(tokens[:start] or tokens[end:])
         return rest if len(_lettered(rest)) >= 2 else ""
 
 
-def _belongs_to_the_count(tokens: list[str], place: int) -> bool:
-    """Whether the token beside a page number is part of the count: it holds no letter (a number, a total, a dash), is a
-    page word, or is a word of letters alone standing between two tokens with digits ('of', 'von', 'de', 'sur')."""
-    token = tokens[place]
+def _is_count_mark(token: str) -> bool:
+    """Whether a token beside a page number is part of the count whatever stands around it: a page word, or a mark
+    without letter or digit (a dash, a bar). A number is not: before the count it is a year or an ISSN ('Annual Report
+    2024 - Page 3' says 'Annual Report 2024'), and taken with it the stretch ended on 'Juni', 'ISSN', 'No.'."""
     bare = _NON_WORD.sub("", token)
-    if not bare or bare.isdigit() or bare.casefold() in _PAGE_COUNT_WORDS:
-        return True
-    return (bare == token and bare.isalpha() and 0 < place < len(tokens) - 1
-            and bool(_DIGITS.search(tokens[place - 1])) and bool(_DIGITS.search(tokens[place + 1])))
+    return not bare or bare.casefold() in _PAGE_COUNT_WORDS
 
 
 def _row_shape(row: list[_Line]) -> str:
