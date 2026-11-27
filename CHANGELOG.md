@@ -15,6 +15,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **A PDF saved by Hangul gives back the tables of its document.** Hangul's own PDF export (Producer `Hancom PDF`)
+  sets a clipping path around each table cell before it draws the cell, and those boxes are the cells of the table
+  as the document had them: its columns, its rows, its merged cells and the tables inside its cells. They are read
+  now, where the rules drawn on the page gave only the borders that are visible (the contact table at the end of a
+  press release came out with four columns for six) and a table without rules was guessed from the alignment of its
+  text. Against the HWPX of the same release, table structure (TEDS) rises from 0.6125 to 0.9503 on the Korean pairs
+  and from 0.6091 to 0.9689 on the Korean holdout, and the overall score from 0.7807 to 0.9171 and from 0.8005 to
+  0.9381; text order, headings and words rise as well. A row of boxes is a line and boxes that frame text are that
+  text, as the HWPX reader writes them. PDFs of every other program are read exactly as before: the benchmark, the
+  PDF twins and the script twins do not change by a character. Conversion takes the time and the memory it took.
 - **A ruled PDF table with a cell over several columns is written with its spans.** pdfplumber states each cell box,
   and the places a merged cell hides were written as empty cells: the text of a cell over three columns stood in
   whichever column its middle fell in, between empty ones (`| 15:00~15:05 | | 오프닝 영상 | |`), and nothing said
