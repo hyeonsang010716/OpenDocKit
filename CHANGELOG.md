@@ -43,6 +43,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **HWP, HWPX: a headline broken by hand in two lines is a heading.** The title of a Korean press release stands in a
+  box, and as often as not it is one paragraph with a line break in it. Such a paragraph was no heading, so the
+  release had its headline as text: 13 of 118 releases. It is read as one title line now, as two paragraphs of one
+  size already were.
+
 - **PDF: text in a frame above a table open at its sides is no longer lost.** Such a table is looked for in a region
   cut out of the page. A frame drawn around the whole page made one of its cells reach from the top of the page down
   into that region, and the cell was read from the region alone: the title and the opening paragraph of a leaflet

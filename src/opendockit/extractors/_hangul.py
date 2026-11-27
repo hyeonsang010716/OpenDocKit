@@ -327,6 +327,8 @@ _LONE_TITLES = 2
 _SIZE_HEADING_LEVELS = ((1.5, 1), (1.3, 2), (1.15, 3))
 # A paragraph longer than this is not taken for a heading by its size (a sentence written large, a cover-page blurb)
 _SIZE_HEADING_MAX_CHARS = 80
+# The lines a title set in a layout box may be broken into by hand (`_size_heading_text`)
+_TITLE_LINES = 3
 # The lowest heading level a paragraph of a layout box takes by its size (`SizeHeadings.box`): 1.3 times the body size and
 # more. A box holds the text of an attachment as often as a title, and its items set a little larger are items.
 _BOX_HEADING_MAX_LEVEL = 2
@@ -423,6 +425,14 @@ def _size_heading_text(plain: str, *, boxed: bool = False) -> bool:
 
     An outline head (개요 번호) is held to `_outline_title` alone (`decorated_text`)."""
     text = plain.strip()
+    if boxed and "\n" in text:
+        # The headline of a press release is often one paragraph broken by hand in two ('… 수출 1조 달러 넘어' over
+        # '‘질적 성장’ 도약 다짐'): in the box its title stands in, a paragraph of up to `_TITLE_LINES` lines none of
+        # which is a list item is that title, read as one line. Outside a box a line break still makes no heading.
+        lines = [line.strip() for line in text.split("\n")]
+        if len(lines) > _TITLE_LINES or not all(lines) or any(_BULLET_LEAD.match(line) or line[0] in "-–—·" for line in lines):
+            return False
+        text = " ".join(lines)
     if not text or len(text) > _SIZE_HEADING_MAX_CHARS or "\n" in text:
         return False
     unquoted = text.rstrip(_CLOSING).rstrip()
@@ -732,7 +742,9 @@ def decorated_text(text: str, mark: str, level: int, style_name: str, margin: in
     written = text if in_cell or ("#" not in text and ">" not in text) else escape_block_marks(text)
     if size and size_headings is not None and (not in_cell or boxed) and mark != "-" and _size_heading_text(plain, boxed=boxed):
         heading_head = paragraph_head(mark, level, in_cell=False, heading=True) + check
-        return size_headings.candidate(head + written, heading_head + (text if heading_text is None else heading_text()), size)
+        title = text if heading_text is None else heading_text()
+        # a title broken by hand is one heading line (a line break inside a heading would end it)
+        return size_headings.candidate(head + written, heading_head + " ".join(title.split("\n")) if "\n" in title else heading_head + title, size)
     return head + written
 
 

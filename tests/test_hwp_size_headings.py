@@ -476,6 +476,25 @@ class TestTitlesInBoxes:
         top_level = convert(_hwp(_paragraph("K-스마트농업, 중국 시장 공략한다", (0, 2)), _paragraph(_BODY), _paragraph(_BODY)), "a.hwp").text
         assert "#" not in top_level
 
+    def test_a_title_broken_by_hand_in_its_box_is_one_heading(self):
+        """The headline is one paragraph with a line break in it: of 118 releases, 13 had their title as text for that,
+        where their PDF has it as a heading. Outside a box a paragraph with a line break is no heading, as before."""
+        broken = "산업부·경제 6단체, 수출 1조 달러 넘어\n‘질적 성장’ 도약 다짐"
+        hwp = convert(_hwp(_hwp_box([(broken, 2)], self._SUMMARY), _paragraph(_BODY), _paragraph(_BODY)), "a.hwp").text
+        hwpx_title = _hwpx_paragraph(broken, (2, broken)).replace("\n", "<hp:lineBreak/>")
+        box = _hwpx_box([("TITLE", 2)], self._SUMMARY).replace(_hwpx_paragraph("TITLE", (2, "TITLE")), hwpx_title)
+        hwpx = convert(_hwpx(box, _hwpx_paragraph(_BODY), _hwpx_paragraph(_BODY)), "a.hwpx").text
+
+        for text in (hwp, hwpx):
+            assert text.split("\n\n")[0] == "# 산업부·경제 6단체, 수출 1조 달러 넘어 ‘질적 성장’ 도약 다짐"
+        top_level = convert(_hwp(_paragraph(broken, (0, 2)), _paragraph(_BODY), _paragraph(_BODY)), "a.hwp").text
+        assert "#" not in top_level
+
+    def test_lines_of_a_list_broken_in_one_paragraph_are_no_title(self):
+        for lines in ("- 총 235편 응모\n- 32편 수상작 선정", "가\n나\n다\n라"):
+            hwp = convert(_hwp(_hwp_box([(lines, 2)], self._SUMMARY), _paragraph(_BODY), _paragraph(_BODY)), "a.hwp").text
+            assert "#" not in hwp
+
     def test_a_table_inside_a_box_with_a_title_is_kept(self):
         """The box is unfolded by the table itself, which holds the tables of its cells: unfolded from the text of the
         cell, the table inside it was lost and its placeholder left a `0` in the text."""
