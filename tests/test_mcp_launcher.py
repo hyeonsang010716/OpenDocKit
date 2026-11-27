@@ -103,3 +103,27 @@ class TestReadme:
 
     def test_version_of_the_checkout_is_what_the_server_reports(self):
         assert opendockit.__version__ == _project(ROOT)["version"]
+
+
+class TestStartedByUvx:
+    """The newest releases of cryptography, which the PDF reader needs, have no wheel for Windows on Arm, 32-bit Windows or
+    Intel macOS, and uvx took the newest and built it from source, which needs Rust and a C toolchain. Every way this
+    project gives to start the server with uvx passes `--no-build-package cryptography`, so that uvx takes the newest
+    release with a wheel instead: the same release wherever the newest has one."""
+
+    def test_the_registry_entry_passes_the_option_to_uvx(self):
+        package, = _entry()["packages"]
+
+        assert package["runtimeHint"] == "uvx"
+        assert [(argument["type"], argument["name"], argument["value"]) for argument in package["runtimeArguments"]] == [
+            ("named", "--no-build-package", "cryptography")]
+
+    @pytest.mark.parametrize("page", ["README.md", "README.ko.md", "README.zh-CN.md", "docs/integrations.md",
+                                      "packages/opendockit-mcp/README.md"])
+    def test_every_client_configuration_in_the_documentation_passes_it(self, page):
+        blocks = re.findall(r"```json\n(.*?)```", (ROOT / page).read_text(encoding="utf-8"), re.DOTALL)
+        servers = [server for block in blocks for server in json.loads(block).get("mcpServers", {}).values()
+                   if server.get("command") == "uvx"]
+
+        assert servers
+        assert all(server["args"][:2] == ["--no-build-package", "cryptography"] for server in servers)

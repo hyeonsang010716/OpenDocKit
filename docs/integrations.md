@@ -130,7 +130,7 @@ calling a loader in your server process.
   "mcpServers": {
     "opendockit": {
       "command": "uvx",
-      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+      "args": ["--no-build-package", "cryptography", "opendockit-mcp", "--root", "/path/to/documents"]
     }
   }
 }

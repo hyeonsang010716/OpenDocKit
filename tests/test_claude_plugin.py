@@ -86,6 +86,16 @@ class TestServerDeclaration:
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", date)
         assert arguments.index("--exclude-newer") < arguments.index("--from")
 
+    def test_builds_no_cryptography_from_source(self):
+        """The newest releases of cryptography, which the PDF reader needs, have no wheel for Windows on Arm, 32-bit Windows or
+        Intel macOS, and uvx took the newest and built it from source, which needs Rust and a C toolchain: on a machine
+        without them the server did not start. With the option uvx takes the newest release that has a wheel, which is the
+        same release wherever the newest has one; the Hermes plugin passes the same arguments."""
+        arguments = _server()["args"]
+        at = arguments.index("--no-build-package")
+
+        assert arguments[at + 1] == "cryptography" and at < arguments.index("--from")
+
     def test_passes_no_environment_and_no_root(self):
         """The server inherits Claude Code's environment, so `OPENDOCKIT_MCP_ROOTS` exported in the shell reaches it. Written
         as `"${OPENDOCKIT_MCP_ROOTS}"` in `env`, an unset variable is passed as that literal text, which the server takes

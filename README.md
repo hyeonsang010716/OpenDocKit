@@ -84,6 +84,11 @@ Requires Python 3.12 or newer on Linux, macOS or Windows. On Windows a malformed
 characters, or one nested very deeply, is read by an older parser and may lose content, with a warning
 ([why](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
 
+On Windows on Arm with an Arm64 Python, with a 32-bit Python on Windows and on an Intel Mac, install with
+`pip install --prefer-binary opendockit`. The newest releases of cryptography, which the PDF reader needs, have no wheel
+for these, and pip would build it from source, which needs Rust and a C toolchain
+([details](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
+
 Optional: install [LibreOffice](https://www.libreoffice.org/) (`brew install --cask libreoffice`, `apt install libreoffice`)
 to read legacy `.doc` and `.ppt` files. Every other format is read by OpenDocKit itself.
 
@@ -163,7 +168,7 @@ To let the client start the server itself, with nothing installed beforehand, ad
   "mcpServers": {
     "opendockit": {
       "command": "uvx",
-      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+      "args": ["--no-build-package", "cryptography", "opendockit-mcp", "--root", "/path/to/documents"]
     }
   }
 }
