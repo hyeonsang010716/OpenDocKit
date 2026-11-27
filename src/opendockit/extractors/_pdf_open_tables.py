@@ -5,6 +5,8 @@ rules merged back.
 from bisect import bisect_left, bisect_right, insort
 from collections.abc import Callable
 
+from pdfplumber.table import Table
+
 from opendockit.extractors._pdf_model import (
     _MIN_FIGURE_POINTS,
     _TABLE_SETTINGS,
@@ -23,6 +25,22 @@ _RULE_JOIN_OVERLAP = 1.0
 # Vertical gap (pt) allowed when taking vertical line segments drawn broken at each row as one line (_chained_verticals). Real
 # generators break them by 0.25pt
 _VERTICAL_JOIN_GAP = 1.5
+
+
+def _within_its_region(table: object, box: tuple[float, float, float, float]) -> object | None:
+    """The table found in a region of the page with the cells that lie in that region; None when none does.
+
+    The region is cut out of the page, and the cells of the table are read from what was cut out. A rule that runs on
+    past the region (the frame around a whole page, of which the region is the lower part) made a cell that reaches out
+    of it: the text of that cell outside the region was not among the characters it was read from, so the cell came out
+    empty, and its box took that text out of the body of the page — the title, the series line and the opening
+    paragraph of a leaflet were in the output nowhere, with no warning
+    (Pinned by: test_pdf.py::TestRuledTables::test_a_cell_reaching_out_of_the_region_of_an_open_sided_table_takes_no_text)."""
+    cells = [cell for cell in table.cells
+             if cell[0] >= box[0] - 2 and cell[1] >= box[1] - 2 and cell[2] <= box[2] + 2 and cell[3] <= box[3] + 2]
+    if len(cells) == len(table.cells):
+        return table
+    return Table(table.page, cells) if cells else None
 
 
 def _open_sided_tables(page: object) -> list[object]:
@@ -95,7 +113,8 @@ def _open_sided_tables(page: object) -> list[object]:
         outers = [areas[other][0] for other, tables in found.items() if tables]
         if any(_encloses(outer, box) and (abs(outer[0] - box[0]) <= 2) != (abs(outer[2] - box[2]) <= 2) for outer in outers):
             continue
-        found[index] = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
+        tables = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
+        found[index] = [inside for table in tables if (inside := _within_its_region(table, box)) is not None]
 
     # Horizontal lines whose ends are off by about 1pt fall into two width groups, so the same table is found in two regions.
     # Keeping both made `_real_tables` see each as 'a box enclosing another table' and discard both, and a two-column
