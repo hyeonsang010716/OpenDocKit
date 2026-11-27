@@ -466,6 +466,47 @@ class TestRepeatedLineKeptOnce:
 
         assert [line for line in text.splitlines() if "Tidewater" in line] == ["Tidewater Shipping"]
 
+    @pytest.mark.parametrize(("foot", "kept"), [
+        ("Bank of England Quarterly Bulletin {}", "Bank of England Quarterly Bulletin"),
+        ("Department of the Treasury - Page {}", "Department of the Treasury"),
+        ("{} University of Oslo", "University of Oslo"),
+        ("Yellow Pages Directory {}", "Yellow Pages Directory"),
+    ])
+    def test_what_stays_is_one_stretch_of_the_line_as_it_is_written(self, foot, kept):
+        """The page words were taken out wherever they stood: 'Bank England Quarterly Bulletin', which no page says."""
+        text = self._pages(lambda pdf, index: pdf.drawString(72, 40, foot.format(index + 1)))
+
+        assert [line for line in text.splitlines() if kept.split()[-1] in line] == [kept]
+
+    @pytest.mark.parametrize("foot", ["Tidewater Shipping - Page {} of 4 - Confidential", "Tidewater Studies {} Vol. 12 No. 3",
+                                      "Northern Board Page {} Quay 12 Northtown"])
+    def test_piece_with_text_on_both_sides_of_its_count_goes(self, foot):
+        """What stands before the count and what stands after it are not one stretch: nothing is made up of the two."""
+        text = self._pages(lambda pdf, index: pdf.drawString(72, 40, foot.format(index + 1)))
+
+        assert foot.split()[0] not in text
+
+    def test_number_that_only_the_line_says_keeps_it(self):
+        """A case number or the number of a form is what such a line is for, and its words ('case', 'no') the body has."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, "Case No. 2021/1234")
+            if index == 0:
+                pdf.drawString(72, 760, "In this case no sum of the list was returned.")
+
+        assert self._pages(draw).count("Case No. 2021/1234") == 1
+
+    @pytest.mark.parametrize(("head", "body"), [("사업계획서", "사업계획서를 제출합니다"), ("Hafenbericht", "Stand des Hafenberichts")])
+    def test_word_standing_inside_a_longer_word_of_the_body_is_no_news(self, head, body):
+        """A script written without spaces has the head inside a clause, and an inflected language has it with an ending."""
+        def draw(pdf, index):
+            pdf.drawString(72, 800, head)
+            if index == 0:
+                pdf.drawString(72, 760, body)
+
+        text = self._pages(draw)
+
+        assert text.count(head) == 1 and body in text
+
     def test_running_head_whose_words_the_body_has_goes_from_every_page(self):
         """The head of a paper names its authors and a short form of its title: no word of it is news, and a copy of it
         before the second page would be noise in every paper."""
