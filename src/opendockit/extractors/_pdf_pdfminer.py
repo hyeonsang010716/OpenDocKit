@@ -1947,10 +1947,7 @@ def _add_cid2unichr_of_one_byte(self: FileUnicodeMap, cid: int, code: object) ->
     the first of them: every letter and digit of such a scan was read as nothing and only the letters past 127, which
     the map lists in full, came out ('éúééú á ő é' for a menu in Hungarian, English and German), with no warning.
     pdfium and poppler read the byte as the number it is (Pinned by: test_pdf_fonts.py::TestToUnicodeOfOneByte)."""
-    if isinstance(code, bytes) and len(code) == 1 and isinstance(cid, int):
-        self.cid2unichr[cid] = chr(code[0])
-        return
-    _add_cid2unichr(self, cid, code)
+    _add_cid2unichr(self, cid, code[0] if isinstance(code, bytes) and len(code) == 1 else code)
 
 
 FileUnicodeMap.add_cid2unichr = _add_cid2unichr_of_one_byte
