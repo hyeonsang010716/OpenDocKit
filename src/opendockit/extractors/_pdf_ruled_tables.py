@@ -10,7 +10,7 @@ from pdfplumber.table import TableFinder, TableSettings
 
 from opendockit.extractors._pdf_cell_text import _cell_rows, _text_outside
 from opendockit.extractors._pdf_chars import _drawn_text
-from opendockit.extractors._pdf_clip_tables import _clip_tables, _reaches_past
+from opendockit.extractors._pdf_clip_tables import _clip_tables
 from opendockit.extractors._pdf_model import (
     _CAPTION_LABEL,
     _CHECKBOX_SIDE,
@@ -353,15 +353,6 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
         return any(_overlapping(table.bbox, other.bbox) for other in stated)
 
     ruled = page.find_tables(_TABLE_SETTINGS)
-    if stated:
-        # Where the rules show more of a table than the clips do — text in a ruled cell outside every clip table it
-        # lies over, as when a cell's clip was no rectangle or was taken for a picture's — the rules are the table
-        overruled: set[int] = set()
-        for table in ruled:
-            over = [other for other in stated if _overlapping(table.bbox, other.bbox)]
-            if over and _reaches_past(list(table.cells), [other.bbox for other in over], page.chars):
-                overruled.update(id(other) for other in over)
-        stated = [other for other in stated if id(other) not in overruled]
     # a table that is left out in the end is not closed first: closing only adds to it
     regular = [table if left_out(table) else _closed_at_open_ends(page, _closed_at_the_bottom(page, table))
                for table in ruled]

@@ -144,40 +144,39 @@ def _tables_among(cells: list[_Box], text: _Text) -> list[list[_Box]]:
 
 
 def _apart(groups: list[tuple[_Box | None, list[_Box]]]) -> list[list[_Box]]:
-    """The tables with no two of one depth covering a common area, from the top of the page: a character in a strip
-    two tables shared was a character of both. A table whose top row is set a little into the table above it starts
-    where that one ends; a table that still lies over one above it is left to the reading without clips."""
+    """The tables with no cell of one over a cell of another of its depth, from the top of the page: a character in a
+    strip two tables shared was a character of both. A table whose top row is set a little into the cells above it
+    starts where those end; a table with a cell that still lies over a cell of one above it is left to the reading
+    without clips. Cells are compared, not the boxes around the tables: a table in the notch of another lies over none
+    of its cells."""
     kept: list[tuple[_Box | None, list[_Box], _Box]] = []
+    compared = 0
     for home, group in groups:
-        for above_home, _, above in kept:
-            if above_home != home or not _over(_around(group), above):
+        around = _around(group)
+        for above_home, above, above_around in kept:
+            if above_home != home or not _over(around, above_around):
                 continue
-            top = min(box[1] for box in group)
-            if above[1] <= top < above[3]:  # the first row starts inside the table above: it starts under it
-                group = [(box[0], above[3], box[2], box[3]) if box[1] < above[3] else box for box in group]
-            if any(box[3] - box[1] <= _EDGE for box in group) or _over(_around(group), above):
+            compared += len(group) * len(above)
+            if compared > _MAX_COMPARISONS:
+                return []
+            under = [other for other in above if any(_over(box, other) for box in group)]
+            if not under:
+                continue
+            # the rows that start inside the cells above start under them: every box of such a row, to keep the row
+            floor = max(other[3] for other in under)
+            starts = {box[1] for box in group if any(_over(box, other) for other in under)}
+            group = [(box[0], floor, box[2], box[3]) if box[1] in starts else box for box in group]
+            if any(box[3] - box[1] <= _EDGE for box in group) or any(_over(box, other) for box in group for other in above):
                 group = []
                 break
+            around = _around(group)
         if group:
-            kept.append((home, group, _around(group)))
+            kept.append((home, group, around))
     return [group for _, group, _ in kept]
 
 
 def _around(group: list[_Box]) -> _Box:
     return (min(box[0] for box in group), min(box[1] for box in group), max(box[2] for box in group), max(box[3] for box in group))
-
-
-def _reaches_past(cells: list[_Box], tables: list[_Box], chars: list[dict]) -> bool:
-    """Whether a table found by the rules of the page holds text in a cell that lies outside every one of the clip
-    tables it lies over (`tables`, their boxes): the rules then show more of the table than the clips do."""
-    outside = [cell for cell in cells if not any(_over(cell, table) for table in tables)]
-    if not outside:
-        return False
-    text = _Text(chars, outside)
-    try:
-        return any(text.within(cell) for cell in outside)
-    except _TooCostly:
-        return False
 
 
 def _homes(cells: list[_Box]) -> dict[_Box, _Box | None]:

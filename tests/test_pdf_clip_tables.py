@@ -112,17 +112,17 @@ class TestClipsAndRules:
         assert "| Kim Lead | 1234 |" in by_rules
         assert "<td>Kim</td><td>Lead</td><td>1234</td>" in by_clips
 
-    def test_the_rules_are_the_table_where_they_show_more_of_it(self):
-        """A third row stands between rules and under no clip (its clips were no rectangles, or past the bound): the
-        table found by the rules holds it, and read from the clips alone the row fell out of the table."""
-        grid = _GRID[:6]
-        drawn = _rules(*(cell[:4] for cell in _GRID))
-        runs, clips = _cells(*grid)
-        runs += [(76, 842 - 152, 10, "Lee", False), (176, 842 - 152, 10, "Staff", False), (276, 842 - 152, 10, "5678", False)]
+    def test_a_ruled_box_joined_to_the_table_by_its_rules_does_not_undo_it(self):
+        """A title box drawn with rules stands on the table, and by the rules the two are one table with the title in a
+        cell of its own. The clipped cells are still the table: the title is a line above it."""
+        head = self._HEAD
+        drawn = _rules((72, 80, 400, 100), (72, 100, 272, 120), (272, 100, 400, 120), (72, 120, 272, 140), (272, 120, 400, 140))
+        runs, clips = _cells(*head)
+        runs.append((76, 842 - 92, 10, "Press", False))
 
         text = convert(pdf_of_glyphs(runs, producer=_HANCOM, clips=clips, around=(drawn, b"")), "a.pdf", _OPTIONS).text
 
-        assert "| Kim | Lead | 1234 |\n| Lee | Staff | 5678 |" in text
+        assert "<td>Kim</td><td>Lead</td><td>1234</td>" in text and "Press" in text
 
     def test_a_path_that_is_no_rectangle_is_no_cell(self):
         """Two diagonals have the corners of a box and clip nothing like one."""
@@ -136,7 +136,7 @@ class TestClipsAndRules:
     def test_a_page_whose_media_box_starts_off_the_origin(self):
         runs, clips = _cells(*self._HEAD)
         data = pdf_of_glyphs(runs, producer=_HANCOM, clips=clips)
-        moved = data.replace(b"/MediaBox [0 0 595 842]", b"/MediaBox [9 9 595 842]")
+        moved = data.replace(b"/MediaBox [0 0 595 842]", b"/MediaBox [40 60 595 842]")  # by more than a cell
 
         assert moved != data and '<th colspan="2">Contact</th>' in convert(moved, "a.pdf", _OPTIONS).text
 
@@ -211,6 +211,17 @@ class TestGroupsOfBoxes:
         first, second = _cell_groups(upper + lower, chars, [])
 
         assert set(first) == set(upper) and min(box[1] for box in second) == 140
+
+    def test_a_table_in_the_notch_of_another_lies_over_none_of_its_cells(self):
+        """The boxes around the two tables cover a common area; no cell of one lies over a cell of the other."""
+        corner = [(72, 100, 172, 120), (172, 100, 272, 120), (72, 120, 172, 140), (172, 120, 272, 140),
+                  (72, 140, 172, 160), (72, 160, 172, 180)]
+        notch = [(200, 150, 260, 165), (260, 150, 320, 165), (200, 165, 260, 180), (260, 165, 320, 180)]
+        chars = [_char(box[0] + 2, box[1] + 2) for box in (*corner, *notch)]
+
+        groups = _cell_groups(corner + notch, chars, [])
+
+        assert sorted(len(group) for group in groups) == [4, 6]
 
     def test_the_text_of_a_page_is_looked_at_within_a_bound(self, monkeypatch):
         grid = [(72 + 20 * column, 100 + 12 * row, 92 + 20 * column, 112 + 12 * row) for row in range(6) for column in range(6)]
