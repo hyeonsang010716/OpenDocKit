@@ -1,7 +1,5 @@
 """Tables read from the clipping path Hangul's own PDF export sets around each table cell (`_pdf_clip_tables`)."""
 
-import pytest
-
 from opendockit import ConvertOptions, convert
 from opendockit.extractors import _pdf_clip_tables
 from opendockit.extractors._pdf_clip_tables import _cell_groups
@@ -94,6 +92,62 @@ class TestTablesFromCellClips:
                 == convert(pdf_of_glyphs(runs, producer=_HANCOM, rotate=90), "a.pdf", _OPTIONS).text)
 
 
+def _rules(*boxes: tuple[float, float, float, float]) -> bytes:
+    """The boxes (x0, top, x1, bottom from the top of the page) drawn as rectangles."""
+    return b"".join(b"%g %g %g %g re S\n" % (x0, 842 - bottom, x1 - x0, bottom - top) for x0, top, x1, bottom in boxes)
+
+
+class TestClipsAndRules:
+    _HEAD = ((72, 100, 272, 120, "Contact"), (272, 100, 400, 120, "Phone"),
+             (72, 120, 172, 140, "Kim"), (172, 120, 272, 140, "Lead"), (272, 120, 400, 140, "1234"))
+
+    def test_the_clipped_cells_are_the_table_where_the_rules_show_fewer(self):
+        """The border between 'Kim' and 'Lead' is not drawn: by its rules the table has two columns."""
+        drawn = _rules((72, 100, 272, 120), (272, 100, 400, 120), (72, 120, 272, 140), (272, 120, 400, 140))
+        runs, clips = _cells(*self._HEAD)
+
+        by_rules = convert(pdf_of_glyphs(runs, producer=None, clips=clips, around=(drawn, b"")), "a.pdf", _OPTIONS).text
+        by_clips = convert(pdf_of_glyphs(runs, producer=_HANCOM, clips=clips, around=(drawn, b"")), "a.pdf", _OPTIONS).text
+
+        assert "| Kim Lead | 1234 |" in by_rules
+        assert "<td>Kim</td><td>Lead</td><td>1234</td>" in by_clips
+
+    def test_the_rules_are_the_table_where_they_show_more_of_it(self):
+        """A third row stands between rules and under no clip (its clips were no rectangles, or past the bound): the
+        table found by the rules holds it, and read from the clips alone the row fell out of the table."""
+        grid = _GRID[:6]
+        drawn = _rules(*(cell[:4] for cell in _GRID))
+        runs, clips = _cells(*grid)
+        runs += [(76, 842 - 152, 10, "Lee", False), (176, 842 - 152, 10, "Staff", False), (276, 842 - 152, 10, "5678", False)]
+
+        text = convert(pdf_of_glyphs(runs, producer=_HANCOM, clips=clips, around=(drawn, b"")), "a.pdf", _OPTIONS).text
+
+        assert "| Kim | Lead | 1234 |\n| Lee | Staff | 5678 |" in text
+
+    def test_a_path_that_is_no_rectangle_is_no_cell(self):
+        """Two diagonals have the corners of a box and clip nothing like one."""
+        crosses = b"".join(b"q %g %g m %g %g l %g %g m %g %g l W n Q\n" % (x0, 842 - bottom, x1, 842 - top, x0, 842 - top, x1, 842 - bottom)
+                           for x0, top, x1, bottom, _ in self._HEAD)
+        runs, _ = _cells(*self._HEAD)
+
+        assert (convert(pdf_of_glyphs(runs, producer=_HANCOM, around=(crosses, b"")), "a.pdf", _OPTIONS).text
+                == convert(pdf_of_glyphs(runs, producer=_HANCOM), "a.pdf", _OPTIONS).text)
+
+    def test_a_page_whose_media_box_starts_off_the_origin(self):
+        runs, clips = _cells(*self._HEAD)
+        data = pdf_of_glyphs(runs, producer=_HANCOM, clips=clips)
+        moved = data.replace(b"/MediaBox [0 0 595 842]", b"/MediaBox [9 9 595 842]")
+
+        assert moved != data and '<th colspan="2">Contact</th>' in convert(moved, "a.pdf", _OPTIONS).text
+
+    def test_the_next_document_is_read_without_clips(self):
+        from opendockit.extractors._pdf_pdfminer import _CELL_CLIPS
+
+        _read(self._HEAD)
+
+        assert _CELL_CLIPS.get() is False
+
+
 def _char(x: float, top: float, text: str = "a") -> dict:
     return {"x0": x, "x1": x + 5, "top": top, "bottom": top + 10, "text": text}
 
@@ -129,6 +183,42 @@ class TestGroupsOfBoxes:
         assert sorted(len(group) for group in groups) == [4, 4]
         assert set(groups[0]) == set(outer) and set(groups[1]) == set(inner)
 
+    def test_cells_beside_the_cell_that_holds_a_table_are_not_its_cells(self):
+        """The inner table starts at the left edge of the cell that holds it, where the cell beside that one ends."""
+        outer = [(72, 100, 172, 200), (172, 100, 400, 200), (72, 200, 172, 240), (172, 200, 400, 240)]
+        inner = [(172, 110, 280, 150), (280, 110, 390, 150), (172, 150, 280, 190), (280, 150, 390, 190)]
+        chars = [_char(box[0] + 2, box[1] + 2) for box in (outer[0], outer[2], outer[3], *inner)]
+
+        groups = _cell_groups(outer + inner, chars, [])
+
+        assert [set(group) for group in groups] == [set(outer), set(inner)]
+
+    def test_edges_a_hair_apart_are_one_edge(self):
+        grid = [(72, 100, 172, 120), (172.05, 100.04, 272, 120), (72, 120.03, 172.02, 140), (172, 120, 272, 140.01)]
+        chars = [_char(box[0] + 2, box[1] + 2) for box in grid]
+
+        (group,) = _cell_groups(grid, chars, [])
+
+        assert len({box[1] for box in group}) == 2 and len({box[0] for box in group}) == 2
+
+    def test_two_tables_do_not_share_a_strip(self):
+        """A table whose first row is set into the last row of a table above it starts where that one ends: a
+        character in the strip was a character of both."""
+        upper = [(72, 100, 172, 120), (172, 100, 272, 120), (72, 120, 172, 140), (172, 120, 272, 140)]
+        lower = [(100, 137, 200, 160), (200, 137, 300, 160), (100, 160, 200, 180), (200, 160, 300, 180)]
+        chars = [_char(box[0] + 2, box[1] + 5) for box in (*upper, *lower)]
+
+        first, second = _cell_groups(upper + lower, chars, [])
+
+        assert set(first) == set(upper) and min(box[1] for box in second) == 140
+
+    def test_the_text_of_a_page_is_looked_at_within_a_bound(self, monkeypatch):
+        grid = [(72 + 20 * column, 100 + 12 * row, 92 + 20 * column, 112 + 12 * row) for row in range(6) for column in range(6)]
+        chars = [_char(box[0] + 2, box[1] + 1) for box in grid]
+        monkeypatch.setattr(_pdf_clip_tables, "_MAX_LOOKS", 30)
+
+        assert _cell_groups(grid, chars, []) == []
+
     def test_a_page_of_too_many_boxes_is_left_to_its_rules(self, monkeypatch):
         grid = [(72 + 20 * column, 100 + 12 * row, 92 + 20 * column, 112 + 12 * row) for row in range(6) for column in range(6)]
         chars = [_char(box[0] + 2, box[1] + 1) for box in grid]
@@ -138,10 +228,16 @@ class TestGroupsOfBoxes:
 
         assert _cell_groups(grid, chars, []) == []
 
-    @pytest.mark.parametrize("count", [1, _pdf_clip_tables._MAX_BOXES + 1])
-    def test_one_box_or_more_than_the_bound_is_no_table(self, count):
-        runs = [_BODY] + [(72, 700 - index % 60 * 10, 6, "x", False) for index in range(count)]
-        clips = {index + 1: (72 + index % 7 * 0.5, 100 + index * 0.9, 300, 101.5 + index * 0.9) for index in range(count)}
+    def test_one_box_or_more_than_the_bound_is_no_table(self, monkeypatch):
+        runs, clips = _cells(*_GRID)
+        with_clips, without = pdf_of_glyphs(runs, producer=_HANCOM, clips=clips), pdf_of_glyphs(runs, producer=_HANCOM)
+        one = pdf_of_glyphs(runs, producer=_HANCOM, clips={1: clips[1]})
+        assert convert(one, "a.pdf", _OPTIONS).text == convert(without, "a.pdf", _OPTIONS).text
+        spanned = _cells((72, 100, 272, 120, "Contact"), (272, 100, 400, 120, "Phone"),
+                         (72, 120, 172, 140, "Kim"), (172, 120, 272, 140, "Lead"), (272, 120, 400, 140, "1234"))
+        assert "colspan" in convert(pdf_of_glyphs(spanned[0], producer=_HANCOM, clips=spanned[1]), "a.pdf", _OPTIONS).text
 
-        assert (convert(pdf_of_glyphs(runs, producer=_HANCOM, clips=clips), "a.pdf", _OPTIONS).text
-                == convert(pdf_of_glyphs(runs, producer=_HANCOM), "a.pdf", _OPTIONS).text)
+        monkeypatch.setattr(_pdf_clip_tables, "_MAX_BOXES", 4)  # the table has five
+
+        assert "colspan" not in convert(pdf_of_glyphs(spanned[0], producer=_HANCOM, clips=spanned[1]), "a.pdf", _OPTIONS).text
+        assert with_clips != without

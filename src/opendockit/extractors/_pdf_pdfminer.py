@@ -34,7 +34,7 @@ from pdfminer.pdftypes import (
     PDFStream,
     resolve1,
 )
-from pdfminer.utils import Plane, apply_matrix_pt, choplist, decode_text
+from pdfminer.utils import Plane, choplist, decode_text
 from pdfplumber.page import PDFPageAggregatorWithMarkedContent
 
 from opendockit.exceptions import DocumentTooLargeError
@@ -1749,23 +1749,31 @@ _CLIP_PATH_MAX = 6  # a rectangle is `re` or `m l l l h` (pdfminer keeps both as
 
 
 def _note_clip(self: PDFPageInterpreter) -> None:
-    """`W`, `W*`: notes the box of a rectangular clipping path set on the page itself (not inside a form XObject)."""
+    """`W`, `W*`: notes the box of a clipping path set on the page itself (not inside a form XObject) that is a
+    rectangle along the axes: one closed run of lines through its four corners in turn (`m l l l h`, as `re` is kept
+    too). Two diagonals have the corners of a box and clip nothing like one."""
     if not _CELL_CLIPS.get():
         return
     try:
-        item = getattr(self.device, "cur_item", None)
         path = self.curpath
-        if not isinstance(item, LTPage) or not 4 <= len(path) <= _CLIP_PATH_MAX:
+        count = len(path)
+        if not 4 <= count <= _CLIP_PATH_MAX or path[0][0] != "m" or path[1][0] != "l" or path[2][0] != "l" or path[3][0] != "l":
             return
-        if any(segment[0] not in "mlh" for segment in path):
+        if count > 4 and (path[4][0] not in "lh" or (count > 5 and path[5][0] not in "lh")):
             return
-        points = [apply_matrix_pt(self.ctm, (segment[1], segment[2])) for segment in path if len(segment) == 3]
-        xs, ys = sorted({round(x, 2) for x, _ in points}), sorted({round(y, 2) for _, y in points})
-        if len(points) < 4 or len(xs) != 2 or len(ys) != 2:
-            return  # not a rectangle along the axes
+        item = getattr(self.device, "cur_item", None)
+        if not isinstance(item, LTPage):
+            return
+        a, b, c, d, e, f = self.ctm
+        corners = [(round(a * x + c * y + e, 2), round(b * x + d * y + f, 2)) for _, x, y in path[:4]]
+        (x0, y0), (x1, y1), (x2, y2), (x3, y3) = corners
+        # each side runs along an axis, and the corner across is across on both
+        if x0 == x2 or y0 == y2 or not ((x0 == x1 and y1 == y2 and x2 == x3 and y3 == y0)
+                                        or (y0 == y1 and x1 == x2 and y2 == y3 and x3 == x0)):
+            return
         noted = item.__dict__.setdefault(_CLIPS, [])
         if len(noted) < _MAX_CLIPS:
-            noted.append((xs[0], ys[0], xs[1], ys[1]))
+            noted.append((min(x0, x2), min(y0, y2), max(x0, x2), max(y0, y2)))
     except Exception:  # noqa: BLE001 — a clip that cannot be measured is one that is not noted
         return
 

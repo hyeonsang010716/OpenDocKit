@@ -13,6 +13,8 @@ tables: a row of boxes is a line of the document unless one of them holds severa
 paragraphs, and boxes that frame text (no two of them with text side by side) are that text.
 """
 
+from bisect import bisect_left, bisect_right
+
 from pdfplumber.table import Table
 
 from opendockit.extractors._pdf_pdfminer import _CLIPS
@@ -28,6 +30,9 @@ _PAGE_SHARE = 0.9
 _MAX_BOXES = 600
 # The comparisons one page may cost while its boxes are put into tables; past them the page is read from its rules.
 _MAX_COMPARISONS = 400_000
+# The characters one page may be looked at, box by box, while its text is found in its boxes; past them the page is
+# read from its rules. The fullest page of 113 press releases takes some 600,000.
+_MAX_LOOKS = 3_000_000
 # A box this close (pt) to a picture on every side is the clip of that picture, set inside the cell that holds it.
 _PICTURE_SLACK = 1.0
 
@@ -48,8 +53,35 @@ def _clip_tables(page: object) -> list[Table]:
     if len(boxes) < 2 or len(boxes) > _MAX_BOXES:
         return []
     pictures = [(float(image["x0"]), float(image["top"]), float(image["x1"]), float(image["bottom"])) for image in page.images]
-    groups = _cell_groups(sorted(boxes), page.chars, pictures)
-    return [Table(page, group) for group in groups]
+    return [Table(page, group) for group in _cell_groups(sorted(boxes), page.chars, pictures)]
+
+
+class _TooCostly(Exception):
+    """The text of the page was looked at more than `_MAX_LOOKS` times."""
+
+
+class _Text:
+    """The characters of a page that are no space, by the height of their middle, and how often they were looked at."""
+
+    def __init__(self, chars: list[dict], boxes: list[_Box]) -> None:
+        """The characters of `chars` that lie at the height of `boxes`: the only ones a box of them is asked for."""
+        top, bottom = min(box[1] for box in boxes), max(box[3] for box in boxes)
+        # (middle height, middle across, top, bottom)
+        self._placed = sorted(((char["top"] + char["bottom"]) / 2, (char["x0"] + char["x1"]) / 2, char["top"], char["bottom"])
+                              for char in chars if top <= char["bottom"] and char["top"] <= bottom and char["text"].strip())
+        self._heights = [place[0] for place in self._placed]
+        self._looks = 0
+
+    def charge(self, looks: int) -> None:
+        self._looks += looks
+        if self._looks > _MAX_LOOKS:
+            raise _TooCostly
+
+    def within(self, box: _Box) -> list[tuple[float, float, float, float]]:
+        """The characters whose middle lies in the box."""
+        first, last = bisect_left(self._heights, box[1]), bisect_right(self._heights, box[3])
+        self.charge(last - first)
+        return [place for place in self._placed[first:last] if box[0] <= place[1] <= box[2]]
 
 
 def _cell_groups(boxes: list[_Box], chars: list[dict], pictures: list[_Box]) -> list[list[_Box]]:
@@ -60,8 +92,24 @@ def _cell_groups(boxes: list[_Box], chars: list[dict], pictures: list[_Box]) -> 
     title box of a press release) starts another group, and so do the cells of a table inside a cell. A group is a
     table when it has two columns or more, two rows or more — or one row with a box of several lines — and is no frame
     (`_is_frame`). The clip of a picture is no cell."""
-    cells = [box for box in _snapped(boxes)
-             if not any(all(abs(a - b) <= _PICTURE_SLACK for a, b in zip(box, picture, strict=True)) for picture in pictures)]
+    # the pictures by the whole point their left edge lies in: a box is compared with those that start near it only
+    by_left: dict[int, list[_Box]] = {}
+    for picture in pictures:
+        by_left.setdefault(int(picture[0]), []).append(picture)
+    snapped = _snapped(boxes)
+    if sum(len(by_left.get(int(box[0]) + near, ())) for box in snapped for near in (-1, 0, 1)) > _MAX_COMPARISONS:
+        return []
+    cells = [box for box in snapped
+             if not any(all(abs(a - b) <= _PICTURE_SLACK for a, b in zip(box, picture, strict=True))
+                        for near in (-1, 0, 1) for picture in by_left.get(int(box[0]) + near, ()))]
+    try:
+        return _tables_among(cells, _Text(chars, cells)) if len(cells) >= 2 else []
+    except _TooCostly:
+        return []
+
+
+def _tables_among(cells: list[_Box], text: _Text) -> list[list[_Box]]:
+    """The groups of `cells` that are tables (`_cell_groups`); raises `_TooCostly` past `_MAX_LOOKS`."""
     home = _homes(cells)
     # after the snapping, boxes that touch have an edge of the same value: the boxes by each of their edges
     by_edge: dict[tuple[int, float], list[_Box]] = {}
@@ -89,9 +137,47 @@ def _cell_groups(boxes: list[_Box], chars: list[dict], pictures: list[_Box]) -> 
                     seen.add(other)
                     todo.append(other)
         rows, columns = len({box[1] for box in group}), len({box[0] for box in group})
-        if columns >= 2 and (rows >= 2 or _holds_lines(group, chars)) and not _is_frame(group, chars):
-            groups.append(sorted(group, key=lambda box: (box[1], box[0])))
-    return sorted(groups, key=lambda group: (min(box[1] for box in group), min(box[0] for box in group)))
+        if columns >= 2 and (rows >= 2 or _holds_lines(group, text)) and not _is_frame(group, text):
+            groups.append((home[start], sorted(group, key=lambda box: (box[1], box[0]))))
+    groups.sort(key=lambda found: (min(box[1] for box in found[1]), min(box[0] for box in found[1])))
+    return _apart(groups)
+
+
+def _apart(groups: list[tuple[_Box | None, list[_Box]]]) -> list[list[_Box]]:
+    """The tables with no two of one depth covering a common area, from the top of the page: a character in a strip
+    two tables shared was a character of both. A table whose top row is set a little into the table above it starts
+    where that one ends; a table that still lies over one above it is left to the reading without clips."""
+    kept: list[tuple[_Box | None, list[_Box], _Box]] = []
+    for home, group in groups:
+        for above_home, _, above in kept:
+            if above_home != home or not _over(_around(group), above):
+                continue
+            top = min(box[1] for box in group)
+            if above[1] <= top < above[3]:  # the first row starts inside the table above: it starts under it
+                group = [(box[0], above[3], box[2], box[3]) if box[1] < above[3] else box for box in group]
+            if any(box[3] - box[1] <= _EDGE for box in group) or _over(_around(group), above):
+                group = []
+                break
+        if group:
+            kept.append((home, group, _around(group)))
+    return [group for _, group, _ in kept]
+
+
+def _around(group: list[_Box]) -> _Box:
+    return (min(box[0] for box in group), min(box[1] for box in group), max(box[2] for box in group), max(box[3] for box in group))
+
+
+def _reaches_past(cells: list[_Box], tables: list[_Box], chars: list[dict]) -> bool:
+    """Whether a table found by the rules of the page holds text in a cell that lies outside every one of the clip
+    tables it lies over (`tables`, their boxes): the rules then show more of the table than the clips do."""
+    outside = [cell for cell in cells if not any(_over(cell, table) for table in tables)]
+    if not outside:
+        return False
+    text = _Text(chars, outside)
+    try:
+        return any(text.within(cell) for cell in outside)
+    except _TooCostly:
+        return False
 
 
 def _homes(cells: list[_Box]) -> dict[_Box, _Box | None]:
@@ -135,41 +221,35 @@ def _snapped(boxes: list[_Box]) -> list[_Box]:
                    if across[x1] > across[x0] and down[bottom] > down[top]})
 
 
-def _within(box: _Box, chars: list[dict]) -> list[dict]:
-    """The characters that are no space whose middle lies in the box."""
-    return [char for char in chars if box[0] <= (char["x0"] + char["x1"]) / 2 <= box[2]
-            and box[1] <= (char["top"] + char["bottom"]) / 2 <= box[3] and char["text"].strip()]
-
-
-def _holds_lines(group: list[_Box], chars: list[dict]) -> bool:
+def _holds_lines(group: list[_Box], text: _Text) -> bool:
     """Whether a box of the group holds two lines of text or more, one under the other: Hangul's reader keeps a table
     of one row as a table when a cell holds more than one line (`_hangul.SizeHeadings.row`)."""
     for box in group:
-        inside = _within(box, chars)
+        inside = text.within(box)
         # a character of the lower line starts below the middle of the tallest one of the upper line
-        if inside and (max(char["top"] for char in inside) - min(char["top"] for char in inside)
-                       >= max(char["bottom"] - char["top"] for char in inside) / 2):
+        if inside and (max(place[2] for place in inside) - min(place[2] for place in inside)
+                       >= max(place[3] - place[2] for place in inside) / 2):
             return True
     return False
 
 
-def _is_frame(group: list[_Box], chars: list[dict]) -> bool:
+def _is_frame(group: list[_Box], text: _Text) -> bool:
     """Whether the boxes are a frame around text and not a table: at no height do two of them hold text side by side
     (a box with its title in a tab above it, a column of boxes beside an empty one). Hangul's own reader writes such a
     table as the text it frames (`_hangul.is_frame`). The text of a box is what lies in it and in no smaller box of the
     group inside it."""
-    x0, top = min(box[0] for box in group), min(box[1] for box in group)
-    x1, bottom = max(box[2] for box in group), max(box[3] for box in group)
+    around = _around(group)
     by_size = sorted(group, key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+    inside = text.within(around)
+    text.charge(len(inside) * len(group))
     filled: set[_Box] = set()
-    for char in _within((x0, top, x1, bottom), chars):
-        x, y = (char["x0"] + char["x1"]) / 2, (char["top"] + char["bottom"]) / 2
+    for y, x, _, _ in inside:
         for box in by_size:
             if box[0] <= x <= box[2] and box[1] <= y <= box[3]:
                 filled.add(box)
                 break
     tops = sorted({box[1] for box in group})
-    for upper, lower in zip(tops, [*tops[1:], bottom], strict=True):
+    for upper, lower in zip(tops, [*tops[1:], around[3]], strict=True):
         middle = (upper + lower) / 2
         if sum(1 for box in group if box in filled and box[1] <= middle <= box[3]) > 1:
             return False
