@@ -945,6 +945,9 @@ def _set_on_its_letter(objs: list) -> None:
     if len(objs) < 2:
         return
     mark, letter = objs[-1], objs[-2]
+    if getattr(letter, "_text", None) in _ACCENT_MARKS:
+        _under_its_accent(objs)  # the other way round: an accent, then the letter under it
+        return
     text = mark.get_text()
     if not isinstance(letter, LTChar) or not _is_mark(text) or _RIGHT_TO_LEFT.search(text) or not letter.get_text().strip():
         return
@@ -955,6 +958,42 @@ def _set_on_its_letter(objs: list) -> None:
             and min(mark.y1, letter.y1) - max(mark.y0, letter.y0) > 0):
         letter._text = letter.get_text() + text
         objs.pop()
+
+
+# An accent that stands alone as a character (the acute of a font of TeX), and the mark that sets it on a letter.
+_ACCENT_MARKS = {"\u00b4": "\u0301", "\u0060": "\u0300", "\u02c6": "\u0302", "^": "\u0302", "\u00a8": "\u0308",
+                 "\u02dc": "\u0303", "~": "\u0303", "\u00b8": "\u0327", "\u02c7": "\u030c", "\u02d8": "\u0306",
+                 "\u00af": "\u0304", "\u02d9": "\u0307", "\u02da": "\u030a", "\u02dd": "\u030b", "\u02db": "\u0328"}
+
+
+def _under_its_accent(objs: list) -> None:
+    """Joins the letter that was just drawn to the accent drawn right before it at the same place: the letter becomes
+    the accented letter and the accent is taken out.
+
+    TeX sets a letter with an accent as two glyphs where its font has no glyph for both (the fonts it uses by default):
+    the accent, then the letter under it. Read one after the other, every such letter of a French, Spanish or German
+    text came out as the accent and the letter ('autoris\u00b4e' for 'autoris\u00e9', 't\u00b4el\u00b4ephones'), where
+    `pdftotext` writes the letter. They are one letter when the accent is of the letter's size, its middle lies within the
+    letter, the two share a line, and Unicode has that letter with that accent as one character — an accent before a
+    letter it does not stand over, or over a letter that takes no such accent, stays as it was drawn
+    (Pinned by: test_pdf_actual_text.py::TestAccentsDrawnBeforeTheirLetter)."""
+    if len(objs) < 2:
+        return
+    letter, accent = objs[-1], objs[-2]
+    if not isinstance(accent, LTChar):
+        return
+    mark = _ACCENT_MARKS.get(accent.get_text())
+    if mark is None:
+        return
+    text = letter.get_text()
+    if len(text) != 1 or not text.isalpha():
+        return
+    joined = unicodedata.normalize("NFC", text + mark)
+    if (len(joined) == 1 and abs(accent.size - letter.size) <= 0.1
+            and letter.x0 <= (accent.x0 + accent.x1) / 2 <= letter.x1
+            and min(accent.y1, letter.y1) - max(accent.y0, letter.y0) > 0):
+        letter._text = joined
+        del objs[-2]
 
 
 # Symbol font PostScript name (subset prefix, ',Bold' and '-Regular' removed; lower case without spaces) → font name in
