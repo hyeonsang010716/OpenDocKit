@@ -6,6 +6,7 @@ import concurrent.futures
 import gc
 from io import BytesIO
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -65,6 +66,16 @@ class TestProgressiveJpegOverThePixelLimit:
 _EPS = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\n%%EndComments\nshowpage\n%%EOF\n"
 
 
+def _emf() -> bytes:
+    """An EMF that Windows draws: a header (bounds, frame in 0.01 mm, signature, total size, 3 records, the reference device),
+    a rectangle and the end record (MS-EMF 2.3.4.2, 2.3.5.34, 2.3.4.1)."""
+    rectangle = struct.pack("<II4i", 43, 24, 10, 10, 400, 200)
+    end = struct.pack("<5I", 14, 20, 0, 16, 20)
+    header = struct.pack("<II4i4i4I2H3I4i", 1, 88, 10, 10, 400, 200, 0, 0, 10583, 5291, 0x464D4520, 0x10000,
+                         88 + len(rectangle) + len(end), 3, 1, 0, 0, 0, 0, 1920, 1080, 508, 286)
+    return header + rectangle + end
+
+
 def _picture(image_format: str) -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (64, 64), (200, 30, 30)).save(buffer, format=image_format)
@@ -91,6 +102,24 @@ class TestPictureFormatAllowList:
 
         assert reached == []
         assert isinstance(error.value.__cause__, UnidentifiedImageError)
+
+    def test_metafile_stays_a_placeholder_also_where_pillow_could_draw_it(self):
+        """Pillow draws WMF and EMF only on Windows, through GDI, and its WMF reader (both kinds) is not on the list. Up to 0.3.2,
+        which offered a picture to every reader, they were pictures on Windows and placeholders elsewhere. This EMF is one
+        Windows draws; on every system it is `[Image]` with the warning, as docs/limitations.md says."""
+        emf = _emf()
+        if os.name == "nt":
+            with Image.open(BytesIO(emf)) as opened:
+                opened.load()
+                assert opened.convert("L").getextrema() == (0, 255)  # drawn: the black outline on white
+
+        with pytest.raises(ImageUnreadable):
+            prepare_image(emf, min_side=1, max_side=2000)
+        result = convert(b"{\\rtf1\\ansi Before {\\pict\\emfblip " + emf.hex().encode() + b"} after\\par}", "a.rtf")
+
+        assert result.text == "Before after\n\n[Image]"
+        assert result.warnings == ["1 image(s) are in an unreadable format (WMF/EMF vectors, etc.) or corrupted and were left as "
+                                   "placeholder text."]
 
     def test_no_format_that_runs_another_program_or_is_not_a_picture_is_allowed(self):
         assert not {"EPS", "WMF", "FPX", "MIC", "MPEG", "BUFR", "GRIB", "HDF5", "FITS"} & set(_OPEN_FORMATS)
