@@ -201,6 +201,105 @@ class TestPdfiumFallback:
         assert any("simple extraction" in warning for warning in result.warnings)
 
 
+class TestPagesOutOfReach:
+    """pdfminer can find some pages of a damaged document and say nothing of the rest. The pages pdfium can open and
+    pdfminer cannot read are counted in a warning; the document is not handed to pdfium, which would open them unbounded."""
+
+    @staticmethod
+    def _objects() -> dict[int, bytes]:
+        objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Count 3 /Kids [4 0 R 6 0 R 8 0 R] >>",
+                   3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"}
+        for index in range(3):
+            page, content = 4 + 2 * index, 5 + 2 * index
+            text = b"BT /F1 12 Tf 72 720 Td (This is page %d of the report.) Tj ET" % (index + 1)
+            objects[page] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents %d 0 R "
+                             b"/Resources << /Font << /F1 3 0 R >> >> >>" % content)
+            objects[content] = b"<< /Length %d >>\rstream\r%s\rendstream" % (len(text), text)
+        return objects
+
+    def _linearized(self, first: tuple[int, ...] = (1, 2, 3, 4, 5)) -> bytes:
+        """The first cross-reference section, that of the first page (the objects `first`), links to the rest at a place
+        that holds nothing."""
+        objects = self._objects()
+        data, offsets = b"%PDF-1.4\r", {}
+        for number in first:
+            offsets[number] = len(data)
+            data += b"%d 0 obj\r%s\rendobj\r" % (number, objects[number])
+        head = len(data)
+        data += b"xref\r" + b"".join(b"%d 1\r%010d 00000 n\r\n" % (number, offsets[number]) for number in first)
+        data += b"trailer\r<< /Size 10 /Root 1 0 R /Prev 999999 >>\rstartxref\r0\r%%EOF\r"
+        for number in sorted(set(objects) - set(first)):
+            data += b"%d 0 obj\r%s\rendobj\r" % (number, objects[number])
+        return data + b"xref\r0 1\r0000000000 65535 f\r\ntrailer\r<< /Size 10 >>\rstartxref\r%d\r%%%%EOF\r" % head
+
+    def _off_by_one(self) -> bytes:
+        """A section that says it starts at object 1 and starts with the entry of object 0, in a document saved again with
+        the catalog, the page list, the font and the last page written anew."""
+        objects = self._objects()
+        data, offsets = b"%PDF-1.7\n", {}
+        for number in sorted(objects):
+            offsets[number] = len(data)
+            data += b"%d 0 obj\n%s\nendobj\n" % (number, objects[number])
+        first = len(data)
+        data += b"xref\n1 10\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % offsets[n] for n in sorted(objects))
+        data += b"trailer\n<< /Size 10 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % first
+        again = {}
+        for number in (1, 2, 3, 8, 9):
+            again[number] = len(data)
+            data += b"%d 0 obj\n%s\nendobj\n" % (number, objects[number])
+        second = len(data)
+        data += b"xref\n1 3\n" + b"".join(b"%010d 00000 n \n" % again[n] for n in (1, 2, 3))
+        data += b"8 2\n" + b"".join(b"%010d 00000 n \n" % again[n] for n in (8, 9))
+        return data + b"trailer\n<< /Size 10 /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n" % (first, second)
+
+    def test_pages_past_the_first_of_a_linearized_document_are_reported(self):
+        """A course guide of twelve pages came out as its first, with no warning."""
+        result = convert(self._linearized(), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == "This is page 1 of the report."
+        assert any(warning.startswith("2 page(s) of the PDF could not be reached") for warning in result.warnings)
+
+    def test_pages_are_reported_when_the_root_of_the_page_list_is_out_of_reach_too(self):
+        """The course guide itself: pdfminer came upon its first page while looking through the objects, and there is no
+        page list to set pdfium's numbers beside."""
+        result = convert(self._linearized(first=(1, 3, 4, 5)), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert "This is page 1 of the report." in result.text and "page 2" not in result.text
+        assert any(warning.startswith("2 page(s) of the PDF could not be reached") for warning in result.warnings)
+
+    def test_pages_behind_a_cross_reference_section_that_is_off_by_one_are_reported(self):
+        """pdfminer reaches the page written anew alone and never looks through the file (a scan of ten pages came out
+        as one), so that it looked through a file is no test of this."""
+        result = convert(self._off_by_one(), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert "page 3" in result.text and "page 2" not in result.text
+        assert any(warning.startswith("2 page(s) of the PDF could not be reached") for warning in result.warnings)
+
+    def test_such_a_document_is_not_handed_to_pdfium(self, monkeypatch):
+        """pdfium would open the pages no bound has seen: a form drawing itself twice on one took 2GB in three seconds."""
+        from opendockit.extractors import pdf as pdf_module
+
+        monkeypatch.setattr(pdf_module, "_read_with_pdfium", lambda *args: pytest.fail("the document was handed to pdfium"))
+
+        assert "page 1" in convert(self._linearized(), "a.pdf").text
+
+    @pytest.mark.parametrize(("kids", "count"), [(b"3 0 R", 5), (b"3 0 R 3 0 R", 2), (b"3 0 R 999 0 R", 2)])
+    def test_a_larger_count_from_pdfium_is_no_page_out_of_reach(self, kids, count):
+        """pdfium pads to a `/Count` that says more than the list holds, numbers a page listed twice twice and keeps a
+        number for a missing object: pdfminer reads all there is of such a document."""
+        content = b"BT /F1 12 Tf 72 700 Td (The only page of this report.) Tj ET"
+        data = _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, count),
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+            5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"})
+
+        result = convert(data, "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == "The only page of this report."
+        assert result.warnings == []
+
+
 def test_password_protected_pdf_is_rejected_as_encrypted():
     """Even with the pdfium fallback path, a password-protected document must be reported as 'encrypted', not 'corrupted'."""
     from io import BytesIO

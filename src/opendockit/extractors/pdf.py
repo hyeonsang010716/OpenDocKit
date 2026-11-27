@@ -35,6 +35,7 @@ text. A vector chart (lines and shapes, not an image) on a page that has charact
 from collections import Counter
 from collections.abc import Callable
 from contextvars import ContextVar
+import ctypes
 from dataclasses import dataclass, field
 from io import BytesIO
 from itertools import islice
@@ -117,7 +118,7 @@ from opendockit.extractors._pdf_model import (
     _visual_rows,
 )
 from opendockit.extractors._pdf_paragraphs import _heading_levels, _keep_proven_line_ends, _read_tables_from_the_right, _render_page
-from opendockit.extractors._pdf_pdfium_pages import _PdfiumPages
+from opendockit.extractors._pdf_pdfium_pages import _PAGES_FOLLOWED, _pdfium_slots, _PdfiumPages, _resolved
 from opendockit.extractors._pdf_pdfminer import (
     _CELL_CLIPS,
     _DOCUMENT_FONT_RANGE_ENTRIES,
@@ -347,6 +348,12 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
     else:
         with pdf:
             total = len(pdf.pages)
+            # (counted by their objects: looking through the objects, pdfminer lists a page once for each cross-reference
+            # section that names it)
+            unreached = _pages_out_of_reach(data, pdf.doc.catalog.get("Pages"), len({page.page_obj.pageid for page in pdf.pages}))
+            if unreached:
+                extraction.warnings.append(
+                    f"{unreached} page(s) of the PDF could not be reached through its page list and were not read.")
             limit = total if options.max_pages is None else min(total, options.max_pages)
             pages = []
             placement_fit: tuple[float, float] | None = None
@@ -724,6 +731,52 @@ def _open_pdfplumber(data: bytes) -> object:
     if not pages and _pdfium_page_count(data):
         raise PdfminerException(ValueError("pdfminer found no pages"))
     return pdf
+
+
+def _pages_out_of_reach(data: bytes, root: object, found: int) -> int:
+    """How many pages pdfium can open at a number where pdfminer reads no page dictionary, in a document of which
+    pdfminer found `found` pages: pages that are in the file and not in what is read.
+
+    Deliberate: they are reported, not read. pdfminer can find some of the pages and say nothing of the rest: a
+    linearized document whose link from the section of its first page to the others points nowhere came out as that
+    page, eleven more nowhere and no warning; in another a cross-reference section numbered off by one left the
+    entries of the page list out of reach and one page of ten was read. Handing such a document to pdfium whole was
+    tried and dropped: pdfium would open pages no bound on drawn objects has seen (pdfminer cannot read them to
+    estimate), and a form drawing itself twice on such a page took 2GB in three seconds in a document read safely
+    before. Nothing else about the reading of such a document changes. A larger count from pdfium is not a page out
+    of reach by itself: pdfium numbers a page listed twice twice and pads to a `/Count` that says more than the list
+    holds (`_pdfium_slots`).
+
+    pdfium numbers as many pages as the root's `/Count` says, so a document whose count pdfminer reads and has found
+    costs nothing: pdfium is not opened. Of the others pdfium is asked about the numbers without a dictionary alone
+    (`FPDF_GetPageSizeByIndexF`, which reads the page dictionary and not its content). A page list too long to follow
+    is left unreported (Pinned by: test_pdf.py::TestPagesOutOfReach)."""
+    root = _resolved(root)
+    count = _resolved(root.get("Count")) if isinstance(root, dict) else None
+    if isinstance(count, int) and not isinstance(count, bool) and 0 < count <= found:
+        return 0
+    try:
+        document = _open_pdfium(data)
+    except pdfium.PdfiumError:
+        return 0
+    try:
+        with _PDFIUM_LOCK:
+            stated = len(document)
+        if stated <= found:
+            return 0
+        slots = _pdfium_slots(root)
+        if slots is None:
+            return 0
+        size = pdfium_c.FS_SIZEF()
+        with _PDFIUM_LOCK:
+            opened = sum(bool(pdfium_c.FPDF_GetPageSizeByIndexF(document.raw, index, ctypes.byref(size)))
+                         for index in range(min(stated, _PAGES_FOLLOWED)) if index >= len(slots) or slots[index][1] is None)
+        # A root pdfminer cannot read gives no numbering to set pdfium's beside: the pages pdfminer found, it came upon
+        # while looking through the objects, and those pdfium opens past that many are the ones out of reach.
+        return opened if isinstance(root, dict) else max(0, opened - found)
+    finally:
+        with _PDFIUM_LOCK:
+            document.close()
 
 
 def _pdfium_page_count(data: bytes) -> int:
