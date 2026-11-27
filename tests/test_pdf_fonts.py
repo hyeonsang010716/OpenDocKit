@@ -1223,3 +1223,37 @@ class TestEncodingBuiltIntoACffFont:
 
     def test_program_of_another_kind_is_not_read_as_cff(self):
         assert _cff_font_text(_cff(_FRENCH), rb"caf\351 \350", kind=b"OpenType") == "cafØ Ł"
+
+
+class TestToUnicodeOfOneByte:
+    """A ToUnicode map whose destination is written as one byte (`<00> <7f> <00>`): the scanner software of Canon writes the
+    text it recognised over the picture of a page in a font with such a map, the letters past 127 listed in full."""
+
+    @staticmethod
+    def _page(first: bytes) -> bytes:
+        cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Canon-Identity-UCSL2 def "
+                b"1 begincodespacerange <00> <ff> endcodespacerange 2 beginbfrange <00> <7f> " + first
+                + b" <a0> <ff> <00a0> endbfrange endcmap CMapName currentdict /CMap defineresource pop end end")
+        # as the scanner writes it: every character placed on its own, in the invisible text mode
+        letters = "Cr\u00e8me br\u00fbl\u00e9e, p\u00e2t\u00e9, velout\u00e9: 800 Ft".encode("latin-1")
+        content = b"BT 3 Tr /F1 12 Tf\n" + b"".join(b"1 0 0 1 %d 700 Tm <%02X> Tj\n" % (72 + 7 * place, code)
+                                                   for place, code in enumerate(letters) if code != 32) + b"ET"
+        return _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+            5: b"<< /Type /Font /Subtype /TrueType /BaseFont /Tahoma /FirstChar 32 /LastChar 255 /Encoding /WinAnsiEncoding "
+               b"/Widths [" + b"600 " * 224 + b"] /ToUnicode 6 0 R >>",
+            6: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap)})
+
+    def test_the_letters_of_such_a_font_are_read(self):
+        """Every letter and digit under 128 was read as nothing and the accented ones alone came out, with no warning: the
+        page is not empty, so nothing set it beside pdfium's reading."""
+        text = convert(self._page(b"<00>"), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.replace(" ", "") == "Cr\u00e8mebr\u00fbl\u00e9e,p\u00e2t\u00e9,velout\u00e9:800Ft"
+
+    def test_a_destination_of_two_bytes_is_read_as_before(self):
+        text = convert(self._page(b"<0000>"), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert text.replace(" ", "") == "Cr\u00e8mebr\u00fbl\u00e9e,p\u00e2t\u00e9,velout\u00e9:800Ft"

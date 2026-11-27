@@ -1933,6 +1933,27 @@ def _cmap_or_embedded(self: pdffont.PDFCIDFont, spec: dict, strict: bool) -> obj
 
 
 pdffont.PDFCIDFont.get_cmap_from_spec = _cmap_or_embedded
+
+
+_add_cid2unichr = FileUnicodeMap.add_cid2unichr
+
+
+def _add_cid2unichr_of_one_byte(self: FileUnicodeMap, cid: int, code: object) -> None:
+    """A destination of a ToUnicode map written as one byte is the character of that number.
+
+    A destination is UTF-16BE, two bytes at least, and pdfminer decodes it so: one byte is half a character and came
+    out as nothing. The scanner software of Canon (IJ Scan Utility) writes the text it recognised over the picture of
+    the page in a font whose map is `<00> <7f> <00>`, the codes 0 to 127 to the characters 0 to 127 with one byte for
+    the first of them: every letter and digit of such a scan was read as nothing and only the letters past 127, which
+    the map lists in full, came out ('éúééú á ő é' for a menu in Hungarian, English and German), with no warning.
+    pdfium and poppler read the byte as the number it is (Pinned by: test_pdf_fonts.py::TestToUnicodeOfOneByte)."""
+    if isinstance(code, bytes) and len(code) == 1 and isinstance(cid, int):
+        self.cid2unichr[cid] = chr(code[0])
+        return
+    _add_cid2unichr(self, cid, code)
+
+
+FileUnicodeMap.add_cid2unichr = _add_cid2unichr_of_one_byte
 _cid_font_init = pdffont.PDFCIDFont.__init__
 
 
