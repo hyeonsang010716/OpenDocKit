@@ -135,7 +135,8 @@ class ConvertOptions:
     keep_links: bool = True
     # Keep bold and italic as Markdown emphasis (`**bold**`, `*italic*`). Off: emphasis is flattened to plain text.
     keep_emphasis: bool = True
-    # Remove header, footer and page-number lines that repeat across the pages of a PDF.
+    # Remove header, footer and page-number lines that repeat across the pages of a PDF. One that holds a word the rest of the
+    # text does not is written once, with the first page that has it.
     remove_repeated_page_lines: bool = True
     # Put page boundary markers (`<!-- Page 3 -->`) into the full text. Slide and sheet headings are always included.
     page_markers: bool = True

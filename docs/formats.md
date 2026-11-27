@@ -23,7 +23,7 @@ Text flow:
 - Paragraphs, and headings inferred from font size and weight (a short bold line at about the body size, such as
   `5. The dynamics`, is a heading too).
 - A Korean word that a PDF made by Hangul broke across two lines is written as one word again.
-- Repeated page headers and page numbers are removed.
+- Repeated page headers and page numbers are removed. A header or footer that holds a word found nowhere else in the document (the title of a long list, the name of a journal) is written once, with the first page that has it.
 - Printer's marks outside the trim area (outside the CropBox) are removed, except on rotated pages.
 - Diagonal watermarks, fake bold and shadow duplicates are removed.
 - Word spacing is restored for text that was placed word by word without space characters.

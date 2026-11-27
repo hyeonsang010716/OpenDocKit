@@ -117,7 +117,8 @@ def _render_page(page: _Page, heading_levels: dict[tuple[float, bool], int], lin
         items.insert(position, (block_top, block_text, True))
         spans.insert(position, (x0, x1))
         sizes.insert(position, (block_bottom, 0))
-    return _shortened_leaders("\n\n".join(text for text in [*(text for _, text, _ in items), *page.sideways,
+    return _shortened_leaders("\n\n".join(text for text in [*map(escape_block_marks, page.head_lines), *(text for _, text, _ in items),
+                                                            *map(escape_block_marks, page.foot_lines), *page.sideways,
                                                             "\n".join(page.form_values)] if text.strip()))
 
 

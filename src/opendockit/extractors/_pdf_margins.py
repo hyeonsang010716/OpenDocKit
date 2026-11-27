@@ -3,6 +3,7 @@ pages, and the body font size and line gap of the document.
 """
 
 from collections import Counter
+from collections.abc import Iterator
 import re
 
 from opendockit.extractors._pdf_aligned_tables import _aligned_table_runs
@@ -55,6 +56,26 @@ _PAGE_NUMBER_APART = 0.25
 # digit groups with one dot ('6.8'). A date written with dots ('2024.01.05') has three digit groups and is not a decimal.
 _VALUE_TOKEN = re.compile(r"\d,\d{3}(?!\d)|[%‰₩$€£¥]|^\D*\d+\.\d+\D*$")
 _NON_WORD = re.compile(r"[\W_]+")
+# A word of a repeated line (`_keep_the_first_copy`): two letters or digits or more of any script. A number is one, so that a
+# case number or the number of a form can be what a line alone says
+_WORD = re.compile(r"[^\W_]{2,}")
+# Tokens of a piece set beside its copies (`_Piece.set_beside`): a longer piece says nothing
+_COUNTED_TOKENS = 64
+# A word of a repeated line is held by the text left also where it stands inside a longer word for a reason of the language,
+# and not by chance (`_keep_the_first_copy`): as the start of a word with an ending of `_ENDING` characters at most, when it
+# has `_STEM` characters ('Hafenbericht' in 'Hafenberichts') or is Hangul, whose endings run to `_HANGUL_ENDING` syllables
+# ('사업계획서' in '사업계획서에서는'); anywhere, when its script is written without spaces (`_UNSPACED`: '年度报告' in
+# '本年度报告显示'), for `_UNSPACED_WORDS` words at most, each being looked for in every word of such a script. Looked for
+# anywhere in every script, 'multi' was found in 'multiple' and 'li' in most words, and titles that say something went
+_UNSPACED = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]")
+_HANGUL = re.compile(r"[\uac00-\ud7a3]")
+_STEM = 5
+_ENDING = 2
+_HANGUL_ENDING = 4
+_UNSPACED_WORDS = 64
+# A word of letters: a piece that holds none (a date, a telephone number) says nothing by itself (`_Piece.says`)
+_LETTERS = re.compile(r"[^\W\d_]{2,}")
+_COUNTED_TOKENS = 64
 _TOKEN = re.compile(r"\S+")
 
 
@@ -192,9 +213,182 @@ def _remove_repeated_margins(pages: list[_Page]) -> None:
     sides = {side: _repeated_keys([keys for page, keys in zip(pages, per_page, strict=True) if page.number % 2 == side],
                                   _SIDE_REPEAT_RATIO)
              for side in (0, 1)}
-    for page, keys in zip(pages, per_page, strict=True):
-        drop = {id(line) for key in repeated | sides[page.number % 2] for line in keys.get(key, [])}
+    removed = [repeated | sides[page.number % 2] for page in pages]
+    _keep_the_first_copy(pages, per_page, removed, numbered)
+    for page, keys, gone in zip(pages, per_page, removed, strict=True):
+        drop = _dropped(keys, gone)
         page.lines = [line for line in page.lines if id(line) not in drop]
+
+
+def _dropped(keys: dict[str, list[_Line]], gone: set[str]) -> set[int]:
+    """The ids of the lines of a page that go as repeated. Made for a page when it is needed and not kept: the sets of
+    every page held at once were the largest thing in memory for a document of many repeated pieces."""
+    return {id(line) for key in gone for line in keys.get(key, ())}
+
+
+def _keep_the_first_copy(pages: list[_Page], per_page: list[dict[str, list[_Line]]], removed: list[set[str]],
+                         numbered: set[int] | frozenset) -> None:
+    """Notes on its page (`head_lines`, `foot_lines`) the first copy of each repeated line that holds a word the text
+    left does not hold. The line itself goes from the body flow with its other copies: left among the lines of its
+    page, the two pieces of a head row above a paper set in two columns came out between the two lines of its title.
+
+    Deliberate: every copy of a repeated line used to go, the first too. In a document that is one long list or table
+    the title stands in the page header and nowhere else ('LISTADO DE PERSONAS CON MONTOS A DEVOLVER' over 217 pages of
+    names), and it went with the page numbers: the rows came out with nothing saying what they are rows of. So did the
+    name of the journal, the period of a report, a case number, the title and the sample number of a certificate of
+    five pages: of 1,310 real documents of three pages or more, 281 lost words found nowhere else in their text.
+
+    A piece stays, once, when what it says (`_Piece.says`: nothing for a page number, and no number that counts with
+    the pages) holds a word (`_WORD`) that stands nowhere in the text left on any page — its lines, tables, text read
+    sideways and form values — and in no piece kept before it. Nowhere means not inside a longer word for a reason of
+    the language either (`_STEM`, `_UNSPACED`): a script written without spaces has the head inside a clause
+    ('年度报告' in '本年度报告显示'), and an inflected language has it with an ending. The running head of a
+    book or a paper is its title, the title of the chapter or
+    the names of the authors, whose words the body has: it goes as before. A piece is noted on the first page that
+    has it and has text left: a scan whose only text is the stamp of the scanner on every page stays without text,
+    and says so. What stays is written before the text of its page when it stood in the upper half of what is seen
+    of the page, after it otherwise (Pinned by: test_pdf.py::TestRepeatedLineKeptOnce)."""
+    if not any(removed):
+        return
+    has_text = []
+    for page, keys, gone in zip(pages, per_page, removed, strict=True):
+        drop = _dropped(keys, gone)
+        has_text.append(bool(page.tables) or any(id(line) not in drop for line in page.lines))
+    pieces: dict[tuple[str, int], _Piece] = {}  # each piece of a repeated line, its copies set beside the first as they come
+    for index, (keys, gone) in enumerate(zip(per_page, removed, strict=True)):
+        for key in gone:
+            for place, line in enumerate(keys.get(key, ())):
+                piece = pieces.get((key, place))
+                if piece is None:
+                    piece = pieces[key, place] = _Piece(line)
+                piece.set_beside(line)
+                if piece.home is None and has_text[index]:
+                    piece.home = (index, line)
+    saying = [(piece.home, text) for piece in pieces.values() if piece.home is not None and (text := piece.says(numbered))]
+    if not saying:
+        return
+    wanted = {word for _, text in saying for word in _words(text)}
+    # A word is held by the text left as a word of its own, or inside a longer one for a reason of the language (`_STEM`,
+    # `_UNSPACED`). One pass, a word of the text at a time: a line can be the whole text of a document
+    stems = {word for word in wanted if not _UNSPACED.search(word) and (len(word) >= _STEM or _HANGUL.search(word))}
+    unspaced = sorted(word for word in wanted if _UNSPACED.search(word))[:_UNSPACED_WORDS]
+    longest = max(map(len, wanted)) + _HANGUL_ENDING
+    for page, keys, gone in zip(pages, per_page, removed, strict=True):
+        for text in _left(page, _dropped(keys, gone)) if wanted else ():
+            for match in _WORD.finditer(text):
+                start, end = match.span()
+                for held in [other for other in unspaced if text.find(other, start, end) >= 0]:
+                    wanted.discard(held)
+                    unspaced.remove(held)
+                if end - start > longest:
+                    continue  # longer than any word looked for with its ending: not copied out of the text
+                word = text[start:end].casefold()
+                wanted.discard(word)
+                for ending in range(1, min(_HANGUL_ENDING, len(word) - 1) + 1) if stems else ():
+                    stem = word[:-ending]
+                    if stem in stems and (ending <= _ENDING or _HANGUL.search(stem)):
+                        wanted.discard(stem)
+    for (index, line), text in sorted(saying, key=lambda said: (said[0][0], said[0][1].top, said[0][1].x0)) if wanted else ():
+        new = wanted.intersection(_words(text))
+        if new:
+            wanted -= new  # the same words at the head and at the foot of the page stay once
+            page = pages[index]
+            _, top, _, bottom = page.text_view or (0.0, 0.0, page.width, page.height)
+            (page.head_lines if (line.top + line.bottom) / 2 < (top + bottom) / 2 else page.foot_lines).append(text)
+
+
+def _left(page: _Page, drop: set[int]) -> Iterator[str]:
+    """The text left on a page once the lines `drop` are gone."""
+    for line in page.lines:
+        if id(line) not in drop:
+            yield line.text
+    for table in page.tables:
+        yield table.text
+    yield from page.sideways
+    yield from page.form_values
+
+
+def _lettered(text: str) -> set[str]:
+    """The words of letters of a text besides the words a page is counted with: without one a piece says nothing (a
+    date printed on every page, a telephone number)."""
+    return {word.casefold() for word in _LETTERS.findall(text)} - _PAGE_COUNT_WORDS
+
+
+def _words(text: str) -> set[str]:
+    """The words of a text as they are compared (`_WORD`), without case."""
+    return {word.casefold() for word in _WORD.findall(text)}
+
+
+class _Piece:
+    """One piece of a repeated line over its copies: the first copy, the places where another copy has another token,
+    and the first copy on a page with text left (`home`)."""
+
+    __slots__ = ("alike", "differ", "first", "home", "tokens")
+
+    def __init__(self, first: _Line) -> None:
+        self.first = first
+        self.tokens: list[str] | None = None  # of the first copy, split when a copy differs
+        self.differ: set[int] = set()
+        self.alike = True  # every copy has as many tokens as the first, and no more than `_COUNTED_TOKENS`
+        self.home: tuple[int, _Line] | None = None
+
+    def set_beside(self, line: _Line) -> None:
+        if line.text == self.first.text or not self.alike:
+            return
+        if self.tokens is None:
+            self.tokens = self.first.text.split()
+        row = line.text.split()
+        if len(row) != len(self.tokens) or len(row) > _COUNTED_TOKENS:
+            self.alike = False
+            return
+        self.differ.update(place for place, token in enumerate(row) if token != self.tokens[place])
+
+    def says(self, numbered: set[int] | frozenset) -> str:
+        """What the piece says on every page: the text to keep, or '' when it says nothing. The text is always one
+        stretch of the piece as it is written: taking words out of the middle of it wrote 'Bank England Quarterly
+        Bulletin' for 'Bank of England Quarterly Bulletin 3'.
+
+        A page number says nothing (`_is_page_number`, `_is_page_count`). A piece whose copies are the same says its
+        text when it holds a word besides the words a page is counted with ('PAGE' standing apart from its number). In
+        a piece whose copies differ from page to page what differs is the number of the page. It is taken with what
+        belongs to it: on either side the page words and marks (`_is_count_mark`), after it the word that joins it to
+        a total and the total ('von 10', '/ 10'). The piece says what stands before that or after it,
+        when that is two words or more: 'ACME Corp - Page 3 of 6' says 'ACME Corp', 'Seite 3 von 10' nothing. A piece
+        with text on both sides of its count, one that differs in two places with words between, one of more than
+        `_COUNTED_TOKENS` tokens and copies of different numbers of tokens say nothing."""
+        first = self.first
+        if not self.alike or _is_page_number(first, numbered) or _is_page_count(first.text):
+            return ""
+        if not self.differ:
+            return first.text if _lettered(first.text) else ""
+        tokens = self.tokens or []
+        start, end = min(self.differ), max(self.differ) + 1
+        if any(_WORD.search(tokens[place]) and not _DIGITS.search(tokens[place])
+               for place in range(start, end) if place not in self.differ):
+            return ""
+        while start > 0 and _is_count_mark(tokens[start - 1]):
+            start -= 1
+        while end < len(tokens):
+            if _is_count_mark(tokens[end]):
+                end += 1
+            elif end + 1 < len(tokens) and tokens[end].isalpha() and _DIGITS.search(tokens[end + 1]):
+                end += 2  # the word that joins the number to a total, and the total: 'von 10'
+            elif _NON_WORD.sub("", tokens[end]).isdigit() and end - 1 not in self.differ and _is_count_mark(tokens[end - 1]):
+                end += 1  # the total after a mark or a page word: '/ 10', 'of 10'
+            else:
+                break
+        if start > 0 and end < len(tokens):
+            return ""
+        rest = " ".join(tokens[:start] or tokens[end:])
+        return rest if len(_lettered(rest)) >= 2 else ""
+
+
+def _is_count_mark(token: str) -> bool:
+    """Whether a token beside a page number is part of the count whatever stands around it: a page word, or a mark
+    without letter or digit (a dash, a bar). A number is not: before the count it is a year or an ISSN ('Annual Report
+    2024 - Page 3' says 'Annual Report 2024'), and taken with it the stretch ended on 'Juni', 'ISSN', 'No.'."""
+    bare = _NON_WORD.sub("", token)
+    return not bare or bare.casefold() in _PAGE_COUNT_WORDS
 
 
 def _row_shape(row: list[_Line]) -> str:

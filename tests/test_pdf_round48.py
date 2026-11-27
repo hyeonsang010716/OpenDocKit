@@ -188,7 +188,7 @@ class TestEdgeLinesThatCannotRepeatCount:
     def test_limit_stays_exact_when_a_repeated_header_is_removed(self, slack):
         data = _one_line_pages(30, header="공통 머리글 문서 제목입니다")
         full = convert(data, "a.pdf", ConvertOptions(extract_images=False))
-        assert "공통 머리글" not in full.text, "the running header is removed"
+        assert full.text.count("공통 머리글") == 1, "the running header is removed but for its first copy"
 
         result = convert(data, "a.pdf", ConvertOptions(max_chars=full.char_count + slack, extract_images=False))
 

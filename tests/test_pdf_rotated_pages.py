@@ -95,7 +95,7 @@ class TestRotatedPages:
 
         result = convert(_landscape_pdf(rotation, draw, pages_before=4), "a.pdf", ConvertOptions(extract_images=False))
 
-        assert "사업계획서" not in result.text
+        assert result.text.count("사업계획서") == 1
         assert "별표 1. 연도별 투자 계획" in result.sections[4].text
 
 
