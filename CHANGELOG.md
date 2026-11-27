@@ -33,6 +33,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **The scripts of `evals/` write their reports as UTF-8 whatever the code page.** Under code page 949, the default of
+  Korean Windows, a report sent to a file or a pipe stopped with a UnicodeEncodeError at the first character the code
+  page lacks, an emoji or a Vietnamese letter in the name or the words of a document, and the corpora are written in
+  nineteen scripts and more. They now write UTF-8 with LF line ends, as the command line does. CONTRIBUTING says what
+  else a checkout under a path that is not ASCII needs in that code page.
+
 - **Windows: a server or a program without a console no longer opens a window for every document.** A process without
   a console — started with DETACHED_PROCESS, or a desktop program under `pythonw` — gives every console program it
   starts a console of its own, and that console opens a window on the desktop. `IsolatedConverter` starts a worker for
