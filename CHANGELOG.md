@@ -137,9 +137,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   attachment is named `ab.pdf`.
 
 - **The documentation no longer says WMF and EMF pictures are drawn on Windows.** Pillow draws them only on
-  Windows, through GDI, and up to 0.3.2 they were pictures there. Since 0.3.3 a picture is read only in a raster format decoded
-  in this process, so they stay `[Image]` with a warning on every system. The notes of 0.3.3 did not say so, and
-  `docs/limitations.md` still said they cannot be rendered on macOS and Linux.
+  Windows, through GDI, and up to 0.3.2 they were pictures there. Since 0.3.3 a picture is read only in a raster
+  format decoded in this process, so they stay `[Image]` with a warning on every system. The notes of 0.3.3 did not
+  say so, and `docs/limitations.md` still said they cannot be rendered on macOS and Linux.
 
 ## [0.3.16] - 2026-11-25
 
