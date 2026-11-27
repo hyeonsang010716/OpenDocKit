@@ -99,6 +99,7 @@ Changelog = "https://github.com/hyeonsang010716/OpenDocKit/blob/main/CHANGELOG.m
 [dependency-groups]
 dev = [
     "opendockit[heic,openai,langchain,llamaindex,lightrag,mcp,open-webui]",
+    "cryptography>=46.0.3",  # tests/pdf_encryption.py writes AES; the newest release Windows on Arm has a wheel of, so the minimum-dependencies job reads PDFs with it
     "gevent>=26.9",  # the Dify plugin's runtime serves requests with it (tests/test_dify_plugin.py)
     "pytest>=8.3",
     "pytest-rerunfailures>=16.6",  # reruns a failed timing test (tests/conftest.py); MPL-2.0, development only

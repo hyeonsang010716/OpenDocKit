@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   The runners run in 1252, so no run of the suite had the code page most Korean users have. The job runs the suite by
   a copy of the interpreter whose manifest names that code page, which Windows honours whatever its own locale;
   `.github/scripts/code_page_949.py` does the same on any Windows machine.
+- **The tests read PDFs encrypted with AES-128 and AES-256** (`TestEncryptedWithAes`). Every encrypted PDF of the
+  tests was RC4, also the one named `aes`, so pdfminer's AES decryption, the part that needs cryptography, was not run.
+  `tests/pdf_encryption.py` encrypts reportlab's PDFs with AES; qpdf and pypdf open them with both passwords.
 
 ### Changed
 

@@ -3403,11 +3403,12 @@ class TestSoftHyphenOnALineWithAScript:
         assert convert(_korean_pdf(draw), "a.pdf").sections[0].text == "Period 2025-2026 total^1"
 
 
-@pytest.mark.parametrize("strength", [40, 128], ids=["rc4", "aes"])
+@pytest.mark.parametrize("strength", [40, 128], ids=["rc4-40", "rc4-128"])
 def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text(strength):
     """In a PDF with only an owner password (copy protection) reportlab writes the CIDSystemInfo strings of the font dictionary
     unencrypted. pdfminer 'decrypted' them and could not find the mapping table with the garbled Ordering, so every character became
-    `(cid:n)` and the page was left with an empty table and a single warning."""
+    `(cid:n)` and the page was left with an empty table and a single warning. reportlab encrypts with RC4 at both strengths; the
+    same document encrypted with AES is in `TestEncryptedWithAes`."""
     from reportlab.lib.pdfencrypt import StandardEncryption
 
     def draw(pdf, index):
@@ -3427,9 +3428,10 @@ def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text(s
 
 
 def test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repaired(monkeypatch):
-    """The repair above recognised broken font info by 'not printable ASCII'. AES uses a random IV, and now and then the wrongly
-    decrypted bytes were all printable (`b'"w#"Q'`, `b'(|>%Ue'`): about 1 conversion in 400 of the same document lost its whole
-    text. The bytes pdfminer hands back are replaced here by that printable garbage so the case is reproduced every time."""
+    """The repair above recognised broken font info by 'not printable ASCII'. The RC4 key comes from the document ID, which reportlab
+    makes new for each document, so the wrongly decrypted bytes differ every time, and now and then they were all printable
+    (`b'"w#"Q'`, `b'(|>%Ue'`): about 1 conversion in 400 of the same document lost its whole text. The bytes pdfminer hands back are
+    replaced here by that printable garbage so the case is reproduced every time."""
     from pdfminer.pdftypes import resolve1 as real_resolve
     from reportlab.lib.pdfencrypt import StandardEncryption
 
@@ -3451,6 +3453,102 @@ def test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repai
 
     assert "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다." in result.sections[0].text
     assert result.warnings == []
+
+
+@pytest.mark.parametrize("bits", [128, 256], ids=["aes-128", "aes-256"])
+class TestEncryptedWithAes:
+    """The other encrypted PDFs of these tests are RC4, which pdfminer decrypts with its own code; AES it decrypts with the
+    cryptography package. These are encrypted with AES-128 (revision 4) and AES-256 (revision 6) by `tests/pdf_encryption.py`."""
+
+    _METHODS = {128: b"/CFM /AESV2", 256: b"/CFM /AESV3"}
+
+    def _pdf(self, bits: int, user_password: str = "") -> bytes:
+        """A page with a sentence and a ruled table, in Helvetica."""
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        from tests.pdf_encryption import AesEncryption
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, encrypt=AesEncryption(bits, user_password, "owner", canCopy=0))
+        pdf.setTitle("Annual report")
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(72, 760, "The company recorded revenue of 1,456,789 in 2025.")
+        _draw_cells(pdf, [72, 200, 330], 720, 20, [["Item", "Amount"], ["Revenue", "1,456,789"]])
+        for y in (720, 700, 680):
+            pdf.line(72, y, 330, y)
+        for x in (72, 200, 330):
+            pdf.line(x, 720, x, 680)
+        pdf.showPage()
+        pdf.save()
+        data = buffer.getvalue()
+        assert self._METHODS[bits] in data  # the document is encrypted the way the test says
+        return data
+
+    def test_pdf_with_only_an_owner_password_is_read_with_its_table(self, bits):
+        result = convert(self._pdf(bits), "a.pdf")
+
+        assert "The company recorded revenue of 1,456,789 in 2025." in result.sections[0].text
+        assert "| Revenue | 1,456,789 |" in result.sections[0].text
+        assert result.warnings == []  # read by pdfminer: not a page left to pdfium
+
+    def test_pdf_with_a_user_password_is_rejected_as_encrypted(self, bits):
+        from opendockit import EncryptedDocumentError
+
+        with pytest.raises(EncryptedDocumentError, match="password-protected"):
+            convert(self._pdf(bits, user_password="secret"), "a.pdf")
+
+    def test_pages_past_the_time_budget_are_decrypted_by_pdfium(self, bits):
+        result = convert(self._pdf(bits), "a.pdf", ConvertOptions(pdf_time_budget=0.0))
+
+        assert "The company recorded revenue of 1,456,789 in 2025." in result.sections[0].text
+        assert any("time budget" in warning for warning in result.warnings)
+
+    def _korean_report(self, bits: int) -> bytes:
+        """The copy-protected document of `test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text`, with AES."""
+        from tests.pdf_encryption import AesEncryption
+
+        def draw(pdf, index):
+            pdf.drawString(72, 760, "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다.")
+            _draw_cells(pdf, [72, 200, 330], 720, 20, [["구분", "금액"], ["매출액", "1,456,789"]])
+            for y in (720, 700, 680):
+                pdf.line(72, y, 330, y)
+            for x in (72, 200, 330):
+                pdf.line(x, 720, x, 680)
+
+        data = _korean_pdf(draw, encrypt=AesEncryption(bits, "", "own", canCopy=0))
+        assert self._METHODS[bits] in data
+        return data
+
+    def test_korean_cid_font_whose_strings_are_encrypted_is_read_with_its_table(self, bits, monkeypatch):
+        """A writer that encrypts the CIDSystemInfo strings, as the standard asks: pdfminer decrypts them and reads the font and the
+        page. The repair is turned off, so the strings are read as decrypted, not restored from the encoding name."""
+        from reportlab.pdfbase import cidfonts
+
+        from opendockit.extractors import pdf as pdf_module
+        from tests.pdf_encryption import encrypted_font_strings
+
+        monkeypatch.setattr(cidfonts, "structToPDF", encrypted_font_strings(cidfonts.structToPDF))
+        monkeypatch.setattr(pdf_module, "_repair_cid_system_info", lambda page: None)
+        data = self._korean_report(bits)
+        assert b"(Korea1)" not in data
+        result = convert(data, "a.pdf")
+
+        assert "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다." in result.sections[0].text
+        assert "| 매출액 | 1,456,789 |" in result.sections[0].text
+        assert result.warnings == []
+
+    def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text_through_pdfium(self, bits):
+        """reportlab writes the CIDSystemInfo strings unencrypted (`(Korea1)`). Under AES they are shorter than the 16-byte IV, so
+        pdfminer cannot read the font, neither for the repair nor for the page ('Invalid IV size (6)'), and pdfium reads the text
+        without the table (docs/decisions/pdf.md, known limitation; the same strings encrypted are read with the table, above)."""
+        data = self._korean_report(bits)
+        assert b"(Korea1)" in data
+        result = convert(data, "a.pdf")
+
+        assert "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다." in result.sections[0].text
+        assert any("simple extraction" in warning for warning in result.warnings)
 
 
 class TestListMarkers:

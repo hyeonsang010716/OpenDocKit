@@ -2046,6 +2046,7 @@ openai = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cryptography" },
     { name = "gevent" },
     { name = "opendockit", extra = ["heic", "langchain", "lightrag", "llamaindex", "mcp", "open-webui", "openai"] },
     { name = "pytest" },
@@ -2086,6 +2087,7 @@ provides-extras = ["heic", "openai", "langchain", "llamaindex", "lightrag", "mcp
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cryptography", specifier = ">=46.0.3" },
     { name = "gevent", specifier = ">=26.9" },
     { name = "opendockit", extras = ["heic", "openai", "langchain", "llamaindex", "lightrag", "mcp", "open-webui"] },
     { name = "pytest", specifier = ">=8.3" },
