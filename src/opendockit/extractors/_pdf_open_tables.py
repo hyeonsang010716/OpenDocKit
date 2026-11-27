@@ -25,6 +25,23 @@ _RULE_JOIN_OVERLAP = 1.0
 _VERTICAL_JOIN_GAP = 1.5
 
 
+def _within_its_region(table: object, box: tuple[float, float, float, float]) -> object | None:
+    """The table found in a region of the page, or None when one of its cells reaches out of that region (2pt of slack).
+
+    The region is cut out of the page, and the cells of the table are read from what was cut out. A rule that runs on
+    past the region (the frame around a whole page, of which the region is the lower part) made a cell that reaches out
+    of it: the text of that cell outside the region was not among the characters it was read from, so the cell came out
+    empty, and its box took that text out of the body of the page — the title, the series line and the opening
+    paragraph of a leaflet were in the output nowhere, with no warning. Such a table is not one of the region: the page
+    is read as if this search had found nothing there. Deliberate: the whole table is given up, not the cell alone — a
+    table of the cells that are left passed the filters the whole one did not, and a drawing came out as tables of its
+    labels, each written on every row it stood beside
+    (Pinned by: test_pdf.py::TestRuledTables::test_a_cell_reaching_out_of_the_region_of_an_open_sided_table_takes_no_text)."""
+    inside = all(cell[0] >= box[0] - 2 and cell[1] >= box[1] - 2 and cell[2] <= box[2] + 2 and cell[3] <= box[3] + 2
+                 for cell in table.cells)
+    return table if inside else None
+
+
 def _open_sided_tables(page: object) -> list[object]:
     """Find tables without left and right borders again at their full width.
 
@@ -95,7 +112,8 @@ def _open_sided_tables(page: object) -> list[object]:
         outers = [areas[other][0] for other, tables in found.items() if tables]
         if any(_encloses(outer, box) and (abs(outer[0] - box[0]) <= 2) != (abs(outer[2] - box[2]) <= 2) for outer in outers):
             continue
-        found[index] = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
+        tables = _cropped(page, box).find_tables({**_TABLE_SETTINGS, "explicit_vertical_lines": [left, right]})
+        found[index] = [inside for table in tables if (inside := _within_its_region(table, box)) is not None]
 
     # Horizontal lines whose ends are off by about 1pt fall into two width groups, so the same table is found in two regions.
     # Keeping both made `_real_tables` see each as 'a box enclosing another table' and discard both, and a two-column

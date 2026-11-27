@@ -3602,6 +3602,67 @@ class TestRuledTables:
         assert result.sections[0].text == ("| 구분 | 세부내용 |\n| --- | --- |\n| 시장 평균 | 가중 평균 대비 |\n"
                                            "| 법적 기준 | 규제 기준 대비 |")
 
+    def test_a_cell_reaching_out_of_the_region_of_an_open_sided_table_takes_no_text(self):
+        """A leaflet set in a frame: a black title band, a shaded box with the opening paragraph, and under a rule across the
+        page two columns with a figure box between them. The lower part is found as a table open at its sides, in a region cut
+        out of the page; the frame, drawn as one path, runs on above that region and made a cell from the top of the page down
+        to the rule. That cell was read from the region, where its text is not, and took the title, the line under it and the
+        opening paragraph out of the body: they were in the output nowhere, and no warning said so."""
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        height = 792
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(612, height))
+
+        def box(x0, top, x1, bottom, fill):
+            pdf.setFillColorRGB(*fill)
+            pdf.rect(x0, height - bottom, x1 - x0, bottom - top, stroke=0, fill=1)
+
+        box(36, 36, 531.7, 81.5, (0, 0, 0))
+        box(530.8, 36, 576.6, 81.9, (1, 1, 1))
+        box(36, 101.5, 576, 215.2, (0.92, 0.917, 0.872))
+        box(201.7, 393.2, 409, 774.5, (1, 1, 1))
+        box(201.2, 387.4, 409.6, 401.2, (0.32, 0.163, 0.35))
+        box(202, 405, 366.7, 644.5, (1, 1, 1))
+        box(316.1, 515.2, 402.6, 601.7, (1, 1, 1))
+        pdf.setLineWidth(0.35)
+        for x0, top, x1, bottom in ((36, 739.8, 576, 739.8), (36, 214.6, 576, 214.6), (305.5, 214.5, 305.5, 400.2),
+                                    (36.2, 102.1, 576, 102.1), (201.3, 622.1, 409, 622.1), (409.2, 755.6, 576, 755.6),
+                                    (36, 755.6, 201.5, 755.6)):
+            pdf.line(x0, height - top, x1, height - bottom)
+        for x0, top, x1, bottom in ((36.2, 36.2, 575.8, 755.8), (201.7, 393.2, 409, 774.5), (316.1, 515.2, 402.6, 601.7)):
+            path = pdf.beginPath()  # a frame drawn as one open path that comes back to its first corner
+            path.moveTo(x0, height - top)
+            for x, y in ((x1, top), (x1, bottom), (x0, bottom), (x0, top), (x1, top)):
+                path.lineTo(x, height - y)
+            pdf.drawPath(path, stroke=1, fill=0)
+        pdf.setFillColorRGB(1, 1, 1)
+        pdf.setFont("Helvetica-Bold", 20)
+        pdf.drawString(50, height - 66, "Winter Care of Roses")
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(50, height - 95, "Garden notes of the season")
+        pdf.drawString(50, height - 125, "What does a rose need before the frost comes? It needs a week without")
+        pdf.drawString(50, height - 137, "pruning, a mound of earth at its foot and no more feeding after August.")
+        for index, (left, right) in enumerate((("Covering the plant too early keeps it soft.", "Remove the cover in spring."),
+                                               ("Wait for the first hard frost.", "Do it on a grey day."),
+                                               ("Then heap earth over the crown.", "Prune a week later."))):
+            pdf.drawString(50, height - 240 - 12 * index, left)
+            pdf.drawString(420, height - 240 - 12 * index, right)
+        pdf.drawString(210, height - 398, "FIGURE 1")
+        pdf.drawString(210, height - 420, "The mound of earth")
+        pdf.drawString(430, height - 750, "see the other side")
+        pdf.showPage()
+        pdf.save()
+
+        text = convert(buffer.getvalue(), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        for written in ("Winter Care of Roses", "Garden notes of the season", "What does a rose need before the frost comes?",
+                        "no more feeding after August.", "Covering the plant too early", "FIGURE 1", "see the other side"):
+            assert written in text
+
     def test_open_sided_table_found_from_two_rule_widths_is_kept_once(self):
         """When the ends of the horizontal rules of an open-sided table are off by about 1pt, the width groups split in two and the
         same table was found twice. Each of the two tables saw the other as 'a box containing another table' and both were discarded,
