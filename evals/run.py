@@ -22,6 +22,7 @@ import time
 
 from evals.metrics import score
 from opendockit import ConversionError, ConvertOptions, convert
+from opendockit.cli import _write_output_as_utf8_lines
 
 
 METRICS = ("overall", "nid", "nid_s", "teds", "teds_s", "mhs", "mhs_s", "words")
@@ -193,4 +194,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())

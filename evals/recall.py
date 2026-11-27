@@ -41,6 +41,7 @@ from lxml import etree
 import olefile
 
 from opendockit import ConversionError, ConvertOptions, convert
+from opendockit.cli import _write_output_as_utf8_lines
 
 
 # Everything a document can hold is asked for, and nothing is written around its words. The limits stay the default ones:
@@ -393,4 +394,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())

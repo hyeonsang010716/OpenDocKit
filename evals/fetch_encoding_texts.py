@@ -17,6 +17,7 @@ from xml.etree import ElementTree
 
 from evals.encodings import PAGES
 from evals.fetch_script_texts import SOURCE
+from opendockit.cli import _write_output_as_utf8_lines
 
 
 _PAUSE = 1.0  # seconds between requests
@@ -54,4 +55,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())

@@ -33,6 +33,20 @@ files() { git ls-files -z -- examples/samples benchmarks/cases '*.sh' benchmarks
 files | xargs -0 rm -- && files | xargs -0 git checkout --
 ```
 
+Windows also runs programs in a legacy code page unless "Beta: Use Unicode UTF-8 for worldwide language support" is
+set: 949 on Korean Windows, by default. There two tools stumble over a checkout whose full path is not ASCII, such as
+the Desktop that OneDrive keeps as `바탕 화면`:
+
+- **Python 3.12 does not start `.venv`** (`Fatal Python error: init_import_site`). It reads the `.pth` file of the
+  editable install, which holds the path of `src`, in the code page; Python 3.13 and later read it as UTF-8.
+  `PYTHONUTF8=1` does not change this.
+- **`pytest -n auto` cannot start its workers.** execnet sends them their code as UTF-8 and they read it in the code
+  page. `PYTHONUTF8=1` fixes this one.
+
+A checkout under a path that is ASCII avoids both. Otherwise develop on Python 3.13 or later (`uv sync --python 3.13`)
+and run the parallel tests with `PYTHONUTF8=1`. The tests pass in code page 949 either way: what they check does not
+depend on it.
+
 Tests that call a real vision model are skipped by default because they cost money. To run them (after changing
 `describe.py` or its prompts):
 

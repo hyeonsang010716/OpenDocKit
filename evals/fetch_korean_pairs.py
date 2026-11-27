@@ -23,6 +23,8 @@ import sys
 import time
 import urllib.request
 
+from opendockit.cli import _write_output_as_utf8_lines
+
 
 SITE = "https://www.korea.kr"
 LISTED = Path(__file__).with_name("korean_pairs.tsv")
@@ -103,4 +105,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())

@@ -19,6 +19,8 @@ import unicodedata
 import urllib.request
 from xml.etree import ElementTree
 
+from opendockit.cli import _write_output_as_utf8_lines
+
 
 REVISION = "e6a1b6f8cb048fba115d6b81bab47875a4eca0d8"
 SOURCE = f"https://raw.githubusercontent.com/eric-muller/udhr/{REVISION}/data/udhr/udhr_{{code}}.xml"
@@ -115,4 +117,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _write_output_as_utf8_lines()   # UTF-8 whatever the code page, as the command line (Pinned by: test_evals_output.py)
     sys.exit(main())
