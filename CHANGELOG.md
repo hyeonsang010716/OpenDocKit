@@ -124,7 +124,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **A meeting timed with DURATION in a year before 1000 ends the same on every system.** Its end was written with
   `strftime`, whose `%Y` glibc writes without its zeros before 1000 and which Python pads itself only from 3.14. On
   Linux with Python 3.12 and 3.13 the end came out as written (`9990314T113000Z`), and the end of an all-day event
-  was neither moved to its last day nor dropped. Windows wrote it right, and years from 1000 on were written alike everywhere.
+  was neither moved to its last day nor dropped. Windows wrote it right, and years from 1000 on were written alike
+  everywhere.
 
 - **A mail reads the same on every supported Python.** Two fixes of the standard library came in patch releases, and
   the Python of Ubuntu 24.04, 3.12.3, has neither: up to 3.12.7 and in 3.13.0 a header value that starts on the next
