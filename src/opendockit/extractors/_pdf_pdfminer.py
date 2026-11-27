@@ -24,7 +24,7 @@ from pdfminer import pdffont, pdftypes
 from pdfminer.ascii85 import asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import EncodingDB, name2unicode
-from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
+from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTPage, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
 from pdfminer.pdfinterp import PDFContentParser, PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
@@ -1775,6 +1775,50 @@ def _blended_fill(state: PDFGraphicState) -> None:
 
 PDFPageInterpreter.do_gs = _set_graphic_state
 PDFGraphicState.copy = _copy_with_fill_alpha
+
+
+# The clipping paths a page sets, for the documents whose writer clips each table cell (`_pdf_clip_tables`): during the
+# reading of such a document (`_CELL_CLIPS`), each clip that is a rectangle along the axes of the page is noted on the
+# page's layout (`_CLIPS`, in pdfminer's coordinates, in drawing order). pdfminer reads the operators `W` and `W*` and
+# does nothing; outside such a document that is still all that happens. A page notes `_MAX_CLIPS` at most.
+_CELL_CLIPS: ContextVar[bool] = ContextVar("pdf_cell_clips", default=False)
+_CLIPS = "_opendockit_clips"
+_MAX_CLIPS = 20_000
+_CLIP_PATH_MAX = 6  # a rectangle is `re` or `m l l l h` (pdfminer keeps both as five segments), at most with its closing line
+
+
+def _note_clip(self: PDFPageInterpreter) -> None:
+    """`W`, `W*`: notes the box of a clipping path set on the page itself (not inside a form XObject) that is a
+    rectangle along the axes: one closed run of lines through its four corners in turn (`m l l l h`, as `re` is kept
+    too). Two diagonals have the corners of a box and clip nothing like one."""
+    if not _CELL_CLIPS.get():
+        return
+    try:
+        path = self.curpath
+        count = len(path)
+        if not 4 <= count <= _CLIP_PATH_MAX or path[0][0] != "m" or path[1][0] != "l" or path[2][0] != "l" or path[3][0] != "l":
+            return
+        if count > 4 and (path[4][0] not in "lh" or (count > 5 and path[5][0] not in "lh")):
+            return
+        item = getattr(self.device, "cur_item", None)
+        if not isinstance(item, LTPage):
+            return
+        a, b, c, d, e, f = self.ctm
+        corners = [(round(a * x + c * y + e, 2), round(b * x + d * y + f, 2)) for _, x, y in path[:4]]
+        (x0, y0), (x1, y1), (x2, y2), (x3, y3) = corners
+        # each side runs along an axis, and the corner across is across on both
+        if x0 == x2 or y0 == y2 or not ((x0 == x1 and y1 == y2 and x2 == x3 and y3 == y0)
+                                        or (y0 == y1 and x1 == x2 and y2 == y3 and x3 == x0)):
+            return
+        noted = item.__dict__.setdefault(_CLIPS, [])
+        if len(noted) < _MAX_CLIPS:
+            noted.append((min(x0, x2), min(y0, y2), max(x0, x2), max(y0, y2)))
+    except Exception:  # noqa: BLE001 — a clip that cannot be measured is one that is not noted
+        return
+
+
+PDFPageInterpreter.do_W = _note_clip
+PDFPageInterpreter.do_W_a = _note_clip
 
 
 _type3_font_init = pdffont.PDFType3Font.__init__

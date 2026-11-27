@@ -680,7 +680,8 @@ def pdf_with_images() -> bytes:
 
 
 def pdf_of_glyphs(runs: list[tuple], *, producer: str | None = None, no_width: str = "",
-                  around: tuple[bytes, bytes] = (b"", b"")) -> bytes:
+                  around: tuple[bytes, bytes] = (b"", b""), clips: dict[int, tuple[float, float, float, float]] | None = None,
+                  rotate: int = 0) -> bytes:
     """A page of text in any script, drawn as the runs (x, y from the bottom of the page, size, glyphs, bold) in the order
     given. The glyphs of a run are drawn from left to right, each 0.58 of the size wide; a run is a text, one glyph for
     each character, or a list with the text of each glyph (a ligature is one glyph of several characters). The fonts
@@ -689,7 +690,9 @@ def pdf_of_glyphs(runs: list[tuple], *, producer: str | None = None, no_width: s
     A run with a sixth item is drawn inside a marked-content sequence that says its glyphs stand for that text
     (`/Span << /ActualText … >> BDC … EMC`). The glyphs in `no_width` move nothing (a mark set on a letter), `around` is
     written before and after the whole content (a marked-content sequence around it), and `producer` is the program the
-    document says it was written by."""
+    document says it was written by. The run whose number is in `clips` is drawn under a clipping path that is that
+    box (x0, y0, x1, y1 from the bottom of the page: `q … re W n … Q`, as Hangul's PDF export draws a table cell); a run
+    without glyphs draws the clip alone, an empty cell. `rotate` is the /Rotate of the page."""
     import zlib
 
     def stream(body: bytes) -> bytes:
@@ -698,11 +701,14 @@ def pdf_of_glyphs(runs: list[tuple], *, producer: str | None = None, no_width: s
 
     codes: dict[str, int] = {}
     content = b""
-    for x, y, size, glyphs, bold, *actual in runs:
+    for number, (x, y, size, glyphs, bold, *actual) in enumerate(runs):
         drawn = b"".join(b"%04X" % codes.setdefault(glyph, len(codes) + 1) for glyph in glyphs)
-        show = b"BT /F%d %g Tf %g %g Td <%s> Tj ET\n" % (2 if bold else 1, size, x, y, drawn)
+        show = b"BT /F%d %g Tf %g %g Td <%s> Tj ET\n" % (2 if bold else 1, size, x, y, drawn) if glyphs else b""
         if actual:
             show = b"/Span << /ActualText <FEFF%s> >> BDC\n%sEMC\n" % (actual[0].encode("utf-16-be").hex().upper().encode(), show)
+        if clips and number in clips:
+            x0, y0, x1, y1 = clips[number]
+            show = b"q %g %g %g %g re W n\n%sQ\n" % (x0, y0, x1 - x0, y1 - y0, show)
         content += show
     content = around[0] + content + around[1]
     named = b" ".join(b"<%04X> <%s>" % (code, glyph.encode("utf-16-be").hex().upper().encode()) for glyph, code in codes.items())
@@ -719,8 +725,8 @@ def pdf_of_glyphs(runs: list[tuple], *, producer: str | None = None, no_width: s
                 b"/ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >> >>] >>" % (name, name, widths, name))
 
     objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-               3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
-                  b"/Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> >>",
+               3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate %d /Contents 4 0 R "
+                  b"/Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> >>" % rotate,
                4: stream(content), 5: stream(cmap), 6: font(b"Any"), 7: font(b"Any-Bold")}
     if producer is not None:
         objects[8] = b"<< /Producer (%s) >>" % producer.encode("ascii")

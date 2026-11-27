@@ -51,6 +51,7 @@ src/opendockit/
     ├── _pdf_banded_tables.py # tables drawn with horizontal rules only
     ├── _pdf_gutter_tables.py # tables without any rule whose cells wrap
     ├── _pdf_tagged_tables.py # tables the structure tree of a tagged PDF states
+    ├── _pdf_clip_tables.py   # tables Hangul's PDF export states by the clip of each cell
     ├── _pdf_cell_text.py # the text of ruled cells: wrapped lines, merged cells, sideways text
     ├── _pdf_aligned_tables.py # tables without rules, found from aligned lines: runs of rows and their columns
     ├── _pdf_table_rows.py # judgments about one row of a table without rules

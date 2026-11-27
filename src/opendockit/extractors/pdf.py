@@ -119,6 +119,7 @@ from opendockit.extractors._pdf_model import (
 from opendockit.extractors._pdf_paragraphs import _heading_levels, _keep_proven_line_ends, _read_tables_from_the_right, _render_page
 from opendockit.extractors._pdf_pdfium_pages import _PdfiumPages
 from opendockit.extractors._pdf_pdfminer import (
+    _CELL_CLIPS,
     _DOCUMENT_FONT_RANGE_ENTRIES,
     _FONT_RANGES_CUT,
     _FORM_NESTING_MAX,
@@ -196,6 +197,8 @@ _FORM_POSITIONS: ContextVar[dict | None] = ContextVar("pdf_form_positions", defa
 # The tables the structure tree of the document being read states, by page (`_pdf_tagged_tables._tagged_tables`), under the
 # key "tables" once a page has asked for them: the tree is walked once for the document.
 _TAGGED_TABLES: ContextVar[dict | None] = ContextVar("pdf_tagged_tables", default=None)
+# The programs whose PDFs clip each table cell (`_clips_its_cells`), by the start of the Producer they state.
+_CELL_CLIPPING_PRODUCERS = ("Hancom PDF",)
 # A page whose content adds more pieces to paths than this (`m l c v y h re`, `_path_segments`, as often as drawn) is read with
 # pdfium's simple extraction too, with the same warning. pdfminer and pdfplumber keep every point of a path in their objects: one path
 # of 100,000 / 200,000 / 400,000 / 600,000 line segments peaked at 248 / 385 / 653 / 942MB (1.4KB a segment; 1, 2, 4 and 6.5
@@ -258,11 +261,13 @@ def extract_pdf(data: bytes, options: ConvertOptions) -> Extraction:
     token = _INFLATE_BUDGET.set(budget)
     positions = _FORM_POSITIONS.set({})
     tagged = _TAGGED_TABLES.set({})
+    clips = _CELL_CLIPS.set(False)
     _quiet_pdfminer(True)
     try:
         return _extract_pdf(data, options, budget)
     finally:
         _quiet_pdfminer(False)
+        _CELL_CLIPS.reset(clips)
         _TAGGED_TABLES.reset(tagged)
         _FORM_POSITIONS.reset(positions)
         _INFLATE_BUDGET.reset(token)
@@ -705,6 +710,7 @@ def _open_pdfplumber(data: bytes) -> object:
     that can fail again.
     """
     pdf = pdfplumber.open(BytesIO(data), laparams=_LAPARAMS)
+    _CELL_CLIPS.set(_clips_its_cells(pdf))
     try:
         pages = pdf.pages
     except PdfminerException:
@@ -1101,6 +1107,16 @@ def _sound_cid_system_info(info: dict) -> bool:
     to be printable (`b'"w#"Q'`, `b'(|>%Ue'`): with the random IV of AES about 1 file in 400 kept its broken Ordering and lost all
     of its text (Pinned by: test_pdf.py::test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repaired)."""
     return resolve1(info.get("Registry")) == b"Adobe" and resolve1(info.get("Ordering")) in _KNOWN_CID_ORDERINGS
+
+
+def _clips_its_cells(pdf: object) -> bool:
+    """Whether the document says Hangul's own PDF export wrote it (Producer `Hancom PDF …`), which sets a clipping path
+    around each table cell (`_pdf_clip_tables`)."""
+    try:
+        producer = (pdf.metadata or {}).get("Producer", "")  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 — a broken information dictionary says nothing
+        return False
+    return isinstance(producer, str) and producer.startswith(_CELL_CLIPPING_PRODUCERS)
 
 
 def _made_by_word(page: object) -> bool:

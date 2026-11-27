@@ -10,6 +10,7 @@ from pdfplumber.table import TableFinder, TableSettings
 
 from opendockit.extractors._pdf_cell_text import _cell_rows, _text_outside
 from opendockit.extractors._pdf_chars import _drawn_text
+from opendockit.extractors._pdf_clip_tables import _clip_tables
 from opendockit.extractors._pdf_model import (
     _CAPTION_LABEL,
     _CHECKBOX_SIDE,
@@ -341,13 +342,28 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
             budget.unruled_pages.add(page.page_number)
         return []
     page_area = max(float(page.width) * float(page.height), 1.0)
-    regular = [_closed_at_open_ends(page, _closed_at_the_bottom(page, table)) for table in page.find_tables(_TABLE_SETTINGS)]
+    try:
+        stated = _clip_tables(page)
+    except Exception:  # noqa: BLE001 — boxes that cannot be put into tables state none; the page is read from its rules
+        stated = []
+
+    def left_out(table: object) -> bool:
+        """A table found by the rules of the page where its writer clipped the cells of one (`_pdf_clip_tables`): the
+        clipped cells are the table, and the rules drawn there show only some of them."""
+        return any(_overlapping(table.bbox, other.bbox) for other in stated)
+
+    ruled = page.find_tables(_TABLE_SETTINGS)
+    # a table that is left out in the end is not closed first: closing only adds to it
+    regular = [table if left_out(table) else _closed_at_open_ends(page, _closed_at_the_bottom(page, table))
+               for table in ruled]
     open_sided = [table for table in _open_sided_tables(page)
                   if not any(_is_inner_part(table.bbox, closed.bbox) for closed in regular)]
     found = _with_shaded_rows(page, open_sided + [table for table in regular
                                                   if not any(_encloses(other.bbox, table.bbox) for other in open_sided)])
     # after the shaded rows, which find a shaded table again from the page's own rules
     found = [_closed_above_open_header(page, table) for table in found]
+    if stated:
+        found = stated + [table for table in found if not left_out(table)]
     candidates = []
     for table in found:
         x0, top, x1, bottom = table.bbox
@@ -378,6 +394,10 @@ def _real_tables(page: object) -> list[tuple[tuple[float, float, float, float], 
         else:
             kept.append((bbox, [(bbox, rows, boxes, header)]))
     return [piece for bbox, pieces in kept if id(bbox) not in absorbed for piece in pieces]
+
+
+def _overlapping(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> bool:
+    return first[0] < second[2] and second[0] < first[2] and first[1] < second[3] and second[1] < first[3]
 
 
 def _too_many_rules(page: object) -> bool:

@@ -148,6 +148,15 @@ The scores say how far the two readers agree, so read them as a watch for change
   text, fell from 0.875 to 0.862 on the same four: the reference has two more headings there than the PDF, the two
   outline heads, and the count of headings is all that number sees.
 
+- **TEDS 0.950, from 0.613, by reading what Hangul's PDF export states** (`docs/decisions/pdf-tables.md`,
+  `_pdf_clip_tables.py`): it sets a clipping path around each table cell, and those boxes are the cells of the HWPX
+  table, the borders that are not drawn included. The numbers above are those of the readers before it; with it the
+  pairs stand at overall 0.917, NID 0.978, MHS 0.817 and words 0.990, the development list at 0.921 (TEDS 0.971) and
+  the holdout, run and not read, at 0.938 (TEDS 0.969, from 0.609; no release with a score that fell). Found on the
+  pairs and the development list; nothing was written from the holdout. One release of the pairs falls (156790056):
+  its HWPX has column lines a hundredth of a point apart that the reference writes and nobody sees. What is left is
+  not on the page: tables that float, which the PDF has in the order of the page, and text a cell clips away.
+
 Compared with `main` before the headings by weight were put back, the PDF reader writes 45 more headings in these
 releases and loses none: the section titles of two long releases, the labels of summary boxes, and — wrongly — a line
 of place and the quoted slogans of a list of companies.
