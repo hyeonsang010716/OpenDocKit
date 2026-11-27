@@ -33,6 +33,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **A PDF printed by Chrome keeps its spaces.** With some fonts (NanumGothic, Apple SD Gothic Neo, the font Chrome
+  takes on a Korean Mac for a page that names none) Chrome draws a space as a glyph its font calls U+0001 and says
+  around it that it is a space (`ActualText`). Such a statement of nothing to see was left unread, so every space of
+  the document was lost: `정부는 오늘 새로운 정책을` came out as `정부는오늘새로운정책을`. One space is now taken by a
+  glyph whose own text is a control character. Of the words of 200 pages printed by Chrome 158, 20% were found
+  before and 99.9% now; no text of the benchmark, the PDF twins or the Korean lists changes.
+
 - **The scripts of `evals/` write their reports as UTF-8 whatever the code page.** Under code page 949, the default of
   Korean Windows, a report sent to a file or a pipe stopped with a UnicodeEncodeError at the first character the code
   page lacks, an emoji or a Vietnamese letter in the name or the words of a document, and the corpora are written in
