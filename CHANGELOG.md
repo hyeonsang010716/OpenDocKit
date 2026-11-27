@@ -50,7 +50,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   Hermes plugins, the MCP Registry entry and the configurations in the README now pass uvx
   `--no-build-package cryptography`, which takes the newest release with a wheel and changes nothing where the newest
   has one; for pip, `pip install --prefer-binary opendockit` does the same. Measured on GitHub's runners for each, the
-  samples convert there to the same bytes as on x64.
+  samples convert there to the same bytes as on x64. Where no release has a wheel, as on Linux s390x or FreeBSD, uv
+  cannot install cryptography with the option: the two arguments are left out there (docs/limitations.md).
 
 - **PDF: the text a Canon scanner recognised is read.** IJ Scan Utility writes the text of a scan in a font whose
   ToUnicode map gives the letters under 128 with a destination of one byte. Each was read as nothing: a scanned
