@@ -20,6 +20,10 @@ uv run opendockit some.pdf   # try a real document
 `uv run pytest -n auto` also works for a quick look, but the timing tests can fail when every core is busy, which is why
 they are run separately (as CI does).
 
+On Windows, `uv run python .github/scripts/code_page_949.py -m pytest -m "not timing"` runs the tests in code page 949,
+the default of Korean Windows, whatever the code page of the machine, as the `code page 949` job of CI does. Add
+`-n auto` only where the path of the checkout is ASCII: the workers of pytest-xdist read their code in the code page.
+
 Optional: `uvx pre-commit install` runs the linter before each commit. LibreOffice is optional too: without it the tests
 that start a real LibreOffice are skipped, and `examples/run_examples.py` skips the `.doc` / `.ppt` samples.
 
