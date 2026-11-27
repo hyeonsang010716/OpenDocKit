@@ -1136,9 +1136,11 @@ def _repair_cid_system_info(page: object) -> None:
     non-embedded Korean font (UniKS-UCS2-H) became `(cid:n)` and the page was left with only empty tables (pdfium reads by the
     CMap name). Only fonts in an encrypted document whose Registry/Ordering are not `Adobe` plus a known ordering and whose encoding is a
     predefined `Uni(KS|JIS|GB|CNS)-…` CMap are repaired — correctly decrypted values are not touched. The font dictionary of that
-    document cached by pdfminer is what gets repaired, so no global state changes. Known limitation: fonts used only inside a Form
-    XObject are not looked at
-    (Pinned by: test_pdf.py::test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text).
+    document cached by pdfminer is what gets repaired, so no global state changes. Known limitations: fonts used only inside a Form
+    XObject are not looked at, and only RC4 garbles the strings. Under AES they are shorter than the 16-byte IV, so reading the font
+    raises here and again when the page is read, and pdfium reads that page
+    (Pinned by: test_pdf.py::test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text,
+    test_pdf.py::TestEncryptedWithAes::test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text_through_pdfium).
     """
     if page.pdf.doc.decipher is None:
         return
@@ -1157,8 +1159,9 @@ def _repair_cid_system_info(page: object) -> None:
 
 def _sound_cid_system_info(info: dict) -> bool:
     """Registry `Adobe` with a known Ordering. Checking only for printable ASCII let through wrongly decrypted bytes that happened
-    to be printable (`b'"w#"Q'`, `b'(|>%Ue'`): with the random IV of AES about 1 file in 400 kept its broken Ordering and lost all
-    of its text (Pinned by: test_pdf.py::test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repaired)."""
+    to be printable (`b'"w#"Q'`, `b'(|>%Ue'`): the RC4 key comes from the document ID, so the garbage differs from file to file, and
+    about 1 file in 400 kept its broken Ordering and lost all of its text (Pinned by:
+    test_pdf.py::test_wrongly_decrypted_font_info_that_happens_to_be_printable_is_still_repaired)."""
     return resolve1(info.get("Registry")) == b"Adobe" and resolve1(info.get("Ordering")) in _KNOWN_CID_ORDERINGS
 
 
