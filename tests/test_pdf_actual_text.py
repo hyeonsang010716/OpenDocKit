@@ -129,3 +129,28 @@ class TestMarksSetOnALetter:
         chars = [char("จ", 0, 6), char("น", 6.0, 12), char("\u0e31", 6.05, 6.05), char("ท", 12, 18)]
 
         assert _text_from_chars(chars) == "จันท"
+
+
+class TestAccentsDrawnBeforeTheirLetter:
+    """TeX sets an accented letter as two glyphs where its font has none for both: the accent, then the letter under it."""
+
+    @staticmethod
+    def _read(accent: str, letter: str, *, apart: float = 0.0, size: float = 10) -> str:
+        at = 72 + 7 * _GLYPH
+        runs = [(72, 760, 10, "autoris", False), (at, 760, size, accent, False), (at + apart, 760, 10, letter, False),
+                (at + apart + _GLYPH, 760, 10, "s", False)]
+        return convert(pdf_of_glyphs(runs), "a.pdf", _OPTIONS).text
+
+    @pytest.mark.parametrize(("accent", "letter", "read"), [("\u00b4", "e", "\u00e9"), ("\u0060", "a", "\u00e0"), ("\u02c6", "o", "\u00f4"),
+                                                           ("\u00a8", "u", "\u00fc"), ("\u02dc", "n", "\u00f1"), ("\u00b8", "c", "\u00e7")])
+    def test_the_letter_under_an_accent_is_the_accented_letter(self, accent, letter, read):
+        assert self._read(accent, letter) == f"autoris{read}s"
+
+    def test_an_accent_beside_a_letter_is_not_on_it(self):
+        assert "\u00e9" not in self._read("\u00b4", "e", apart=_GLYPH)
+
+    def test_a_letter_that_takes_no_such_accent_stays_as_drawn(self):
+        assert "\u00b4" in self._read("\u00b4", "q")
+
+    def test_an_accent_of_another_size_is_not_the_letters(self):
+        assert "\u00e9" not in self._read("\u00b4", "e", size=6)
