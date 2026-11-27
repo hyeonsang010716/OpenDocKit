@@ -1,11 +1,11 @@
 {
  "means": {
   "overall": {
-   "mean": 0.9768,
+   "mean": 0.9797,
    "documents": 19
   },
   "nid": {
-   "mean": 0.9921,
+   "mean": 0.9925,
    "documents": 19
   },
   "nid_s": {
@@ -13,15 +13,15 @@
    "documents": 19
   },
   "teds": {
-   "mean": 0.9482,
+   "mean": 0.9564,
    "documents": 19
   },
   "teds_s": {
-   "mean": 0.9527,
+   "mean": 0.9589,
    "documents": 19
   },
   "mhs": {
-   "mean": 0.9901,
+   "mean": 0.9903,
    "documents": 19
   },
   "mhs_s": {
@@ -125,12 +125,12 @@
    "words": 0.7813
   },
   "kat": {
-   "overall": 0.8954,
-   "nid": 0.9829,
-   "nid_s": 0.9898,
-   "teds": 0.7144,
-   "teds_s": 0.7667,
-   "mhs": 0.9889,
+   "overall": 0.9498,
+   "nid": 0.9892,
+   "nid_s": 0.9914,
+   "teds": 0.8686,
+   "teds_s": 0.8846,
+   "mhs": 0.9918,
    "mhs_s": 1.0,
    "words": 0.9953
   },
@@ -235,7 +235,7 @@
   "hin": "cdce91949ee7",
   "hye": "7cff8fec4dd3",
   "jpn": "d9c38a8ac92d",
-  "kat": "1a9b0d16dff3",
+  "kat": "f111f090fad0",
   "khm": "988ec0ad6192",
   "kor": "6c4dfc3a9297",
   "mya": "d212fb678c75",

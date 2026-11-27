@@ -33,6 +33,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **A tagged PDF table with a row that runs over the end of a page is read from its tags.** One such row — a cell
+  long enough to continue on the next page — left the whole table to be guessed from the page, on every page it
+  stands on. The row is now a row on each of the two pages, with what each cell holds there, as the continued cell
+  of a ruled table is. On the tagged PDF twins table structure (TEDS) rises from 0.8673 to 0.9363 (six documents,
+  none falling).
+
 - **A PDF printed by Chrome keeps its spaces.** With some fonts (NanumGothic, Apple SD Gothic Neo, the font Chrome
   takes on a Korean Mac for a page that names none) Chrome draws a space as a glyph its font calls U+0001 and says
   around it that it is a space (`ActualText`). Such a statement of nothing to see was left unread, so every space of

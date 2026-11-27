@@ -47,7 +47,8 @@ class _TaggedTable:
 
 
 class _Untrusted(Exception):
-    """The tree is not one a table can be read from (too large, nested too deep, a table in a cell, a row on two pages)."""
+    """The tree is not one a table can be read from (too large, nested too deep, a table in a cell, a cell over several
+    rows in a row cut by the end of a page)."""
 
 
 def _tagged_tables(document: object) -> dict[int, list[list[list[_TaggedCell]]]]:
@@ -57,7 +58,8 @@ def _tagged_tables(document: object) -> dict[int, list[list[list[_TaggedCell]]]]
     The tree is walked once for the document, each element once (`_MAX_ELEMENTS`, `_MAX_DEPTH`; an element is known by
     its object id, so a tree that refers back into itself ends). A table whose rows lie on several pages gives the rows
     of each page as a table of that page. Left out, with the table read as without tags: a table with a table in one of
-    its cells, a row whose cells lie on two pages, a span of more than `_MAX_SPAN`.
+    its cells, a row cut by the end of a page that holds a cell over several rows, a span of more than `_MAX_SPAN`. A
+    row the end of a page cuts in two is a row of each of the two pages, with what each cell holds there.
     Pinned by: test_pdf_tagged_tables.py::TestTheTree.
     """
     found: dict[int, list[list[list[_TaggedCell]]]] = {}
@@ -160,8 +162,8 @@ class _Walk:
                 continue
             if kind != "TR":
                 continue  # a caption is body text, read from the page
-            row: list[_TaggedCell] = []
-            pages: set[int] = set()
+            row: list[tuple[list[list[tuple[int | None, int]]], int, int]] = []
+            pages: dict[int, None] = {}  # the pages the content of the row lies on, in the order of the tree
             for child in _kids(element):
                 cell = self.element(child, depth + 2)
                 if cell is None or self.type_of(cell) not in _CELLS:
@@ -170,27 +172,36 @@ class _Walk:
                 cells += 1
                 if cells > _MAX_TABLE_CELLS:
                     raise _Untrusted
-            if len(pages) > 1:
-                raise _Untrusted
-            if row and pages:
-                rows.setdefault(next(iter(pages)), []).append(row)
+            if len(pages) > 1 and any(row_span > 1 for _, row_span, _ in row):
+                raise _Untrusted  # a cell over several rows, in a row cut by the end of a page
+            # A row the end of a page cuts in two is a row on each of the two pages: what each cell holds there
+            # (content whose page the tree does not say is that of the first of them, as it was with one page)
+            for number, page in enumerate(pages if row else ()):
+                rows.setdefault(page, []).append([
+                    _TaggedCell([contents for paragraph in paragraphs
+                                 if (contents := [content for place, content in paragraph
+                                                  if place == page or (place is None and number == 0)])],
+                                row_span, col_span)
+                    for paragraphs, row_span, col_span in row])
         return rows
 
-    def _cell(self, cell: dict, depth: int, page: int | None, pages: set[int]) -> _TaggedCell:
+    def _cell(self, cell: dict, depth: int, page: int | None,
+              pages: dict[int, None]) -> tuple[list[list[tuple[int | None, int]]], int, int]:
+        """The paragraphs of a cell, each the marked content it holds as (page, content id), and its spans."""
         row_span, col_span = _spans(cell)
-        paragraphs: list[list[int]] = [[]]
+        paragraphs: list[list[tuple[int | None, int]]] = [[]]
         for kid in _kids(cell):
             self._content(kid, depth + 1, page, paragraphs, pages, in_item=False)
-        return _TaggedCell([paragraph for paragraph in paragraphs if paragraph], row_span, col_span)
+        return [paragraph for paragraph in paragraphs if paragraph], row_span, col_span
 
-    def _content(self, kid: object, depth: int, page: int | None, into: list[list[int]], pages: set[int], *,
-                 in_item: bool) -> None:
+    def _content(self, kid: object, depth: int, page: int | None, into: list[list[tuple[int | None, int]]],
+                 pages: dict[int, None], *, in_item: bool) -> None:
         """Add the marked content under `kid` to the paragraphs `into`, in order. A paragraph, a heading and an item of
         a list each start one and end it; the paragraph an item of a list holds is the item itself, after its label."""
         if isinstance(kid, int):
-            into[-1].append(kid)
+            into[-1].append((page, kid))
             if page is not None:
-                pages.add(page)
+                pages[page] = None
             return
         if depth > _MAX_DEPTH:
             raise _Untrusted
@@ -208,9 +219,9 @@ class _Walk:
         if _name(kid.get("Type")) == "MCR":
             content = resolve1(kid.get("MCID"))
             if isinstance(content, int) and "Stm" not in kid:  # content of the page itself, not of a form drawn on it
-                into[-1].append(content)
+                into[-1].append((page, content))
                 if page is not None:
-                    pages.add(page)
+                    pages[page] = None
             return
         if "S" not in kid:
             return
