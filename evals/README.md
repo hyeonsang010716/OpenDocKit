@@ -241,7 +241,8 @@ a difference between two readers. `--plain` converts without emphasis and links,
 - **A tagged PDF says where its tables are, and that is read now** (`_pdf_tagged_tables.py`, `docs/decisions/pdf-tables.md`).
   LibreOffice and Word write the structure tree of a tagged PDF by default: all 200 twins have one, and none of the 320
   PDFs of the benchmark and the Korean lists do. With the tables read from the tree where the page agrees with it,
-  TEDS on the twins is 0.846 (from 0.489). The same pages saved without tags (`pdf-untagged`) stay at 0.487 and
+  TEDS on the twins is 0.846 (from 0.489). It is 0.936 since a row the end of a page cuts in two is read as a row on each
+  page: one such row had left its whole table to the page, and the 11 twins with a table over pages stood at 0.63. The same pages saved without tags (`pdf-untagged`) stay at 0.487 and
   stay the measure of what is read from the page alone: work on tables without rules is judged there. Outside the
   twins, four tax publications of the IRS (tagged by another program, 61 to 15 tagged tables each) kept every word
   they had and lost none, with their tables of contents and filing tables read as the tables they are tagged as.

@@ -199,6 +199,28 @@ class TestTablesFromTheTree:
 
         assert "| Battambang | 2012 |" in text and "| Siem Reap | 2015 |" in text and "| Kampot | 2019 |" in text
 
+    # the second cell of the row of Phnom Penh ends on the next page, above the rows that follow it there
+    _CUT = [(72, 100, _INTRO), (72, 140, "Office"), (300, 140, "Opened"),
+            (72, 154, "Phnom Penh"), (300, 154, "2009, after two years in a "), (300, 100, "rented room"),
+            (72, 114, "Battambang"), (300, 114, "2012"), (72, 128, "Siem Reap"), (300, 128, "2015"), (72, 180, _AFTER)]
+    _CUT_PAGES = {5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1}
+
+    def test_a_row_the_end_of_a_page_cuts_is_a_row_on_each_page(self):
+        """A long cell runs over the end of the page: what each cell of its row holds on a page is a row of the table
+        of that page, and the rows before and after it are read from the tree as well."""
+        text = _text(_tagged_pdf(self._CUT, [("P", [0]), _table(_ROWS), ("P", [10])], pages=2, page_of=self._CUT_PAGES))
+
+        assert "| Office | Opened |\n| --- | --- |\n| Phnom Penh | 2009, after two years in a |" in text
+        assert "| | rented room |\n| --- | --- |\n| Battambang | 2012 |\n| Siem Reap | 2015 |" in text
+
+    def test_a_cut_row_with_a_cell_over_several_rows_leaves_the_table_to_the_page(self):
+        pieces = [piece for index, piece in enumerate(self._CUT) if index != 6]  # no 'Battambang': 'Phnom Penh' covers its row
+        pages = {5: 1, 6: 1, 7: 1, 8: 1, 9: 1}
+        rows = [[[1], [2]], [([3], {"RowSpan": 2}), [4, 5]], [[6]], [[7], [8]]]
+
+        assert (_text(_tagged_pdf(pieces, [("P", [0]), _table(rows), ("P", [9])], pages=2, page_of=pages))
+                == _text(_tagged_pdf(pieces, None, pages=2, page_of=pages)))
+
     def test_a_word_broken_by_a_narrow_cell_is_one_word_and_a_line_the_writer_ended_is_not(self):
         """The cells end a line broken at a space with that space ('two years in a '); 'Differen' runs to the end of its
         column without one, and 'Name' stops short of it."""
