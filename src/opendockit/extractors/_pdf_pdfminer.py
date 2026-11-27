@@ -1418,7 +1418,9 @@ def _actual_text(props: object) -> str | None:
     test_pdf_actual_text.py::TestActualText::test_a_text_with_nothing_to_see_changes_nothing). The one exception is a
     zero-width joiner or non-joiner alone, which LibreOffice and a browser write over the glyph they set for it: it is
     part of the spelling of a Persian or a Hindi word and is kept where it stands between two letters of such a script
-    (Pinned by: test_pdf_actual_text.py::TestActualText::test_a_joiner_inside_a_word_is_kept)."""
+    (Pinned by: test_pdf_actual_text.py::TestActualText::test_a_joiner_inside_a_word_is_kept). The other is one space,
+    which a browser writes over the glyph of a space its font gives no name: `_stand_for` takes it for such a glyph
+    only."""
     if not isinstance(props, dict):
         return None
     try:
@@ -1426,7 +1428,7 @@ def _actual_text(props: object) -> str | None:
         text = decode_text(value) if isinstance(value, bytes) else None
     except Exception:  # noqa: BLE001 — a broken entry says nothing; the glyphs are read as they are
         return None
-    if text is None or text in _JOINERS:
+    if text is None or text in _JOINERS or text == " ":
         return text  # a zero-width joiner or non-joiner is part of a spelling (`markdown.without_invisible`)
     if not any(unicodedata.category(letter)[0] not in "CZ" for letter in text):
         return None
@@ -1442,6 +1444,13 @@ def _stand_for(objs: list, start: int, actual: str) -> None:
     character without a name (U+0000), marks were lost or stood apart from their letter, and of the words of a Hindi
     Wikipedia article 70% were found where `pdftotext`, which reads `ActualText`, finds 97%.
 
+    Deliberate: a space is taken only by one glyph whose own text is a control character (`_is_nameless`). Chrome
+    (Skia/PDF) draws the space of some fonts (NanumGothic, Apple SD Gothic Neo) as a glyph its ToUnicode map calls
+    U+0001 and writes `ActualText ( )` around it: left as the glyph says, every space of the document was lost ('정부는오늘'), where
+    pdfium and `pdftotext` read them. A space said of any other glyph says what the glyph is not, as the soft hyphen
+    InDesign writes over a space does (`_actual_text`), and changes nothing
+    (Pinned by: test_pdf_actual_text.py::TestActualText::test_a_space_is_taken_by_a_glyph_without_a_name).
+
     One glyph takes the text. Several glyphs on one line become one: the widest keeps its place from top to bottom, is
     as wide as all of them and carries the text, and the others are taken out — the text of a cluster cannot be dealt
     out among its glyphs, which are not in the order of its characters. Deliberate: a sequence of more than
@@ -1451,6 +1460,8 @@ def _stand_for(objs: list, start: int, actual: str) -> None:
     (Pinned by: test_pdf_actual_text.py)."""
     chars = [obj for obj in objs[start:] if isinstance(obj, LTChar)]
     if not chars or len(chars) > _ACTUAL_TEXT_GLYPHS or len(actual) > _ACTUAL_TEXT_CHARS:
+        return
+    if actual == " " and not (len(chars) == 1 and _is_nameless(chars[0].get_text())):
         return
     if "".join(char.get_text() for char in chars) == actual:
         return
@@ -1465,6 +1476,11 @@ def _stand_for(objs: list, start: int, actual: str) -> None:
         gone = {id(char) for char in chars if char is not carrier}
         objs[start:] = [obj for obj in objs[start:] if id(obj) not in gone]
     carrier._text = actual
+
+
+def _is_nameless(text: str) -> bool:
+    """Whether the text a font gives a glyph is control characters only: no name of a character at all."""
+    return bool(text) and all(unicodedata.category(letter) == "Cc" for letter in text)
 
 
 _add_to_line = LTTextLineHorizontal.add

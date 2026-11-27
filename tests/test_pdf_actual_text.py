@@ -53,6 +53,16 @@ class TestActualText:
         """InDesign writes a soft hyphen over the space glyph at each place a word may be broken."""
         assert _line("these", (" ", unseen), "distributions") == "these distributions"
 
+    @pytest.mark.parametrize("nameless", ["\x01", "\x00", "\t"])
+    def test_a_space_is_taken_by_a_glyph_without_a_name(self, nameless):
+        """Chrome draws the space of some fonts as a glyph its font calls U+0001, and says around it that it is a
+        space. Every space of such a document was lost."""
+        assert _line("정부는", ([nameless], " "), "오늘", ([nameless], " "), "발표했다") == "정부는 오늘 발표했다"
+
+    def test_a_space_said_of_a_glyph_with_a_name_changes_nothing(self):
+        assert _line("well", ("-", " "), "known") == "well-known"
+        assert _line("a", (["\x01", "\x01"], " "), "b") == _line("a", ["\x01", "\x01"], "b")
+
     def test_a_joiner_inside_a_word_is_kept(self):
         """LibreOffice and a browser write the zero-width non-joiner of a Persian word over the glyph they set for it. It
         is part of the spelling ('he becomes'), and stands between the two letters it was written between."""
