@@ -156,6 +156,20 @@ class TestInvitationWithoutABody:
 
         assert result.text.endswith(expected)
 
+    @pytest.mark.parametrize(("event", "expected"), [
+        ("DTSTART:09990314T100000Z\r\nDURATION:PT1H30M\r\n", "- Start: 0999-03-14 10:00 UTC\n- End: 0999-03-14 11:30 UTC"),
+        ("DTSTART:00051231T230000\r\nDURATION:PT2H\r\n", "- Start: 0005-12-31 23:00\n- End: 0006-01-01 01:00"),
+        ("DTSTART;VALUE=DATE:09990314\r\nDURATION:P2D\r\n", "- Start: 0999-03-14\n- End: 0999-03-15"),
+        ("DTSTART;VALUE=DATE:09990314\r\nDURATION:P1D\r\n", "- Start: 0999-03-14"),
+    ], ids=["time", "time-into-the-next-year", "all-day", "one-day"])
+    def test_end_from_the_duration_in_a_year_before_1000(self, event, expected):
+        """The end was written with `strftime`, whose `%Y` glibc leaves without its zeros before 1000 (`999`) and which Python
+        pads itself only from 3.14: on Linux with 3.12 and 3.13 the end came out as written (`9990314T113000Z`), and the end of
+        an all-day event was neither moved to its last day (`9990316`) nor dropped. Windows wrote these."""
+        result = convert(_invite(event), "a.eml")
+
+        assert result.text.endswith(expected)
+
 
 class TestCancelledEvent:
     """An event with its own STATUS:CANCELLED in an ordinary invitation (METHOD:REQUEST or PUBLISH) was written as an ordinary

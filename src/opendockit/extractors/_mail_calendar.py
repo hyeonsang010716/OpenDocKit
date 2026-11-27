@@ -192,14 +192,27 @@ def _end_from_duration(lines: list[tuple[str, str, str]]) -> list[tuple[str, str
         if hour is None:
             if hours or minutes or seconds:
                 return []
-            end = (date(int(year), int(month), int(day)) + timedelta(weeks=weeks, days=days)).strftime("%Y%m%d")
+            end = _written(date(int(year), int(month), int(day)) + timedelta(weeks=weeks, days=days))
         else:
             begin = datetime(int(year), int(month), int(day), int(hour), int(minute), int(value[13:15] or 0))
-            end = (begin + timedelta(weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=seconds)).strftime(
-                "%Y%m%dT%H%M%S") + utc
+            end = _written(begin + timedelta(weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=seconds)) + utc
     except (ValueError, OverflowError):
         return []
     return [("DTEND", "DTEND" + name[len("DTSTART"):], end)]
+
+
+def _written(moment: date) -> str:
+    """A date as iCalendar writes it, `YYYYMMDD`, and a date and time as `YYYYMMDDTHHMMSS`.
+
+    Not with `strftime`: its `%Y` is the C library's, and glibc writes a year before 1000 without its zeros (`999`), which
+    Python pads itself only from 3.14. On Linux with 3.12 and 3.13 the end of such an event did not read as a time and came
+    out as written (`9990314T113000Z`), and the end of an all-day event was neither moved to its last day nor dropped;
+    Windows wrote `0999` (Pinned by:
+    test_core_mail_bodies_and_events.py::TestInvitationWithoutABody::test_end_from_the_duration_in_a_year_before_1000)."""
+    written = f"{moment.year:04d}{moment.month:02d}{moment.day:02d}"
+    if isinstance(moment, datetime):
+        written += f"T{moment.hour:02d}{moment.minute:02d}{moment.second:02d}"
+    return written
 
 
 def _recurrence(rule: str) -> str:
