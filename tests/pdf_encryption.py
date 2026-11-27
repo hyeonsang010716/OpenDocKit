@@ -7,13 +7,15 @@ AES-128 is revision 4 (`/CFM /AESV2`), AES-256 is revision 6 (`/CFM /AESV3`). Th
 ISO 32000-2, 7.6.
 """
 
+from collections.abc import Callable
 import hashlib
 import os
+import re
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from reportlab.lib.pdfencrypt import StandardEncryption, hexText
-from reportlab.pdfbase.pdfdoc import DummyDoc, PDFDictionary, PDFName, PDFObject
+from reportlab.pdfbase.pdfdoc import DummyDoc, PDFDictionary, PDFName, PDFObject, PDFString
 
 
 def _aes(key: bytes, data: bytes, iv: bytes | None) -> bytes:
@@ -71,6 +73,20 @@ class AesEncryption(StandardEncryption):
 
     def info(self) -> PDFObject:
         return _EncryptionDictionary(self)
+
+
+def encrypted_font_strings(struct_to_pdf: Callable[[object], object]) -> Callable[[object], object]:
+    """A replacement for reportlab's `cidfonts.structToPDF` that writes the strings of a CID font (`'(Adobe)'`, `'(Korea1)'`) as
+    PDF strings, which the document's encryption encrypts. reportlab writes them as text, which nothing encrypts."""
+
+    def convert(structure: object) -> object:
+        if isinstance(structure, str) and re.fullmatch(r"\(\w+\)", structure):
+            return PDFString(structure[1:-1])
+        if isinstance(structure, dict):
+            return PDFDictionary({key: convert(value) for key, value in structure.items()})
+        return struct_to_pdf(structure)
+
+    return convert
 
 
 class _EncryptionDictionary(PDFObject):

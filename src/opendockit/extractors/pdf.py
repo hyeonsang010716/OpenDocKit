@@ -1137,10 +1137,12 @@ def _repair_cid_system_info(page: object) -> None:
     CMap name). Only fonts in an encrypted document whose Registry/Ordering are not `Adobe` plus a known ordering and whose encoding is a
     predefined `Uni(KS|JIS|GB|CNS)-…` CMap are repaired — correctly decrypted values are not touched. The font dictionary of that
     document cached by pdfminer is what gets repaired, so no global state changes. Known limitations: fonts used only inside a Form
-    XObject are not looked at, and only RC4 garbles the strings. Under AES they are shorter than the 16-byte IV, so reading the font
-    raises here and again when the page is read, and pdfium reads that page
+    XObject are not looked at, and only RC4 garbles the strings. Under AES, left unencrypted, they are shorter than the 16-byte IV, so
+    reading the font raises here and again when the page is read, and pdfium reads that page; written encrypted, as the standard
+    asks, they need no repair
     (Pinned by: test_pdf.py::test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text,
-    test_pdf.py::TestEncryptedWithAes::test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text_through_pdfium).
+    test_pdf.py::TestEncryptedWithAes::test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text_through_pdfium,
+    test_korean_cid_font_whose_strings_are_encrypted_is_read_with_its_table).
     """
     if page.pdf.doc.decipher is None:
         return

@@ -3505,11 +3505,8 @@ class TestEncryptedWithAes:
         assert "The company recorded revenue of 1,456,789 in 2025." in result.sections[0].text
         assert any("time budget" in warning for warning in result.warnings)
 
-    def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text_through_pdfium(self, bits):
-        """The document of `test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text`. Under AES the CIDSystemInfo
-        strings reportlab leaves unencrypted are shorter than the 16-byte IV, so pdfminer cannot read the font, neither for the
-        repair nor for the page ('Invalid IV size (6)'), and pdfium reads the text without the table (docs/decisions/pdf.md, known
-        limitation)."""
+    def _korean_report(self, bits: int) -> bytes:
+        """The copy-protected document of `test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text`, with AES."""
         from tests.pdf_encryption import AesEncryption
 
         def draw(pdf, index):
@@ -3522,6 +3519,32 @@ class TestEncryptedWithAes:
 
         data = _korean_pdf(draw, encrypt=AesEncryption(bits, "", "own", canCopy=0))
         assert self._METHODS[bits] in data
+        return data
+
+    def test_korean_cid_font_whose_strings_are_encrypted_is_read_with_its_table(self, bits, monkeypatch):
+        """A writer that encrypts the CIDSystemInfo strings, as the standard asks: pdfminer decrypts them and reads the font and the
+        page. The repair is turned off, so the strings are read as decrypted, not restored from the encoding name."""
+        from reportlab.pdfbase import cidfonts
+
+        from opendockit.extractors import pdf as pdf_module
+        from tests.pdf_encryption import encrypted_font_strings
+
+        monkeypatch.setattr(cidfonts, "structToPDF", encrypted_font_strings(cidfonts.structToPDF))
+        monkeypatch.setattr(pdf_module, "_repair_cid_system_info", lambda page: None)
+        data = self._korean_report(bits)
+        assert b"(Korea1)" not in data
+        result = convert(data, "a.pdf")
+
+        assert "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다." in result.sections[0].text
+        assert "| 매출액 | 1,456,789 |" in result.sections[0].text
+        assert result.warnings == []
+
+    def test_copy_protected_pdf_with_a_non_embedded_korean_cid_font_keeps_its_text_through_pdfium(self, bits):
+        """reportlab writes the CIDSystemInfo strings unencrypted (`(Korea1)`). Under AES they are shorter than the 16-byte IV, so
+        pdfminer cannot read the font, neither for the repair nor for the page ('Invalid IV size (6)'), and pdfium reads the text
+        without the table (docs/decisions/pdf.md, known limitation; the same strings encrypted are read with the table, above)."""
+        data = self._korean_report(bits)
+        assert b"(Korea1)" in data
         result = convert(data, "a.pdf")
 
         assert "당사는 2025년 매출액 1조 4,567억원을 기록하였습니다." in result.sections[0].text
