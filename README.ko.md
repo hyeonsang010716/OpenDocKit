@@ -85,6 +85,11 @@ Linux, macOS 또는 Windows에서 Python 3.12 이상이 필요합니다. Windows
 HTML 페이지·메일 본문이 구버전 파서로 읽히며 내용이 일부 누락될 수 있고, 그때는 경고가 함께 나옵니다
 ([이유](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
 
+Arm64 Python을 쓰는 Windows on Arm, 32비트 Python을 쓰는 Windows, Intel Mac에서는
+`pip install --prefer-binary opendockit`으로 설치하세요. PDF 리더에 필요한 cryptography는 최신 버전에 이 환경용 휠이
+없어서 pip가 소스에서 빌드하려 하는데, 여기에는 Rust와 C 빌드 도구가 필요합니다
+([자세히](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)).
+
 선택 사항: 구형 `.doc`, `.ppt` 파일을 읽으려면 [LibreOffice](https://www.libreoffice.org/)를 설치하세요
 (`brew install --cask libreoffice`, `apt install libreoffice`). 그 밖의 형식은 모두 OpenDocKit이 직접 읽습니다.
 
@@ -165,7 +170,7 @@ opendockit-mcp --root ~/Documents     # MCP 서버: Claude, Cursor 등의 에이
   "mcpServers": {
     "opendockit": {
       "command": "uvx",
-      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+      "args": ["--no-build-package", "cryptography", "opendockit-mcp", "--root", "/path/to/documents"]
     }
   }
 }

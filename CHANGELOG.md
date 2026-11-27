@@ -43,6 +43,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **The MCP server starts on Windows on Arm, 32-bit Windows and Intel Macs.** cryptography, which the PDF reader
+  needs, has published no wheel for Windows on Arm since 46.0.4 and none for 32-bit Windows or Intel macOS since
+  49.0.0, and uvx and pip took its newest release and built it from source, which needs Rust and a C toolchain: on a
+  machine without them the plugins' server did not start and `pip install opendockit` failed. The Claude Code and
+  Hermes plugins, the MCP Registry entry and the configurations in the README now pass uvx
+  `--no-build-package cryptography`, which takes the newest release with a wheel and changes nothing where the newest
+  has one; for pip, `pip install --prefer-binary opendockit` does the same. Measured on GitHub's runners for each, the
+  samples convert there to the same bytes as on x64. Where no release has a wheel, as on Linux s390x or FreeBSD, uv
+  cannot install cryptography with the option: the two arguments are left out there (docs/limitations.md).
+
 - **PDF: the text a Canon scanner recognised is read.** IJ Scan Utility writes the text of a scan in a font whose
   ToUnicode map gives the letters under 128 with a destination of one byte. Each was read as nothing: a scanned
   page came out as its accented letters alone, with no warning. The byte is read as the number it is.

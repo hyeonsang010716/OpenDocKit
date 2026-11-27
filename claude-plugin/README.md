@@ -64,7 +64,7 @@ or sheets has nothing to ask for, and its note says to raise `max_chars` instead
 
 ## What it does on your machine
 
-- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-25T10:43:00Z --from "opendockit[mcp]==0.3.16" opendockit-mcp`,
+- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-25T10:43:00Z --no-build-package cryptography --from "opendockit[mcp]==0.3.16" opendockit-mcp`,
   over stdio, for as long as the session lasts. Each file is converted in a worker process that is ended after 2
   minutes, or on Linux and Windows at 2 GB (macOS accepts no memory limit).
 - **Downloads once.** The first start fetches `opendockit` 0.3.16 and its dependencies from PyPI into uv's cache, and

@@ -83,6 +83,11 @@ pip install "opendockit[open-webui]"  # + Open WebUI 文档加载器
 或邮件正文会由较旧的解析器读取，可能丢失内容，并附带警告
 （[原因](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)）。
 
+在使用 Arm64 Python 的 Windows on Arm、使用 32 位 Python 的 Windows 以及 Intel Mac 上，请用
+`pip install --prefer-binary opendockit` 安装。PDF 读取器所需的 cryptography 最新版本没有适用于这些环境的 wheel，pip
+会尝试从源码构建，这需要 Rust 和 C 编译工具链
+（[详情](https://github.com/hyeonsang010716/OpenDocKit/blob/main/docs/limitations.md#platforms)）。
+
 可选：如需读取旧版 `.doc` 和 `.ppt` 文件，请安装 [LibreOffice](https://www.libreoffice.org/)
 （`brew install --cask libreoffice`、`apt install libreoffice`）。其他所有格式都由 OpenDocKit 自己读取。
 
@@ -162,7 +167,7 @@ opendockit-mcp --root ~/Documents     # MCP 服务器：让 Claude、Cursor 等�
   "mcpServers": {
     "opendockit": {
       "command": "uvx",
-      "args": ["opendockit-mcp", "--root", "/path/to/documents"]
+      "args": ["--no-build-package", "cryptography", "opendockit-mcp", "--root", "/path/to/documents"]
     }
   }
 }

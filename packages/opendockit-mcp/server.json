@@ -16,6 +16,14 @@
       "identifier": "opendockit-mcp",
       "version": "0.3.16",
       "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--no-build-package",
+          "value": "cryptography",
+          "description": "Install cryptography from a wheel, never from source: its newest releases have no wheel for Windows on Arm, 32-bit Windows or Intel macOS, and its source needs Rust and a C toolchain."
+        }
+      ],
       "transport": {
         "type": "stdio"
       },

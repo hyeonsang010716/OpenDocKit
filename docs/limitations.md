@@ -5,6 +5,22 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 ## Platforms
 
 - **Linux, macOS and Windows are the supported platforms.** The full test suite runs on all three for every change.
+- **Windows on Arm with an Arm64 Python, a 32-bit Python on Windows and an Intel Mac install an older cryptography.**
+  pdfminer.six, which reads PDFs, needs cryptography, and its newest releases have no wheel for these: none for Windows
+  on Arm since 46.0.4, none for 32-bit Windows or Intel macOS since 49.0.0. pip and uv take the newest release and build
+  it from source, which needs Rust, a C toolchain and OpenSSL, so `pip install opendockit` fails on a machine without
+  them. `pip install --prefer-binary opendockit` (with uv, `uv pip install --no-build-package cryptography opendockit`)
+  takes the newest release with a wheel instead: 46.0.3 on Windows on Arm, 48.0.1 on the other two, without the fixes
+  made since. Installed so on GitHub's runners for each, the samples convert to the same bytes as on x64, and PDFs
+  encrypted with AES-128, AES-256 and RC4 are read. On Windows on Arm an x64 Python installs the newest release, as
+  on x64. The MCP configurations of this project — the Claude Code and Hermes plugins, the MCP Registry entry and the
+  client configurations in the READMEs, [integrations.md](integrations.md) and the launcher's README — pass
+  `--no-build-package cryptography` to uvx, which takes the same release wherever the newest has a wheel. Where no
+  release that pdfminer.six accepts (36.0 or later) has a wheel — Linux on s390x, riscv64 or 32-bit x86, FreeBSD — uv
+  then finds nothing to install, where without the option it built the newest release from source: there, leave the two
+  arguments out of the configuration. CI runs on x64 Windows and Linux and on Apple Silicon macOS, not on these. The extras `openai`, `llamaindex` and `lightrag` need
+  tiktoken, which has no wheel for Windows on Arm or 32-bit Windows in any release, and `heic` needs pillow-heif, which
+  has none for 32-bit Windows: there they install only where those can be built.
 - **A large malformed page on Windows is still read by the older parser.** Reading malformed HTML the way a browser does
   needs an HTML5 parser. lxml bundles one (libxml2 2.14) on Linux and macOS, but its Windows wheels bundle libxml2 2.11, so
   there html5lib builds the tree instead. html5lib is written in Python and is quadratic on three shapes — the text an

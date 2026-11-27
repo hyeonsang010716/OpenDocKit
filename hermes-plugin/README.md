@@ -59,7 +59,7 @@ pages, slides or sheets has nothing to ask for, and its note says to raise `max_
 
 ## What it does on your machine
 
-- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-25T10:43:00Z --from "opendockit[mcp]==0.3.16" opendockit-mcp`, over stdio, for as
+- **Runs a local process.** `uvx --python ">=3.12" --exclude-newer 2026-11-25T10:43:00Z --no-build-package cryptography --from "opendockit[mcp]==0.3.16" opendockit-mcp`, over stdio, for as
   long as the session lives. `uvx` is the one Hermes manages.
 - **Downloads once.** The first start fetches `opendockit` 0.3.16 and its dependencies from PyPI into uv's cache, and a
   Python 3.12 or newer if the machine has none. The `opendockit` version is pinned, and `--exclude-newer` keeps its
@@ -84,7 +84,7 @@ pages, slides or sheets has nothing to ask for, and its note says to raise `max_
 ## Health check without Hermes
 
 ```bash
-uvx --python ">=3.12" --exclude-newer 2026-11-25T10:43:00Z --from "opendockit[mcp]==0.3.16" opendockit-mcp <<'EOF'
+uvx --python ">=3.12" --exclude-newer 2026-11-25T10:43:00Z --no-build-package cryptography --from "opendockit[mcp]==0.3.16" opendockit-mcp <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}
 EOF
 ```
