@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -35,7 +36,7 @@ from opendockit import (
 )
 from opendockit.extractors import legacy
 from opendockit.isolated import _DEFAULT_TIMEOUT
-from tests import CONSOLE_PROBE, builder, run_without_a_console, wait_until_gone
+from tests import CONSOLE_PROBE, builder, interpreter_itself, process_is_alive, run_without_a_console, wait_until_gone
 
 
 _FAKE_PROGRAM = "/nonexistent/soffice"
@@ -678,6 +679,113 @@ class TestRunner:
         while list(scratch.iterdir()) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert list(scratch.iterdir()) == [], "the folder holding the uploaded document stayed on disk"
+
+    @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
+    @pytest.mark.skipif(os.name != "nt", reason="the job object is the Windows mechanism; the stand-in launcher is a .cmd")
+    def test_a_server_killed_outright_leaves_no_folder_windows(self, scratch, tmp_path):
+        """A server of `IsolatedConverter` killed outright while its worker converts a .doc: its workers are in a job the
+        server holds the only handle to, so the kernel ends everything in that job at once. The guard that removes the
+        temporary folder was started by the worker and so was in that job too, and went with it: the folder stayed, the
+        uploaded document in it. The guard is started out of the worker's job, and removes it."""
+        pid_file = tmp_path / "child.pid"
+        launcher, paths = _windows_launcher(tmp_path, pid_file)
+        script = tmp_path / "server.py"   # a file, not `-c`: the workers are spawned, and import the main module
+        script.write_text("import asyncio, sys\n"
+                          "from opendockit import IsolatedConverter\n"
+                          "async def main(document):\n"
+                          "    async with IsolatedConverter(workers=1) as converter:\n"
+                          "        with open(document, 'rb') as stream:\n"
+                          "            await converter.convert(stream.read(), 'a.doc')\n"
+                          "if __name__ == '__main__':\n"
+                          "    asyncio.run(main(sys.argv[1]))\n", encoding="utf-8")
+        document = tmp_path / "a.doc"
+        document.write_bytes(_doc())
+        # The worker is another process: it finds the stand-in and the temporary folder from the environment it inherits.
+        environment = {**os.environ, **paths, "OPENDOCKIT_SOFFICE": launcher,
+                       "TMPDIR": str(scratch), "TEMP": str(scratch), "TMP": str(scratch)}
+        server = subprocess.Popen([sys.executable, str(script), str(document)], env=environment, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        child = None
+        try:
+            deadline = time.monotonic() + 60
+            while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            child = int(pid_file.read_text())   # the stand-in runs: the worker's folder and its guard are there
+            assert list(scratch.iterdir()) != []
+        finally:
+            server.kill()   # TerminateProcess: no `finally` and no `aclose` of the server runs
+            server.wait()
+
+        try:
+            assert wait_until_gone(child, 15), "the launcher's child survived the death of the server"
+            deadline = time.monotonic() + 20   # the guard removes it once the worker has gone
+            while list(scratch.iterdir()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert list(scratch.iterdir()) == [], "the folder holding the uploaded document stayed on disk"
+        finally:
+            if child is not None and process_is_alive(child):
+                os.kill(child, signal.SIGTERM)   # do not leave it behind when the test fails
+
+    @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
+    @pytest.mark.skipif(os.name != "nt", reason="the job object is the Windows mechanism")
+    def test_the_windows_guard_is_started_where_its_job_lets_no_process_go(self, tmp_path):
+        """The guard asks to be started out of the job of the process that converts, and a job that does not let a process
+        go refuses that (a host can run its programs in such a job, as `convert` may be called outside `IsolatedConverter`).
+        The guard is then started as before, in that job, and still removes the folder once the converting process has
+        ended: refused, without starting it again, no guard was started at all."""
+        folder = tmp_path / "work"
+        folder.mkdir()
+        (folder / "uploaded.doc").write_bytes(_doc())
+        # Started as the interpreter itself, so that the process put into the job is the one that starts the guard; it
+        # waits to be told, so that it is in the job before it does.
+        starter = ("import sys\n"
+                   "from opendockit.extractors import legacy\n"
+                   "sys.stdin.readline()\n"
+                   "assert legacy._start_windows_guard(sys.argv[1]) is not None\n")
+        executable, environment = interpreter_itself()
+        job = legacy._windows.open_job(None, None)   # no process may leave it
+        try:
+            process = subprocess.Popen([executable, "-c", starter, str(folder)], env=environment, stdin=subprocess.PIPE)
+            assert legacy._windows.add_process(job, process.pid)
+            process.communicate(b"\n", timeout=60)
+            assert process.returncode == 0, "no guard was started"
+
+            deadline = time.monotonic() + 20   # the guard removes it once the process that started it has gone
+            while folder.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            legacy._windows.close_job(job)   # ends the guard too, if it is still there
+
+        assert not folder.exists(), "the folder holding the uploaded document stayed on disk"
+
+    @pytest.mark.timing
+    @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race
+    @pytest.mark.skipif(os.name != "nt", reason="the job object is the Windows mechanism")
+    def test_libreoffice_cannot_leave_the_job_it_is_ended_with(self):
+        """The worker's job lets the guard leave it, which the guard asks for. The job LibreOffice is put into must not let
+        it, nor anything it starts, leave: a program that did would outlive the conversion. A process in that job asking
+        to be let go is refused."""
+        asking = ("import subprocess, sys\n"
+                  "sys.stdin.readline()\n"
+                  "try:\n"
+                  "    subprocess.Popen([sys.executable, '-c', 'pass'], creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB).wait()\n"
+                  "except OSError:\n"
+                  "    print('kept', flush=True)\n"
+                  "else:\n"
+                  "    print('let go', flush=True)\n")
+        executable, environment = interpreter_itself()
+        job = legacy._windows.job_for_children()
+        try:
+            process = subprocess.Popen([executable, "-I", "-c", asking], env=environment, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE)
+            assert legacy._windows.add_process(job, process.pid)
+            output, _ = process.communicate(b"\n", timeout=60)
+        finally:
+            legacy._windows.close_job(job)
+
+        assert output.decode().strip() == "kept"
 
     @pytest.mark.timing
     @pytest.mark.no_rerun  # starts processes and checks how they end: one failure can be a real race

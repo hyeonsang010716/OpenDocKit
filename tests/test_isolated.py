@@ -121,6 +121,72 @@ class TestWorkerLeavesWithItsServer:
         assert ended == [0]
 
 
+@pytest.mark.skipif(os.name != "nt", reason="the job object is the Windows mechanism")
+class TestWorkerJob:
+    """The job the workers of a converter are in. It lets a process of its own leave it when that process asks — the guard
+    of a LibreOffice conversion, which must outlive a server killed outright — and the limits it is made for come first."""
+
+    @staticmethod
+    def _kernel(refuse_breakaway: bool):
+        from opendockit import _windows
+
+        class Kernel:
+            """Records the limits each `SetInformationJobObject` is asked for, and refuses those that let processes go."""
+
+            def __init__(self):
+                self.asked: list[tuple[int, int]] = []
+
+            def CreateJobObjectW(self, attributes, name):
+                return 77
+
+            def SetInformationJobObject(self, job, kind, information, size):
+                limits = information._obj   # the structure `ctypes.byref` was given
+                flags = limits.BasicLimitInformation.LimitFlags
+                self.asked.append((flags, limits.ProcessMemoryLimit))
+                return not (refuse_breakaway and flags & _windows._JOB_OBJECT_LIMIT_BREAKAWAY_OK)
+
+            def CloseHandle(self, handle):
+                raise AssertionError("a job that was made is not closed")
+
+        return Kernel()
+
+    def test_the_workers_job_lets_a_process_go_and_keeps_its_limits(self, monkeypatch):
+        from opendockit import _windows, isolated
+
+        kernel = self._kernel(refuse_breakaway=False)
+        monkeypatch.setattr(_windows, "_kernel32", lambda: kernel)
+
+        assert isolated._new_job(1024)[1] == 77
+        (flags, limit), = kernel.asked
+        assert flags & _windows._JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        assert flags & _windows._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE and flags & _windows._JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        assert limit == 1024
+
+    def test_the_memory_limit_stays_where_a_job_may_not_let_processes_go(self, monkeypatch):
+        """Asked together, a refusal of the one would have cost the others: no job, and so no memory limit, for the sake of
+        a folder that a server killed outright leaves behind."""
+        from opendockit import _windows, isolated
+
+        kernel = self._kernel(refuse_breakaway=True)
+        monkeypatch.setattr(_windows, "_kernel32", lambda: kernel)
+
+        assert isolated._new_job(1024)[1] == 77
+        flags, limit = kernel.asked[-1]
+        assert not flags & _windows._JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        assert flags & _windows._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE and flags & _windows._JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        assert limit == 1024
+
+    def test_the_job_libreoffice_is_put_into_lets_no_process_go(self, monkeypatch):
+        from opendockit import _windows
+
+        kernel = self._kernel(refuse_breakaway=False)
+        monkeypatch.setattr(_windows, "_kernel32", lambda: kernel)
+
+        assert _windows.job_for_children() == 77
+        (flags, _), = kernel.asked
+        assert not flags & _windows._JOB_OBJECT_LIMIT_BREAKAWAY_OK
+
+
 class TestIsolatedConverter:
     def test_result_is_the_same_as_converting_in_the_server_process(self):
         async def scenario():

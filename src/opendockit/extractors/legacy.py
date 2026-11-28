@@ -435,23 +435,38 @@ def _start_windows_guard(folder: Path) -> subprocess.Popen | None:
     the user's own file, left on disk. This does what the POSIX guard does, the Windows way: a bare Python process waiting
     on a handle to this one. It is killed in the `finally` of `_run`, so on the ordinary path it never acts.
 
-    Known accepted gap: the guard is a child of this process and so is in the same job, so a server killed outright ends it
-    together with the worker and the folder stays. It covers what the POSIX guard covers — a worker ended on its time
-    limit, on a cancelled request and at shutdown
-    (Pinned by: test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows).
+    It covers what the POSIX guard covers — a worker ended on its time limit, on a cancelled request and at shutdown
+    (Pinned by: test_legacy.py::TestRunner::test_killing_the_converting_process_leaves_no_launcher_child_and_no_folder_windows)
+    — and a server killed outright. Started as a child of this process, the guard was in the job of `IsolatedConverter`'s
+    workers, which the kernel ends whole when the server dies: the guard went with the worker and the folder stayed, the
+    uploaded document in it. It is started out of that job (CREATE_BREAKAWAY_FROM_JOB, which the job lets it ask for,
+    `_windows.open_job`), and so outlives the server and removes the folder
+    (Pinned by: test_legacy.py::TestRunner::test_a_server_killed_outright_leaves_no_folder_windows). It stays in any job
+    above that one, which it leaves only where that job lets it too.
+
+    A job that lets no process go refuses the start (a host can run its programs in one, and `convert` can be called
+    outside `IsolatedConverter`): the guard is then started as before, in that job
+    (Pinned by: test_legacy.py::TestRunner::test_the_windows_guard_is_started_where_its_job_lets_no_process_go).
+    Outside a job the flag changes nothing.
     """
     program = sys.executable or ""
     if getattr(sys, "frozen", False) or not _PYTHON_PROGRAM.match(os.path.basename(program)):
         return None
     try:
-        # CREATE_NO_WINDOW: a bare `python.exe` would flash a console window on every conversion.
-        # The long form of the folder: the profile below it passes 260 characters under a long temporary path.
-        return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, _windows.long_path(str(folder)), str(os.getpid()),
-                                 str(_WINDOWS_GUARD_SECONDS)],
-                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                creationflags=subprocess.CREATE_NO_WINDOW, shell=False)
-    except (OSError, ValueError, AttributeError):
+        attempts = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB, subprocess.CREATE_NO_WINDOW)
+    except AttributeError:
         return None
+    for flags in attempts:
+        try:
+            # CREATE_NO_WINDOW: a bare `python.exe` would flash a console window on every conversion.
+            # The long form of the folder: the profile below it passes 260 characters under a long temporary path.
+            return subprocess.Popen([program, "-I", "-S", "-c", _WINDOWS_GUARD, _windows.long_path(str(folder)),
+                                     str(os.getpid()), str(_WINDOWS_GUARD_SECONDS)],
+                                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    creationflags=flags, shell=False)
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
 
 
 def _start_guard(folder: Path) -> subprocess.Popen | None:

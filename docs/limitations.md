@@ -256,8 +256,10 @@ This page lists what OpenDocKit does not restore, restores only approximately, o
 - **Password detection** reads the documented header fields and was not verified against files protected by Word or
   PowerPoint themselves; a protected file it misses is reported as corrupted.
 - **Windows**: run and tested. A conversion whose process is killed outright leaves no LibreOffice behind (a job
-  object ends it) and a guard process removes its temporary folder, as on POSIX. Known accepted gap: that guard is in the
-  same job as the worker, so a server killed outright ends it too and the folder stays.
+  object ends it) and a guard process removes its temporary folder, as on POSIX, also when the server of an
+  `IsolatedConverter` is killed outright: the guard is started out of the job the kernel ends then. Known accepted gap:
+  where the server runs in a job of its own host that lets no process go and that job is ended whole, the guard ends
+  with it and the folder stays.
 
 ## Links and emphasis
 

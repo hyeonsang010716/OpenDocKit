@@ -17,6 +17,11 @@ pid that can be watched so a worker leaves when its server is gone. Here they co
 `job_for_children` is a third use: a job that LibreOffice is put into, so that it is ended with the process that started it.
 That one needs no watching — the handle closes when the process dies, whatever kills it.
 
+The workers' job lets a process of its own leave it, when that process asks (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`): the guard
+that removes the folder of a LibreOffice conversion asks for it, so that a server killed outright does not end the guard
+with its workers and leave the uploaded document on disk. Nothing else asks, and LibreOffice could not: it is in a job of
+its own inside that one, which lets nothing go.
+
 No job function raises. Where a call fails the limit is simply not applied, as `_limit_memory` does on macOS, and the callers
 do not read the answer: a worker that could not join the job runs without the memory limit that was asked for, and a
 LibreOffice that could not be put in one is not ended with the process that started it. Both need the job to have been made
@@ -103,6 +108,7 @@ def held_by_another_program(path: str, *, for_writing: bool = False) -> bool:
 _JobObjectBasicAccountingInformation = 1
 _JobObjectExtendedLimitInformation = 9
 _JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+_JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x00000800
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 # The only right `AssignProcessToJobObject` needs. Asking for the full access mask would take `JOB_OBJECT_TERMINATE` with
 # it, which nothing here uses. It is least privilege for our own workers, not a barrier: the job's default security is what
@@ -195,10 +201,14 @@ def new_job_name() -> str:
     return f"opendockit-workers-{uuid.uuid4().hex}"
 
 
-def open_job(name: str | None, memory_limit: int | None) -> int | None:
+def open_job(name: str | None, memory_limit: int | None, *, lets_go: bool = False) -> int | None:
     """The job, or None when job objects cannot be used. A name makes it one other processes can join by name.
 
     The handle is the job's life: `close_job` or the death of this process ends every worker in it.
+
+    `lets_go`: a process in the job may start one out of it, when it asks with CREATE_BREAKAWAY_FROM_JOB. Nothing is let go
+    without asking — the processes a worker starts are in its job as before. A job that cannot be made so is made without
+    it: the limits come first.
     """
     try:
         library = _kernel32()
@@ -210,12 +220,13 @@ def open_job(name: str | None, memory_limit: int | None) -> int | None:
         if memory_limit is not None:
             limits.ProcessMemoryLimit = memory_limit
             flags |= _JOB_OBJECT_LIMIT_PROCESS_MEMORY
-        limits.BasicLimitInformation.LimitFlags = flags
-        if not library.SetInformationJobObject(job, _JobObjectExtendedLimitInformation, ctypes.byref(limits),
+        for extra in ((_JOB_OBJECT_LIMIT_BREAKAWAY_OK, 0) if lets_go else (0,)):
+            limits.BasicLimitInformation.LimitFlags = flags | extra
+            if library.SetInformationJobObject(job, _JobObjectExtendedLimitInformation, ctypes.byref(limits),
                                                ctypes.sizeof(limits)):
-            library.CloseHandle(job)
-            return None
-        return job
+                return job
+        library.CloseHandle(job)
+        return None
     except (OSError, AttributeError, ValueError):  # no kernel32, or a policy that refuses job objects
         return None
 
@@ -270,7 +281,9 @@ def job_for_children() -> int | None:
 
     A process put into the job takes the processes it starts in with it, so a launcher and the program it really runs
     (`soffice.exe` and its `soffice.bin`) are ended together. Nothing is watching: the handle is closed when this process
-    dies, whatever kills it, and the kernel does the rest.
+    dies, whatever kills it, and the kernel does the rest. It lets no process go, even one that asks: measured on Windows 11,
+    a process in it that asks for CREATE_BREAKAWAY_FROM_JOB is refused, also where the job above it lets processes go
+    (Pinned by: test_legacy.py::TestRunner::test_libreoffice_cannot_leave_the_job_it_is_ended_with).
     """
     return open_job(None, None)
 
