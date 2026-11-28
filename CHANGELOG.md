@@ -83,6 +83,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Windows: a server killed outright no longer leaves an uploaded .doc or .ppt on disk.** The guard that removes the
+  folder of a LibreOffice conversion was started by the worker, and so was in the job of `IsolatedConverter`'s workers,
+  which the kernel ends whole when the server dies: it went with the worker, and the folder stayed in the temporary
+  folder with the uploaded document in it. The guard is started out of that job now, and removes the folder. Where the
+  server runs in a job of its host that lets no process go, the guard is started in it, as before.
+
 - **The MCP server starts on Windows on Arm, 32-bit Windows and Intel Macs.** cryptography, which the PDF reader
   needs, has published no wheel for Windows on Arm since 46.0.4 and none for 32-bit Windows or Intel macOS since
   49.0.0, and uvx and pip took its newest release and built it from source, which needs Rust and a C toolchain: on a

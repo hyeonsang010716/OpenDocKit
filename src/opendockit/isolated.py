@@ -379,7 +379,10 @@ def _new_job(memory_limit: int | None) -> "tuple[str | None, int | None]":
     if _windows is None:
         return None, None
     name = _windows.new_job_name()
-    job = _windows.open_job(name, memory_limit)
+    # A process may leave it when it asks: the guard of a LibreOffice conversion does, so that a server killed outright,
+    # which ends everything in this job, does not end the guard too and leave the uploaded document on disk
+    # (Pinned by: test_legacy.py::TestRunner::test_a_server_killed_outright_leaves_no_folder_windows).
+    job = _windows.open_job(name, memory_limit, lets_go=True)
     return (name, job) if job is not None else (None, None)   # no job, no name to join: the workers simply have no limit
 
 

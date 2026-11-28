@@ -112,17 +112,24 @@ def wait_until_gone(pid: int, seconds: float = 5.0) -> bool:
     return not process_is_alive(pid)
 
 
+def interpreter_itself() -> tuple[str, dict[str, str] | None]:
+    """The program that runs this Python, and the environment to start it with (None: this one), so that the process
+    started is the interpreter and not the launcher of a virtual environment (Windows), which runs the interpreter as a
+    child of its own. `__PYVENV_LAUNCHER__` tells that interpreter whose environment it runs in, as multiprocessing tells
+    its workers. Elsewhere, and outside a virtual environment, it is `sys.executable` as it is."""
+    if os.path.normcase(sys.executable) == os.path.normcase(getattr(sys, "_base_executable", sys.executable)):
+        return sys.executable, None
+    return sys._base_executable, {**os.environ, "__PYVENV_LAUNCHER__": sys.executable}
+
+
 def run_without_a_console(arguments: list[str], timeout: float) -> subprocess.CompletedProcess:
     """Run this Python with `arguments` in a process that has no console at all, as one started with DETACHED_PROCESS runs
     it (Windows). Standard input and output go nowhere; the caller reads a file.
 
-    The interpreter itself is started, not the launcher of a virtual environment: started detached, the launcher gives the
-    interpreter it starts a console of its own, and the process asked about would have one. `__PYVENV_LAUNCHER__` tells that
-    interpreter whose environment it runs in, as multiprocessing tells its workers.
+    The interpreter itself is started, not the launcher of a virtual environment (`interpreter_itself`): started detached,
+    the launcher gives the interpreter it starts a console of its own, and the process asked about would have one.
     """
-    executable, environment = sys.executable, None
-    if os.path.normcase(sys.executable) != os.path.normcase(sys._base_executable):
-        executable, environment = sys._base_executable, {**os.environ, "__PYVENV_LAUNCHER__": sys.executable}
+    executable, environment = interpreter_itself()
     return subprocess.run([executable, *arguments], env=environment, creationflags=subprocess.DETACHED_PROCESS,
                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout,
                           check=False)
