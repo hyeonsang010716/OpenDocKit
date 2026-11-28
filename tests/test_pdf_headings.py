@@ -691,6 +691,33 @@ class TestSectionNumberSetApart:
         assert "# 3 per cent" not in self._page("3", "per cent of the total", 20)
 
     def test_a_long_bold_line_is_no_title_of_the_number(self):
-        long = "This bold line runs on and on to say a great many things about the matter at hand and then some more of it too"
+        long = "This bold line runs on and on to say a great many things about the matter at hand and then some more of it, too, to the end"
 
-        assert "# 3 This bold" not in self._page("3", long + " " + long[:20], 20, size=7)
+        assert len(long) > 120 and "3 This bold" not in self._page("3", long, 20, size=7)
+        assert "3 This bold line runs on" in self._page("3", long[:100], 20, size=7)
+
+    def test_a_title_in_the_weight_of_the_body_is_no_title_of_a_bold_number(self):
+        assert "12 Conclusion" not in self._page("12", "Conclusion", 26, font="Times-Roman", number_font="Times-Bold")
+
+    def test_a_number_a_point_larger_than_the_title_is_left_where_it_was(self):
+        assert "12 Conclusion" not in self._page("12", "Conclusion", 26, number_size=12)
+        assert "# 12 Conclusion" in self._page("12", "Conclusion", 26, number_size=11.4)
+
+    @pytest.mark.parametrize("piece", ["CIVIL", "XL", "C", "L", "MIX", "A", "D", "2024", "007", "0"])
+    def test_what_is_no_number_of_a_section_is_left_where_it_was(self, piece):
+        """A roman numeral is one from I to XXXIX as it is written: any run of the letters took a word, a size and a
+        grade for numbers. A year and a number that starts with a nought are none either."""
+        assert f"# {piece} Results of the survey" not in self._page(piece, "Results of the survey", 20)
+
+    @pytest.mark.parametrize("numeral", ["I", "V", "IX", "XIV", "XXXIX"])
+    def test_a_roman_numeral_before_its_title_is_joined(self, numeral):
+        assert f"# {numeral} Results of the survey" in self._page(numeral, "Results of the survey", 20)
+
+    def test_a_bold_item_that_looks_like_a_number_stays_the_item_of_its_bullet(self):
+        """As a marker whatever stood beside it, 'IV' was no longer the item of the bullet before it."""
+        lines = [*((y, text, size, f, 72) for y, text, size, f in _body(80, 11))]
+        for row, item in enumerate(("IV", "Vitamin", "XL")):
+            lines += [(165 + row * 16, "\u2022", 11, "Times-Bold", 72), (165 + row * 16, item, 11, "Times-Bold", 90)]
+        text = convert(_pdf_at(lines), "a.pdf").sections[0].text
+
+        assert "\u2022 IV" in text and "\u2022 XL" in text and "# IV" not in text
