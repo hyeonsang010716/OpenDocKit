@@ -123,6 +123,10 @@ Nobody chose the halves: the holdout is the hundred names whose SHA-256 sorts fi
 | Development half | 100 | 0.8983 | 0.9299 | 0.8103 (19) | 0.8236 (57) |
 | Holdout half | 100 | 0.8585 | 0.9018 | 0.7569 (23) | 0.7855 (50) |
 
+| Rule from the development half | Development MHS | Holdout MHS |
+|---|---|---|
+| The number of a section set apart from its title joined to it (2026-11-28) | 0.8236 to 0.8280 | 0.7855 to 0.7864 |
+
 **How a change is judged with them.** A rule that came from the development half is kept when the holdout half does
 not fall and, for a rule meant to raise a score, when the holdout rises too; a rule that raises the development half
 alone has learned its documents and is dropped. The whole 200 stay the gate they were (`pdf-structure.json`).
