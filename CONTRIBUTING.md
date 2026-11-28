@@ -22,7 +22,7 @@ they are run separately (as CI does).
 
 On Windows, `uv run python .github/scripts/code_page_949.py -m pytest -m "not timing"` runs the tests in code page 949,
 the default of Korean Windows, whatever the code page of the machine, as the `code page 949` job of CI does. Add
-`-n auto` only where the path of the checkout is ASCII: the workers of pytest-xdist read their code in the code page.
+`-n auto` to run them in parallel.
 
 Optional: `uvx pre-commit install` runs the linter before each commit. LibreOffice is optional too: without it the tests
 that start a real LibreOffice are skipped, and `examples/run_examples.py` skips the `.doc` / `.ppt` samples.
@@ -38,18 +38,15 @@ files | xargs -0 rm -- && files | xargs -0 git checkout --
 ```
 
 Windows also runs programs in a legacy code page unless "Beta: Use Unicode UTF-8 for worldwide language support" is
-set: 949 on Korean Windows, by default. There two tools stumble over a checkout whose full path is not ASCII, such as
-the Desktop that OneDrive keeps as `바탕 화면`:
+set: 949 on Korean Windows, by default. There **Python 3.12 does not start `.venv`** when the full path of the checkout
+is not ASCII, such as the Desktop that OneDrive keeps as `바탕 화면` (`Fatal Python error: init_import_site`). It reads
+the `.pth` file of the editable install, which holds the path of `src`, in the code page; Python 3.13 and later read it
+as UTF-8. `PYTHONUTF8=1` does not change this. A checkout under a path that is ASCII avoids it; otherwise develop on
+Python 3.13 or later (`uv sync --python 3.13`).
 
-- **Python 3.12 does not start `.venv`** (`Fatal Python error: init_import_site`). It reads the `.pth` file of the
-  editable install, which holds the path of `src`, in the code page; Python 3.13 and later read it as UTF-8.
-  `PYTHONUTF8=1` does not change this.
-- **`pytest -n auto` cannot start its workers.** execnet sends them their code as UTF-8 and they read it in the code
-  page. `PYTHONUTF8=1` fixes this one.
-
-A checkout under a path that is ASCII avoids both. Otherwise develop on Python 3.13 or later (`uv sync --python 3.13`)
-and run the parallel tests with `PYTHONUTF8=1`. The tests pass in code page 949 either way: what they check does not
-depend on it.
+`pytest -n auto` starts its workers under such a path in any code page. execnet sends them their code as UTF-8 and
+they read it in the code page, which ended every worker at once in 949; the suite has it sent as ASCII
+(`tests/conftest.py`), so no `PYTHONUTF8=1` is needed, and the workers run in the code page of the machine.
 
 Tests that call a real vision model are skipped by default because they cost money. To run them (after changing
 `describe.py` or its prompts):
