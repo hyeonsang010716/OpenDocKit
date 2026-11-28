@@ -330,6 +330,9 @@ class _Page:
     # Number of characters removed as hidden text (outside the visible area, size 0, copies, watermarks) on a page without a single
     # line. Decides whether to swap in pdfium's simple extraction.
     hidden_chars: int = 0
+    # Number of characters of the page that were drawn outside their clipping path and dropped as they were read
+    # (`_pdf_pdfminer._outside_its_clip`): pdfium reads them, so they are not text pdfminer missed.
+    clipped_chars: int = 0
     # Page where most visible characters have zero width, so pdfminer cannot tell character order or spacing (_unmeasured).
     unmeasured: bool = False
     # Page with no text, pictures or vectors at all that has a content stream which failed to decode (_has_undecodable_contents).

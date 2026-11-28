@@ -18,6 +18,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **PDF: text drawn outside its clipping path is no longer read.** A spreadsheet draws the whole of a long cell and
+  clips it to the cell; a layout program leaves the text of a frame that was cropped away in the content stream.
+  Nobody sees that text, and it came out as words of the document: the end of one cell among the letters of the
+  next (`dAD 1AºU GTO` for `ADAUTO`), leader dots by the thousand, the text of cropped frames. The clip is now
+  followed through the page and its form XObjects, and a character is left out when no part of it can lie inside the
+  clip. A letter cut by the edge of a clip stays, and so does invisible text (the text layer of a scan). On 3,258
+  real PDFs N_FILES change; pdfium's own clip path agrees on N_AGREE of the characters left out, and drawing the pages
+  without them changes no pixel.
+
 - **PDF: a line repeated on every page is written once when it holds a word nothing else in the text holds.** Every
   copy of a repeated header or footer was removed, the first too. In a document that is one long list or table the
   title stands in the page header alone, and it went with the page numbers; so did the name of a journal, the period
