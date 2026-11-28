@@ -188,14 +188,71 @@ class TestReadAsItIsWritten:
                                                    "adv": 0.0, "matrix": (0.866, 0.5, -0.5, 0.866, 100.0, 500.0)} for letter in "Label"]) == []
         assert convert(_page(content, font=unmeasured), "a.pdf") is not None   # and nothing raises
 
-    def test_a_page_of_tilted_text_alone_is_read_and_not_handed_to_the_other_reader(self):
+    def test_a_page_of_tilted_text_alone_is_left_to_the_other_reader(self):
+        """A page laid askew, a scan with its text layer: pdfium reads it whole and in its order, as before. Read along
+        its direction it lost the lines that stand twice on purpose and broke its paragraphs."""
         def draw(pdf, index):
-            _aslant(pdf, 150, 400, 30, "The only text of this page is set at an angle", size=11)
+            pdf.saveState()
+            pdf.translate(120, 100)
+            pdf.rotate(8)
+            pdf.setFont("Helvetica", 11)
+            for line, text in enumerate(("Form of the office", "Name of the applicant", "Signature", "Name of the witness", "Signature")):
+                pdf.drawString(0, 600 - line * 20, text)
+            pdf.restoreState()
 
         result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
 
-        assert result.text == "The only text of this page is set at an angle"
-        assert not any("simple extraction" in warning for warning in result.warnings)
+        assert result.text.count("Signature") == 2 and "Name of the witness" in result.text
+        assert any("simple extraction" in warning for warning in result.warnings)
+
+    def test_a_label_that_stands_a_few_times_on_a_page_is_written_each_time(self):
+        def draw(pdf, index):
+            _body(pdf)
+            for copy in range(4):
+                _aslant(pdf, 100 + copy * 110, 300, 30, "Twenty at least")
+
+        assert _text(draw).count("Twenty at least") == 4
+
+    def test_a_mark_without_an_advance_is_read_with_its_letter(self):
+        """A vowel or tone mark, a combining accent: left out as a glyph of a font without widths, `taxi` read `tai`."""
+        run = TestTiltedParagraphs()._run("taxi exit")
+        for char in run:
+            if char["text"] == "x":
+                char["adv"] = 0.0
+
+        assert _pdf_artifacts._tilted_paragraphs(run) == ["taxi exit"]
+
+    def test_letters_set_apart_one_by_one_are_not_one_word(self):
+        """Wide gaps are character spacing when they are small against the letters or the piece shows its words besides."""
+        unit = TestTiltedParagraphs()
+
+        def spaced(text: str, gap: float) -> list[str]:
+            import math
+            chars, x, top = [], 100.0, 500.0
+            for letter in text:
+                if letter != " ":
+                    chars.append(unit._char(letter, x, top))
+                step = 5 + gap if letter != " " else 8
+                x, top = x + step * math.cos(math.radians(30)), top - step * math.sin(math.radians(30))
+            return _pdf_artifacts._tilted_paragraphs(chars)
+
+        assert spaced("Wordsreadinorder", 3.0) == ["Wordsreadinorder"]          # small against the size of 10
+        assert spaced("Words read in order", 7.0) == ["Words read in order"]    # wide, and the words show
+        assert spaced("ABCDEFG", 7.0) == []                                      # letters apart: no two together
+
+    def test_an_indented_first_line_belongs_to_its_paragraph(self):
+        def draw(pdf, index):
+            _body(pdf)
+            pdf.saveState()
+            pdf.translate(150, 300)
+            pdf.rotate(12)
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(18, 0, "A note whose first line is set in,")
+            pdf.drawString(0, -12, "its second line and its third are not,")
+            pdf.drawString(0, -24, "and all three are one paragraph.")
+            pdf.restoreState()
+
+        assert "A note whose first line is set in,\nits second line and its third are not,\nand all three are one paragraph." in _text(draw)
 
     def test_tilted_text_is_written_after_text_turned_a_quarter(self):
         def draw(pdf, index):
@@ -301,14 +358,19 @@ class TestStampOnEveryPage:
     def test_every_copy_stays_when_repeated_lines_are_kept(self):
         assert _text(self._stamped, pages=4, remove_repeated_page_lines=False).count("Draft for review") == 4
 
-    def test_a_page_that_holds_nothing_but_the_stamp_keeps_it(self):
-        """Four pages of a stamp alone became one page."""
-        def draw(pdf, index):
-            _aslant(pdf, 200, 400, 30, "Draft for review", size=14)
+    def test_a_page_left_with_nothing_but_the_stamp_keeps_it(self):
+        from opendockit.extractors import pdf as pdf_module
+        from opendockit.extractors._pdf_model import _Line, _Page
 
-        result = convert(_korean_pdf(draw, pages=4), "a.pdf")
+        def page(number: int, lines: int) -> _Page:
+            return _Page(number=number, width=595.0, height=842.0, tables=[], has_images=False, view=(0.0, 0.0, 595.0, 842.0),
+                         lines=[_Line(top=100.0, bottom=110.0, x0=72.0, x1=300.0, text="Body", size=10.0)] * lines,
+                         tilted=["Draft for review"])
 
-        assert result.text.count("Draft for review") == 4 and "<!-- Page 4 -->" in result.text
+        pages = [page(1, 1), page(2, 0), page(3, 1), page(4, 1)]
+        pdf_module._tilted_once(pages)
+
+        assert [found.tilted for found in pages] == [["Draft for review"], ["Draft for review"], [], []]
 
     def test_a_stamp_on_fewer_than_half_of_the_pages_stays_on_each(self):
         def draw(pdf, index):

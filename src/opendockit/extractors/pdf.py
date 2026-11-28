@@ -465,8 +465,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 crammed.add(page.page_number)
                             placement_fit = placement_fit or read.placement_fit
                             undecoded = budget.undecoded_fonts and not read.unmeasured and bool(
-                                read.lines or read.tables or read.sideways or read.tilted)
-                            if (not read.lines and not read.tables and not read.sideways and not read.tilted) or read.unmeasured or undecoded:
+                                read.lines or read.tables or read.sideways)
+                            if (not read.lines and not read.tables and not read.sideways) or read.unmeasured or undecoded:
                                 # On some pages pdfminer silently fails to interpret a font and sees 0 characters. If pdfium
                                 # finds characters, its result is used. On a scanned page pdfium has no characters either, so
                                 # it stays an image page. A page without lines because all its characters are hidden text
@@ -1371,10 +1371,14 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     view = _view_box(page)
     text_view = _text_view(page)
     # Text set at any other angle is read the same way, along its own direction (`_tilted_paragraphs`), and written after it
-    tilted_text = [_drawn_text(text) for text in _tilted_paragraphs(tilted, [char for char in cell_chars if _is_tilted(char)])]
     sideways_text = [_drawn_text(text) for text in _sideways_paragraphs(sideways)]
+    # ... on a page that has other text. A page of slanted text alone (a page laid askew, a scan with its text layer) is
+    # left without lines, as before, and read by pdfium whole and in its order (Pinned by:
+    # test_pdf_tilted_text.py::TestReadAsItIsWritten::test_a_page_of_tilted_text_alone_is_left_to_the_other_reader)
+    tilted_text = ([_drawn_text(text) for text in _tilted_paragraphs(tilted, [char for char in cell_chars if _is_tilted(char)])]
+                   if lines or tables or sideways_text else [])
     outline_points = (sum(len(curve.get("pts", ())) for curve in page.curves)
-                      if not lines and not tables and not sideways_text and not tilted_text else 0)
+                      if not lines and not tables and not sideways_text else 0)
     blank = not (page.chars or page.images or page.curves or page.rects or page.lines or dropped)
     figures = _figure_boxes(page, view)
     lookups = _TableLookups(page, figures)
@@ -1386,7 +1390,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  placement_fit=placement_fit, placement_pending=placement_pending, sideways=sideways_text, tilted=tilted_text,
                  text_view=text_view[0] if text_view else None,
                  form_values=_form_values(layout_page, lines, _FORM_POSITIONS.get()),
-                 hidden_chars=hidden_chars if not lines and not tables and not sideways_text and not tilted_text else 0,
+                 hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
                  clipped_chars=clipped_chars,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
