@@ -324,9 +324,11 @@ def _tilted_paragraphs(chars: list[dict], held: list[dict] | tuple[dict, ...] = 
     here, by the measure of `_faint_watermark`), pieces shorter than `_TILTED_MIN_CHARS` or without two letters
     together (`_TILTED_WORD`: 180 heights of the contours of a real map) — counting only glyphs with an advance: a font
     without widths draws a whole string on one spot, while a mark with none stands on its letter and is read with it —,
-    characters at no place, and a piece one of whose characters a table cell holds
-    (`held`: the tilted characters inside cells, which stay the text of their cells): of a name a grid cut through
-    only the end outside the cells would be read. Neither is a piece that begins or ends amid a text set along a curve
+    characters at no place, and a piece one of whose characters is not the page's to write (`held`): the tilted
+    characters inside table cells, which stay the text of their cells — of a name a grid cut through only the end
+    outside the cells would be read — and those removed from the page before, one by one: the box of a turned glyph
+    is as high as the glyph is wide, so of a slogan one and a half times the size of the text the wide letters went
+    as a watermark's and the rest was written, `elco e to the Su er arket`. Neither is a piece that begins or ends amid a text set along a curve
     (`_on_a_curve`).
     Pinned by: test_pdf_tilted_text.py"""
     placed = []

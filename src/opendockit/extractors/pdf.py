@@ -1243,6 +1243,9 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
             cell_chars.append(char)
     chars.sort(key=lambda char: char["top"])
     char_tops = [char["top"] for char in chars]
+    # The tilted characters that are not text of the page (too large, pale, outside the view) or stay in a cell: a piece
+    # of tilted text that holds one of them is not written (`_tilted_paragraphs`)
+    tilted_apart = [char for char in (*dropped, *cell_chars) if _is_tilted(char)]
     dropped = sorted([*(char for char in dropped if not in_cells(char)), *tilted, *sideways],
                      key=lambda char: char["top"])
     dropped_tops = [char["top"] for char in dropped]
@@ -1375,7 +1378,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     # ... on a page that has other text. A page of slanted text alone (a page laid askew, a scan with its text layer) is
     # left without lines, as before, and read by pdfium whole and in its order (Pinned by:
     # test_pdf_tilted_text.py::TestReadAsItIsWritten::test_a_page_of_tilted_text_alone_is_left_to_the_other_reader)
-    tilted_text = ([_drawn_text(text) for text in _tilted_paragraphs(tilted, [char for char in cell_chars if _is_tilted(char)])]
+    tilted_text = ([_drawn_text(text) for text in _tilted_paragraphs(tilted, tilted_apart)]
                    if lines or tables or sideways_text else [])
     outline_points = (sum(len(curve.get("pts", ())) for curve in page.curves)
                       if not lines and not tables and not sideways_text else 0)

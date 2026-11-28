@@ -205,6 +205,53 @@ class TestReadAsItIsWritten:
         assert result.text.count("Signature") == 2 and "Name of the witness" in result.text
         assert any("simple extraction" in warning for warning in result.warnings)
 
+    def test_the_gate_is_other_text_of_any_kind(self, monkeypatch):
+        """Lines, a table or text turned a quarter: beside any of them slanted text is read; alone it is not."""
+        from opendockit.extractors import pdf as pdf_module
+
+        def tilted_of(draw: object) -> list[str]:
+            read = []
+            read_page = pdf_module._read_page
+
+            def noting(page: object, *args: object) -> object:
+                found = read_page(page, *args)
+                read.append(found.tilted)
+                return found
+
+            monkeypatch.setattr(pdf_module, "_read_page", noting)
+            convert(_korean_pdf(draw), "a.pdf")
+            monkeypatch.setattr(pdf_module, "_read_page", read_page)
+            return read[0]
+
+        def label(pdf: object) -> None:
+            _aslant(pdf, 300, 300, 30, "Set at an angle")
+
+        def with_table(pdf, index):
+            for row in range(3):
+                for column in range(3):
+                    pdf.rect(100 + column * 100, 600 - row * 30, 100, 30)
+                    pdf.drawString(105 + column * 100, 610 - row * 30, f"cell {row}{column}")
+            label(pdf)
+
+        assert tilted_of(lambda pdf, index: label(pdf)) == []
+        assert tilted_of(lambda pdf, index: (_body(pdf, 1), label(pdf))) == ["Set at an angle"]
+        assert tilted_of(lambda pdf, index: (_aslant(pdf, 40, 300, 90, "Turned a quarter in the margin", size=12), label(pdf))) == ["Set at an angle"]
+        assert tilted_of(with_table) == ["Set at an angle"]
+
+    @pytest.mark.parametrize("size", [11, 14, 17, 18, 19, 20, 24])
+    def test_a_label_larger_than_the_text_is_written_whole_or_not_at_all(self, size):
+        """Large slanted characters are a watermark's and are removed one by one, by the height of their box, and the
+        box of a turned glyph is as high as the glyph is wide: the wide letters of a slogan went and the rest was
+        written, `elco e to the Su er arket`."""
+        def draw(pdf, index):
+            _body(pdf, 8)
+            _aslant(pdf, 120, 300, 45, "Welcome to the Summer Market", size=size)
+
+        written = [line for line in _text(draw).split("\n") if "Body line" not in line and line]
+
+        assert written in (["Welcome to the Summer Market"], [])
+        assert written or size > 16
+
     def test_a_label_that_stands_a_few_times_on_a_page_is_written_each_time(self):
         def draw(pdf, index):
             _body(pdf)
