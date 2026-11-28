@@ -2023,12 +2023,13 @@ def _spacing_left_out(textstate: object, seq: object) -> tuple[float, bool]:
     Pinned by: test_pdf_string_spacing.py (docs/decisions/pdf-rows.md)"""
     try:
         spacing = float(textstate.charspace) * float(textstate.scaling) * 0.01
-        if not spacing or not math.isfinite(spacing) or textstate.font is None:
+        font = textstate.font
+        if not spacing or not math.isfinite(spacing) or font is None:
             return 0.0, False
         leading = False
         for piece in seq:
             if isinstance(piece, bytes):
-                if piece:
+                if piece and next(iter(font.decode(piece)), None) is not None:  # one byte of a two-byte font is no glyph
                     return spacing, leading
             elif isinstance(piece, int | float):
                 leading = True
@@ -2050,7 +2051,8 @@ def _placed(textstate: object) -> bool:
 
 
 def _move_on(textstate: object, by: float) -> None:
-    """Moves the place the next glyph of the line is drawn at: across, or downwards for a font written downwards."""
+    """Moves the place the next glyph of the line is drawn at along its line: across, or for a font written downwards
+    along the height, where pdfminer counts the advance of such a font (a positive spacing raises the number)."""
     x, y = textstate.linematrix
     textstate.linematrix = (x, y + by) if textstate.font.is_vertical() else (x + by, y)
 

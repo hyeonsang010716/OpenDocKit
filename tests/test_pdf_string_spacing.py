@@ -85,8 +85,15 @@ class TestNumberBeforeTheFirstGlyph:
 
 class TestSpacingLeftOut:
     def test_what_is_left_out_and_whether_a_number_leads(self):
-        def left_out(seq: object, charspace: object = 5.0, scaling: object = 100.0, font: object = "a font") -> tuple[float, bool]:
+        one_byte = SimpleNamespace(decode=lambda data: iter(data))
+        two_bytes = SimpleNamespace(decode=lambda data: iter(range(len(data) // 2)))   # a font of two-byte codes
+
+        def left_out(seq: object, charspace: object = 5.0, scaling: object = 100.0, font: object = one_byte) -> tuple[float, bool]:
             return _pdf_pdfminer._spacing_left_out(SimpleNamespace(charspace=charspace, scaling=scaling, font=font), seq)
+
+        assert left_out([-20.5, b"ab"]) == (5.0, True)                                           # most numbers are no whole numbers
+        assert left_out([b"a"], font=two_bytes) == (0.0, False)                                   # one byte of two is no glyph
+        assert left_out([b"a", -20, b"ab"], font=two_bytes) == (5.0, True)
 
         assert left_out([b"ab"]) == (5.0, False) and left_out([-20, b"ab"]) == (5.0, True) and left_out([b"a", -20, b"b"]) == (5.0, False)
         assert left_out([b"", -20, b"b"]) == (5.0, True) and left_out([b"ab"], scaling=50.0) == (2.5, False)
@@ -95,7 +102,18 @@ class TestSpacingLeftOut:
         assert left_out([b"ab"], charspace=float("inf")) == (0.0, False) and left_out([b"ab"], charspace="wide") == (0.0, False)
         assert left_out(None) == (0.0, False) and left_out([b"ab", object()]) == (5.0, False)
 
-    def test_a_font_written_downwards_moves_on_downwards(self):
+    def test_a_string_pdfminer_cannot_place(self):
+        def placed(**state: object) -> bool:
+            font = SimpleNamespace(is_multibyte=lambda: state.pop("multibyte", False))
+            return _pdf_pdfminer._placed(SimpleNamespace(**{"charspace": 0.0, "scaling": 100.0, "wordspace": 0.0, "font": font, **state}))
+
+        assert placed() and placed(charspace=3.0, wordspace=2.0)
+        assert not placed(charspace=float("inf")) and not placed(charspace=float("nan")) and not placed(scaling=float("inf"))
+        assert not placed(charspace="wide") and not _pdf_pdfminer._placed(object())
+        multibyte = SimpleNamespace(is_multibyte=lambda: True)
+        assert not placed(wordspace=2.0, font=multibyte) and placed(wordspace=0.0, font=multibyte)
+
+    def test_a_font_written_downwards_moves_on_along_its_height(self):
         across = SimpleNamespace(linematrix=(10.0, 20.0), font=SimpleNamespace(is_vertical=lambda: False))
         downwards = SimpleNamespace(linematrix=(10.0, 20.0), font=SimpleNamespace(is_vertical=lambda: True))
 
