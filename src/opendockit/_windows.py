@@ -24,15 +24,20 @@ LibreOffice that could not be put in one is not ended with the process that star
 fail, which is why neither is treated as an error worth ending a conversion for. Known accepted gap: nothing in the result
 says that a limit was not applied.
 
-Two things about files belong here as well: the long form of a path (`long_path`, `openable`), and telling a file another
-program holds open from one this user may not read (`held_by_another_program`). And one about the processes this one starts:
-whether it has a console for them to share (`has_console`).
+Three things about files belong here as well: the long form of a path (`long_path`, `openable`), telling a file another
+program holds open from one this user may not read (`held_by_another_program`), and a temporary folder only this user may
+open on every Python (`private_temporary_folder`). And one about the processes this one starts: whether it has a console for
+them to share (`has_console`).
 """
 
 import ctypes
 from ctypes import wintypes
+import errno
 from functools import lru_cache
 import os
+import secrets
+import sys
+import tempfile
 import time
 import uuid
 
@@ -98,6 +103,86 @@ def held_by_another_program(path: str, *, for_writing: bool = False) -> bool:
         return False
     except (OSError, AttributeError, ValueError):
         return False
+
+
+# What `os.mkdir(path, 0o700)` gives a folder on Windows from Python 3.12.4 on (CVE-2024-4030), as CPython's `os_mkdir_impl`
+# writes it in 3.12 and 3.14: a protected DACL, so nothing is inherited from the folder above, that lets SYSTEM, the
+# administrators and the folder's owner in, and that everything made inside inherits. Before 3.12.4 the mode was ignored on
+# Windows and the folder took the permissions of the one above. Measured on Windows 11 under a folder that lets Everyone
+# read: 3.12.0 to 3.12.3 gave the folder `(A;OICIID;FR;;;WD)`, Everyone reading it; 3.12.4, 3.12.13, 3.13.14 and 3.14.6
+# gave exactly this (Pinned by: test_legacy.py::TestScratchFolderAccess).
+_PRIVATE_FOLDER = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)"
+_MKDIR_IS_PRIVATE = sys.version_info >= (3, 12, 4)
+_SDDL_REVISION_1 = 1
+_NAME_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_"   # the characters and the length of `tempfile`'s names
+_NAME_LENGTH = 8
+
+
+class _SecurityAttributes(ctypes.Structure):
+    _fields_ = [("nLength", wintypes.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p), ("bInheritHandle", wintypes.BOOL)]
+
+
+@lru_cache(maxsize=1)
+def _advapi32() -> ctypes.WinDLL:
+    library = ctypes.WinDLL("advapi32", use_last_error=True)
+    library.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+    library.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.ULONG)]
+    return library
+
+
+def private_temporary_folder(prefix: str) -> str:
+    """`tempfile.mkdtemp(prefix=prefix)`, with the folder open to this user only on every Python.
+
+    From Python 3.12.4 on it is that call. Before, `mkdtemp` made a folder with the permissions of the temporary folder above
+    it, which a server that points TEMP at a shared folder lets others read — and the folder of a LibreOffice conversion holds
+    the uploaded document. There the folder is made as 3.12.4 makes it (`_PRIVATE_FOLDER`): given its permissions as it is
+    created, so there is no moment at which it has others.
+    """
+    if _MKDIR_IS_PRIVATE:
+        return tempfile.mkdtemp(prefix=prefix)
+    return _private_mkdtemp(prefix)
+
+
+def _private_mkdtemp(prefix: str) -> str:
+    """`tempfile.mkdtemp(prefix=prefix)` as 3.12 writes it, each folder made with `_PRIVATE_FOLDER`: the same names, the same
+    folder above, the same answer to a name that is taken, the same errors and the same audit events.
+
+    Where the calls cannot be had at all (no advapi32 to bind), it is `mkdtemp` as before.
+    """
+    parent = tempfile.gettempdir()
+    try:
+        security, library = _advapi32(), _kernel32()
+    except (OSError, AttributeError):
+        return tempfile.mkdtemp(prefix=prefix)
+    descriptor = ctypes.c_void_p()
+    if not security.ConvertStringSecurityDescriptorToSecurityDescriptorW(_PRIVATE_FOLDER, _SDDL_REVISION_1,
+                                                                         ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        attributes = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor.value, False)
+        for _ in range(tempfile.TMP_MAX):
+            folder = os.path.join(parent, prefix + _candidate_name())
+            sys.audit("tempfile.mkdtemp", folder)
+            sys.audit("os.mkdir", folder, 0o700, -1)
+            if library.CreateDirectoryW(folder, ctypes.byref(attributes)):
+                return os.path.abspath(folder)
+            code = ctypes.get_last_error()
+            # The error `os.mkdir` raises, of the class the code maps to, and `mkdtemp`'s answer to that class: a name
+            # that is taken is passed over, and so is a PermissionError, which a name taken on Windows can raise.
+            error = OSError(None, ctypes.FormatError(code), folder, code)
+            if isinstance(error, FileExistsError):
+                continue
+            if isinstance(error, PermissionError) and os.path.isdir(parent) and os.access(parent, os.W_OK):
+                continue
+            raise error
+        raise FileExistsError(errno.EEXIST, "No usable temporary directory name found")
+    finally:
+        library.LocalFree(descriptor)
+
+
+def _candidate_name() -> str:
+    return "".join(secrets.choice(_NAME_CHARACTERS) for _ in range(_NAME_LENGTH))
 
 
 _JobObjectBasicAccountingInformation = 1
@@ -173,6 +258,10 @@ def _kernel32() -> ctypes.WinDLL:
                                                   ctypes.POINTER(wintypes.DWORD)]
     library.GetConsoleProcessList.restype = wintypes.DWORD
     library.GetConsoleProcessList.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
+    library.CreateDirectoryW.restype = wintypes.BOOL
+    library.CreateDirectoryW.argtypes = [wintypes.LPCWSTR, ctypes.c_void_p]
+    library.LocalFree.restype = ctypes.c_void_p
+    library.LocalFree.argtypes = [ctypes.c_void_p]
     return library
 
 
