@@ -292,12 +292,17 @@ def _scratch_folder() -> Iterator[str]:
     a temporary folder of a hundred characters (a service account, a nested `TMP`) they passed the 260-character limit of
     ordinary paths: the removal failed on every conversion and `ignore_cleanup_errors` hid it — a folder left behind per
     document (Pinned by: test_legacy.py::TestRealLibreOffice::test_no_folder_is_left_under_a_long_temporary_path).
+
+    It holds the uploaded document, so only this user may open it. POSIX has that from the mode `mkdtemp` gives, and Windows
+    from Python 3.12.4 on. Before 3.12.4 the folder took the permissions of the temporary folder above it, which a TEMP
+    shared with others lets them read (CVE-2024-4030): there it is made as 3.12.4 makes it (`private_temporary_folder`)
+    (Pinned by: test_legacy.py::TestScratchFolderAccess::test_only_this_user_may_open_the_folder_windows).
     """
     if os.name != "nt":
         with tempfile.TemporaryDirectory(prefix="opendockit-", ignore_cleanup_errors=True) as folder:
             yield folder
         return
-    folder = tempfile.mkdtemp(prefix="opendockit-")
+    folder = _windows.private_temporary_folder("opendockit-")
     try:
         yield folder
     finally:

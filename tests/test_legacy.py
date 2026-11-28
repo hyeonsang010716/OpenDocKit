@@ -551,6 +551,8 @@ class TestRunner:
         monkeypatch.setattr(legacy, "_run", run)
         if failing == "folder":
             monkeypatch.setattr(legacy.tempfile, "mkdtemp", no_space)
+            if legacy._windows is not None:   # where the folder is made before Python 3.12.4 (`private_temporary_folder`)
+                monkeypatch.setattr(legacy._windows, "_private_mkdtemp", no_space)
         elif failing == "input":
             monkeypatch.setattr(Path, "write_bytes", no_space)
         else:
@@ -960,6 +962,186 @@ class TestRunner:
         while list(scratch.iterdir()) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert list(scratch.iterdir()) == []
+
+
+# What `os.mkdir(path, 0o700)` gives a folder on Windows from Python 3.12.4 on, and what a file and a folder made in it
+# inherit: SYSTEM, the administrators and the owner, nobody else.
+_ONLY_THIS_USER = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)"
+_INHERITED_BY_A_FILE = "D:(A;ID;FA;;;SY)(A;ID;FA;;;BA)(A;ID;FA;;;OW)"
+_INHERITED_BY_A_FOLDER = "D:(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIID;FA;;;OW)"
+
+
+def _dacl(path: str | Path) -> str:
+    """Who may open a file or a folder (Windows): its DACL as SDDL, which names accounts by SID and so reads the same in
+    every language of Windows."""
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32, kernel32 = ctypes.WinDLL("advapi32", use_last_error=True), ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+    advapi32.GetNamedSecurityInfoW.argtypes = [wintypes.LPCWSTR, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p,
+                                               ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                               ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW.restype = wintypes.BOOL
+    advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
+        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.LPWSTR), ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    file_object, dacl_information, revision = 1, 4, 1   # SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, SDDL_REVISION_1
+    descriptor, text = ctypes.c_void_p(), wintypes.LPWSTR()
+    assert advapi32.GetNamedSecurityInfoW(str(path), file_object, dacl_information, None, None, None, None,
+                                          ctypes.byref(descriptor)) == 0
+    try:
+        assert advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, revision, dacl_information,
+                                                                             ctypes.byref(text), None)
+        try:
+            return text.value
+        finally:
+            kernel32.LocalFree(text)
+    finally:
+        kernel32.LocalFree(descriptor)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="who may open a folder is its mode on POSIX, which mkdtemp sets everywhere")
+class TestScratchFolderAccess:
+    """The folder of a conversion holds the uploaded document, so only this user may open it, on every Python. Before
+    3.12.4, `mkdtemp` gave a folder on Windows the permissions of the one above it (CVE-2024-4030)."""
+
+    @pytest.fixture
+    def shared(self, monkeypatch, tmp_path):
+        """A temporary folder that lets everyone read what is made in it, as a TEMP pointed at a shared folder does."""
+        folder = tmp_path / "shared"
+        folder.mkdir()
+        subprocess.run(["icacls", str(folder), "/grant", "*S-1-1-0:(OI)(CI)R"], check=True, capture_output=True)
+        assert "(A;OICI;FR;;;WD)" in _dacl(folder)   # Everyone, inherited by what is made inside
+        monkeypatch.setattr(tempfile, "tempdir", str(folder))
+        return folder
+
+    @pytest.fixture(params=["this Python", "a Python before 3.12.4"])
+    def python(self, request, monkeypatch):
+        """The folder as this Python makes it, and as it is made where `mkdtemp` does not restrict it: there `mkdtemp`
+        makes its folder as 3.12.3 did, so that a conversion that made its folder with it fails here on every Python."""
+        if request.param != "this Python":
+            def as_before_3_12_4(suffix=None, prefix=None, dir=None):
+                folder = os.path.join(dir or tempfile.gettempdir(), (prefix or "tmp") + os.urandom(4).hex())
+                os.mkdir(folder)   # a mode other than 0o700 is not restricted on Windows, as none was before 3.12.4
+                return folder
+
+            monkeypatch.setattr(legacy._windows, "_MKDIR_IS_PRIVATE", False)
+            monkeypatch.setattr(tempfile, "mkdtemp", as_before_3_12_4)
+        return request.param
+
+    def test_only_this_user_may_open_the_folder_windows(self, monkeypatch, shared, python):
+        seen = {}
+
+        def run(command, working_folder):   # LibreOffice is running: the uploaded document is on disk
+            source = Path(command[-1])
+            seen.update(folder=_dacl(working_folder), input=_dacl(source), profile=_dacl(source.parent / legacy._PROFILE_FOLDER))
+
+        monkeypatch.setattr(legacy, "find_soffice", lambda: _FAKE_PROGRAM)
+        monkeypatch.setattr(legacy, "_run", run)
+        with pytest.raises(CorruptedDocumentError):   # the stand-in writes no output
+            convert(_doc(), "a.doc")
+
+        assert seen == {"folder": _ONLY_THIS_USER, "input": _INHERITED_BY_A_FILE, "profile": _INHERITED_BY_A_FOLDER}
+        assert list(shared.iterdir()) == []
+
+    @pytest.mark.skipif(sys.version_info < (3, 12, 4), reason="mkdtemp restricts the folder from Python 3.12.4 on")
+    def test_the_folder_is_the_one_mkdtemp_makes_from_python_3_12_4_windows(self, shared):
+        made, by_python = legacy._windows._private_mkdtemp("opendockit-"), tempfile.mkdtemp(prefix="opendockit-")
+
+        assert _dacl(made) == _dacl(by_python) == _ONLY_THIS_USER
+        for folder in (made, by_python):
+            assert Path(folder).parent == shared
+            assert re.fullmatch(r"opendockit-[a-z0-9_]{8}", Path(folder).name)
+            os.rmdir(folder)
+
+    def test_a_name_that_is_taken_is_passed_over_windows(self, monkeypatch, shared):
+        (shared / "opendockit-folder").mkdir()
+        (shared / "opendockit-folder" / "kept").write_bytes(b"theirs")
+        (shared / "opendockit-file").write_bytes(b"theirs")
+        names = iter(["folder", "file", "fresh"])
+        monkeypatch.setattr(legacy._windows, "_candidate_name", lambda: next(names))
+
+        made = legacy._windows._private_mkdtemp("opendockit-")
+
+        assert made == str(shared / "opendockit-fresh")
+        assert _dacl(made) == _ONLY_THIS_USER
+        assert (shared / "opendockit-folder" / "kept").read_bytes() == (shared / "opendockit-file").read_bytes() == b"theirs"
+
+    def test_a_name_refused_as_mkdtemp_takes_it_to_be_taken_is_passed_over_windows(self, monkeypatch, shared):
+        """Access denied for a name, as a folder being removed answers on Windows, is a PermissionError `mkdtemp` passes
+        over when the folder above may be written."""
+        import ctypes
+
+        library = legacy._windows._kernel32()
+        create, tried = library.CreateDirectoryW, []
+
+        def denied_once(path, attributes):
+            tried.append(path)
+            if len(tried) == 1:
+                ctypes.set_last_error(5)   # ERROR_ACCESS_DENIED
+                return False
+            return create(path, attributes)
+
+        monkeypatch.setattr(library, "CreateDirectoryW", denied_once)
+        made = legacy._windows._private_mkdtemp("opendockit-")
+
+        assert len(tried) == 2
+        assert made == tried[1] and _dacl(made) == _ONLY_THIS_USER
+        assert not os.path.exists(tried[0])
+
+    def test_no_name_left_is_the_error_of_mkdtemp_windows(self, monkeypatch, shared):
+        (shared / "opendockit-taken").mkdir()
+        monkeypatch.setattr(legacy._windows, "_candidate_name", lambda: "taken")
+        monkeypatch.setattr(tempfile, "TMP_MAX", 3)
+
+        with pytest.raises(FileExistsError, match="No usable temporary directory name found"):   # mkdtemp's words
+            legacy._windows._private_mkdtemp("opendockit-")
+
+    def test_it_fails_as_mkdtemp_fails_windows(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "missing"))
+
+        with pytest.raises(FileNotFoundError):
+            tempfile.mkdtemp(prefix="opendockit-")
+        with pytest.raises(FileNotFoundError) as caught:
+            legacy._windows._private_mkdtemp("opendockit-")
+        assert caught.value.filename.startswith(str(tmp_path / "missing" / "opendockit-"))
+
+    def test_it_is_mkdtemp_where_python_restricts_the_folder_windows(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(legacy._windows, "_MKDIR_IS_PRIVATE", True)
+        monkeypatch.setattr(tempfile, "mkdtemp", lambda **arguments: calls.append(arguments) or "made")
+
+        assert legacy._windows.private_temporary_folder("opendockit-") == "made"
+        assert calls == [{"prefix": "opendockit-"}]
+
+    def test_it_is_mkdtemp_where_the_calls_cannot_be_had_windows(self, monkeypatch):
+        def unavailable():
+            raise OSError("no advapi32")
+
+        calls = []
+        monkeypatch.setattr(legacy._windows, "_MKDIR_IS_PRIVATE", False)
+        monkeypatch.setattr(legacy._windows, "_advapi32", unavailable)
+        monkeypatch.setattr(tempfile, "mkdtemp", lambda **arguments: calls.append(arguments) or "made")
+
+        assert legacy._windows.private_temporary_folder("opendockit-") == "made"
+        assert calls == [{"prefix": "opendockit-"}]
+
+    def test_it_raises_the_audit_events_of_mkdtemp_windows(self, tmp_path):
+        script = ("import sys, tempfile\n"
+                  "from opendockit import _windows\n"
+                  "seen = []\n"
+                  "sys.addaudithook(lambda event, args: seen.append((event, args[0])) if event in"
+                  " ('tempfile.mkdtemp', 'os.mkdir') else None)\n"
+                  "tempfile.tempdir = sys.argv[1]\n"
+                  "made = [tempfile.mkdtemp(prefix='opendockit-'), _windows._private_mkdtemp('opendockit-')]\n"
+                  "print(repr([[event for event, path in seen if path == folder] for folder in made]))\n")
+        done = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, timeout=60,
+                              check=False)
+
+        assert done.returncode == 0, done.stderr
+        assert done.stdout.strip() == repr([["tempfile.mkdtemp", "os.mkdir"]] * 2)
 
 
 def _windows_launcher(folder: Path, pid_file: Path) -> tuple[str, dict[str, str]]:

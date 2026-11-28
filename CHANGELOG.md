@@ -150,6 +150,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   converted from such a process opened one too. The workers of a server without a console, and LibreOffice, are now
   started without a window; a server with a console starts its workers as before, sharing it with them.
 
+- **Windows, Python 3.12.0 to 3.12.3: only this user may open the folder of a .doc or .ppt conversion.** `mkdtemp`
+  gave a folder the permissions of the temporary folder above it before Python 3.12.4 (CVE-2024-4030), so under a
+  TEMP that others may read, the uploaded document in it could be read by them too. The folder is now made there as
+  3.12.4 makes it, open to SYSTEM, the administrators and its owner alone; from 3.12.4 on nothing changes.
+
 - **A PDF with a JPEG 2000 picture pdfium cannot draw no longer ends the program converting it.** pdfium stops the
   process, with a check that ends it rather than an error, when a JPEG 2000 picture's colour space asks for more
   components than the picture holds (a DeviceN of four colorants over two components), and when an image mask's
