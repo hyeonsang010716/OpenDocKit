@@ -154,10 +154,10 @@ class TestTextOutsideItsClip:
             return SimpleNamespace(get_descent=lambda: descent, bbox=bbox, hscale=0.001, vscale=0.001, is_vertical=lambda: False, **more)
 
         def outside(font: object, x: float, y: float, width: float = 6.0, size: float = 10.0, rise: float = 0.0,
-                    adrift: tuple[float, float] | None = (0.0, 0.0)) -> bool:
+                    placed: bool = True) -> bool:
             low = y + font.get_descent() * size   # the box as it would stand without the rise: the reach must add it
             char = SimpleNamespace(graphicstate=state, x0=x, x1=x + width, y0=low, y1=low + size, adv=width, matrix=(1, 0, 0, 1, x, y))
-            device = SimpleNamespace(**{_pdf_pdfminer._ADRIFT: adrift})
+            device = SimpleNamespace(**{_pdf_pdfminer._PLACED: placed})
             return _pdf_pdfminer._outside_its_clip(char, device, font, size, 1.0, rise)
 
         plain = font()
@@ -171,10 +171,8 @@ class TestTextOutsideItsClip:
         assert outside(plain, 80.0, 725.0) and not outside(deep, 80.0, 725.0) and outside(deep, 80.0, 760.0)
         assert not outside(plain, 80.0, 660.0, rise=22.0) and outside(plain, 80.0, 660.0, rise=-22.0)
         assert outside(plain, 80.0, 660.0)
-        # pdfminer may have placed the string short: it is judged as far on as it may stand
-        assert outside(plain, 20.0, 700.0) and not outside(plain, 20.0, 700.0, adrift=(0.0, 65.0))
-        assert outside(plain, 20.0, 700.0, adrift=(-65.0, 0.0)) and outside(plain, 20.0, 700.0, adrift=(0.0, 30.0))
-        assert not outside(plain, 300.0, 700.0, adrift=(-150.0, 0.0)) and not outside(plain, 300.0, 700.0, adrift=None)
+        # a string pdfminer does not place where it is drawn is not judged
+        assert outside(plain, 20.0, 700.0) and not outside(plain, 20.0, 700.0, placed=False)
         # a character that cannot be judged is kept
         assert not outside(plain, 300.0, 700.0, width=0.0)                                   # a font whose widths are not known
         assert not outside(font(bbox=None), 300.0, 700.0) and not outside(font(bbox=(0, 0, 0, 0)), 300.0, 700.0)
@@ -318,16 +316,9 @@ class TestTextThatCannotBeJudgedIsKept:
 
         assert "".join(_words(content, font=font)) == "Shown"
 
-    def test_a_string_after_others_set_with_character_spacing_is_judged_where_it_may_stand(self, monkeypatch):
-        """pdfminer leaves out the spacing after the last glyph of a string: the next string of the text object stands
-        one spacing short of where it is drawn (65pt on a real equation), outside a clip it is drawn inside."""
-        content = (b"q 100 690 100 30 re W n BT /F1 12 Tf 80 Tc 1 0 0 1 20 700 Tm (a) Tj (b) Tj ET "
-                   b"BT /F1 12 Tf 0 Tc 1 0 0 1 20 650 Tm (c) Tj (d) Tj ET Q")
-
-        assert _drawn(monkeypatch, content) == "b"
-
-    def test_the_spacing_that_counts_is_the_one_each_string_before_was_set_with(self, monkeypatch):
-        """A run set wide, then a word set as usual: the word stands where the run before it ends."""
+    def test_a_string_after_others_set_with_character_spacing_is_judged_where_it_is_drawn(self, monkeypatch):
+        """The spacing comes after every glyph, the last of a string too: the next string stands that much further on
+        (65pt on a real equation), and it is there that its clip is asked about it."""
         def drawn(text: bytes) -> str:
             return _drawn(monkeypatch, b"q 100 690 100 30 re W n BT /F1 12 Tf 1 0 0 1 20 700 Tm " + text + b" ET Q")
 
@@ -336,8 +327,9 @@ class TestTextThatCannotBeJudgedIsKept:
         assert drawn(b"40 Tc 50 Tz (a) Tj (a) Tj 100 Tz 0 Tc (b) Tj") == ""   # 20 + 2 x (3.3 + 20): short of the clip
         assert drawn(b"-80 Tc (a) Tj 0 Tc (b) Tj") == ""                      # drawn further left still
         assert drawn(b"80 Tc (a) ' 0 Tc (b) Tj") == "b"                       # every operator that shows text
+        assert drawn(b"80 Tc (a) Tj ET BT /F1 12 Tf 0 Tc 1 0 0 1 20 650 Tm (c) Tj") == ""   # the next text object starts anew
 
-    def test_a_string_may_stand_further_back_too(self, monkeypatch):
+    def test_a_string_set_further_back_by_its_spacing_is_judged_there(self, monkeypatch):
         content = b"q 60 690 40 30 re W n BT /F1 12 Tf 1 0 0 1 150 700 Tm -80 Tc (a) Tj 0 Tc (b) Tj ET Q"   # 150 + 6.7 - 80
 
         assert _drawn(monkeypatch, content) == "b"
