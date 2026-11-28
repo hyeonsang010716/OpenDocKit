@@ -121,6 +121,7 @@ from opendockit.extractors._pdf_paragraphs import _heading_levels, _keep_proven_
 from opendockit.extractors._pdf_pdfium_pages import _PAGES_FOLLOWED, _pdfium_slots, _PdfiumPages, _resolved
 from opendockit.extractors._pdf_pdfminer import (
     _CELL_CLIPS,
+    _CLIPPED,
     _DOCUMENT_FONT_RANGE_ENTRIES,
     _FONT_RANGES_CUT,
     _FORM_NESTING_MAX,
@@ -481,7 +482,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                     simple = _numbered(_pdfium_page_at(fallback, index), page.page_number)
                                 except pdfium.PdfiumError:
                                     simple = read  # pdfium cannot open the page: the pdfminer result stays (see above)
-                                floor = (_read_chars(read) * _UNDECODED_TEXT_RATIO + _UNDECODED_MIN_CHARS if undecoded
+                                floor = ((_read_chars(read) + read.clipped_chars) * _UNDECODED_TEXT_RATIO + _UNDECODED_MIN_CHARS
+                                         if undecoded
                                          else read.hidden_chars * _HIDDEN_TEXT_RATIO)
                                 if simple is not read and simple.lines and _solid_chars(simple) > floor:
                                     simple.has_images, simple.figures, simple.view = read.has_images, read.figures, read.view
@@ -1194,7 +1196,8 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
     unmeasured = _unmeasured(page.chars)
     _PAGE_READING.set(_page_reading(page.chars, _LAPARAMS["word_margin"], _made_by_word(page)))
     page, dropped = _without_drawing_artifacts(page)
-    hidden_chars = sum(1 for char in dropped if char["text"].strip())
+    clipped_chars = getattr(getattr(page, "root_page", page).layout, _CLIPPED, 0)  # drawn outside their clip (`_outside_its_clip`)
+    hidden_chars = sum(1 for char in dropped if char["text"].strip()) + clipped_chars
     placement_fit, placement_pending = _repair_placed_runs(page, placement_fit)
     tables = _real_tables(_without_unadvanced_spaces(_without_highlights(_without_chart_bars(_without_nested_fills(
         _without_glyph_outlines(_without_unbounded_shapes(page)))))))
@@ -1359,6 +1362,7 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                  text_view=text_view[0] if text_view else None,
                  form_values=_form_values(layout_page, lines, _FORM_POSITIONS.get()),
                  hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
+                 clipped_chars=clipped_chars,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],
                  uprights=_upright_rules(page) if lines else [], tagged=_tagged_on(layout_page, page_chars) if lines else [],

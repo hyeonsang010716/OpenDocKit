@@ -6,7 +6,7 @@ Importing this module replaces functions of pdfminer for the whole process.
 """
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -25,16 +25,19 @@ from pdfminer.ascii85 import asciihexdecode
 from pdfminer.cmapdb import CMap, CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import EncodingDB, name2unicode
 from pdfminer.layout import LTChar, LTFigure, LTLayoutContainer, LTPage, LTTextBoxHorizontal, LTTextBoxVertical, LTTextLineHorizontal
-from pdfminer.pdfinterp import PDFContentParser, PDFGraphicState, PDFPageInterpreter
+from pdfminer.pdfdevice import PDFTextDevice
+from pdfminer.pdfinterp import LITERAL_FORM, PDFContentParser, PDFGraphicState, PDFPageInterpreter
 from pdfminer.pdftypes import (
     LITERALS_ASCII85_DECODE,
     LITERALS_ASCIIHEX_DECODE,
     LITERALS_FLATE_DECODE,
     PDFObjRef,
     PDFStream,
+    list_value,
     resolve1,
 )
-from pdfminer.utils import Plane, choplist, decode_text
+from pdfminer.psparser import literal_name
+from pdfminer.utils import MATRIX_IDENTITY, Plane, choplist, decode_text, mult_matrix
 from pdfplumber.page import PDFPageAggregatorWithMarkedContent
 
 from opendockit.exceptions import DocumentTooLargeError
@@ -902,8 +905,12 @@ def _render_char_few_copies(self: PDFPageAggregatorWithMarkedContent, *args: obj
         budget.page_glyphs += 1
         if budget.page_glyphs > _MAX_READ_GLYPHS:
             raise _TooManyGlyphs
-        _blended_fill(char.graphicstate)
         font = kwargs.get("font", args[1] if len(args) > 1 else None)
+        if getattr(char.graphicstate, _CLIP, None) is not None and _dropped_for_its_clip(
+                self, objs, char, font, kwargs.get("fontsize", args[2] if len(args) > 2 else 0.0),
+                kwargs.get("scaling", args[3] if len(args) > 3 else 1.0), kwargs.get("rise", args[4] if len(args) > 4 else 0.0)):
+            return advance
+        _blended_fill(char.graphicstate)
         _symbol_font_glyph(char, font)
         _win_ansi_bullet(char, font, kwargs.get("cid", args[5] if len(args) > 5 else None))
         copies = self.cur_item.__dict__.setdefault("_opendockit_copies", Counter())
@@ -1754,6 +1761,9 @@ def _copy_with_fill_alpha(self: PDFGraphicState) -> PDFGraphicState:
     alpha = getattr(self, _FILL_ALPHA, None)
     if alpha is not None:
         setattr(copied, _FILL_ALPHA, alpha)
+    clip = getattr(self, _CLIP, None)
+    if clip is not None:
+        setattr(copied, _CLIP, clip)
     return copied
 
 
@@ -1817,8 +1827,334 @@ def _note_clip(self: PDFPageInterpreter) -> None:
         return
 
 
-PDFPageInterpreter.do_W = _note_clip
-PDFPageInterpreter.do_W_a = _note_clip
+# Text drawn outside the clipping path in force is not on the page: a spreadsheet draws the whole of a long cell and
+# clips it to the cell, so the end of it lay among the letters of the next cell; a layout program leaves the text of a
+# frame that was cropped away in the stream. pdfminer reads `W` and `W*` and does nothing.
+#
+# The clip is kept with the graphics state (`_CLIP`; `q` and `Q` save and restore it through `copy`), as the box of
+# the points of the path, the control points of its curves too: the box is never smaller than the area the path
+# leaves, so what lies outside the box lies outside the clip, whatever the shape or the winding rule. The path is the
+# whole path as it stands when the operator that ends it comes (`n`, or one that paints it), not as it stood at `W`:
+# `re W re n` clips to both rectangles (`_clip_wanted`, `_clipping`); a `W` whose path is never ended clips nothing.
+# Under a matrix that turns or slants, the box is the box of the path's own box (`_path_box`, `_clip_to_path`).
+# Each clip is cut to the one before it. A form XObject starts from the clip of its caller cut to its own /BBox
+# (`_form_inside_its_clip`, `_state_inside_the_clip`).
+#
+# A character is dropped as it is drawn only when no part of it can lie inside the clip (`_outside_its_clip`): its
+# box has no part inside, and neither has the reach of its font around its origin. The box pdfminer gives a character
+# is not where its ink is. It is as high as the font size, from the descent of the font: the glyphs of a font of large
+# delimiters (descent three times the size) are drawn 30pt above their boxes, and by their boxes the brackets and sums
+# of every formula of a real paper were outside their clips, each of which a viewer shows. It is as wide as /Widths
+# says, and a glyph may be wider. So the reach is the /FontBBox of the font (`_reach`). The ink of a glyph may also be
+# a small part of its box: a writer that clips each hyphen to the stroke of it leaves a clip a fifteenth of the box
+# high, so no share of the box inside is asked for, only that some part is. The upper third of a line cut by the edge
+# of its frame is read by anybody (the last line of a notice, on a real page), and a sliver of a letter kept is what
+# was kept before.
+#
+# A character that cannot be judged is kept: one of a font that does not say where its ink is (a /FontBBox that is
+# not the box of a font, a Type3 font, a font written downwards), one without an advance unless it is a mark on a
+# glyph that went (`_dropped_for_its_clip`; pdfminer draws a whole string of a font without widths on one spot), and
+# one pdfminer may have placed wrong, which is judged as far on as it may stand or not at all (`_show_text_adrift`).
+#
+# A space puts no ink on the page: it goes only with the glyphs it stands among (`_dropped_for_its_clip`). Text in
+# the invisible render mode (`3 Tr`) is kept: it is the text layer of a scan, never shown, and a clip says nothing
+# about it. The dropped characters of a page are counted on its layout (`_CLIPPED`), so that a page left with less
+# text is not taken for one pdfminer could not read and handed to pdfium, which would bring the hidden text back
+# (`pdf._read_page`). Known limitations: the clip that text itself adds (render modes 4 to 7) is not followed, and
+# neither is a soft mask; a page read by pdfium keeps its clipped text; the clip is the one pdfminer reads, so where
+# pdfminer reads the stream otherwise than a viewer (the data of an inline image ended early, a number written
+# wrong), text a viewer shows can go.
+# Pinned by: test_pdf_clipped_text.py (docs/decisions/pdf.md)
+_CLIP = "_opendockit_clip"
+_REACH = "_opendockit_reach"  # on a pdfminer font: (`_reach`)
+_FORM_CLIP = "_opendockit_form_clip"
+_FORM_BOX = "_opendockit_form_box"  # on the stream of a form: the corners of its /BBox and its /Matrix, or False
+_CLIP_WANTED = "_opendockit_clip_wanted"  # on an interpreter: `W` came and the path is not ended yet
+_MEASURED = "_opendockit_measured_path"  # on an interpreter (`_path_box`)
+_CLIPPED = "_opendockit_clipped"  # on the layout of a page: how many characters that are no space were dropped
+_INVISIBLE = 3
+_Clip = tuple[float, float, float, float]
+
+
+def _cut_to(clip: _Clip | None, box: _Clip) -> _Clip:
+    if clip is None:
+        return box
+    return (max(clip[0], box[0]), max(clip[1], box[1]), min(clip[2], box[2]), min(clip[3], box[3]))
+
+
+def _box_of(points: list[tuple[float, float]], ctm: tuple[float, ...]) -> _Clip | None:
+    """The box of the points on the page, or None when one of them is no finite number."""
+    a, b, c, d, e, f = ctm
+    xs = [a * x + c * y + e for x, y in points]
+    ys = [b * x + d * y + f for x, y in points]
+    box = (min(xs), min(ys), max(xs), max(ys))
+    return box if all(math.isfinite(value) for value in box) else None
+
+
+def _clip_wanted(self: PDFPageInterpreter) -> None:
+    """`W`, `W*`: the path being built will be the clip once it is painted (`_clipping`), and the clip is noted
+    for a document whose writer clips each table cell (`_note_clip`)."""
+    self.__dict__[_CLIP_WANTED] = True
+    _note_clip(self)
+
+
+def _path_box(self: PDFPageInterpreter) -> _Clip | None:
+    """The box of the points of the current path, in the coordinates it was built in. A path is measured once: when
+    it comes again grown (pdfminer does not end the path at `F`, so `re W F` over and over builds one path), only
+    the segments added since are looked at (`_MEASURED`: the path, how many of its segments were measured, their
+    box). 10,000 lines of `re W F` took over a minute."""
+    path = self.curpath
+    measured = self.__dict__.get(_MEASURED)
+    if measured is not None and measured[0] is path and measured[1] <= len(path):
+        done, box = measured[1], measured[2]
+    else:
+        done, box = 0, None
+    if done < len(path):
+        added = path[done:]  # a slice: `islice` would walk the path from its start each time
+        xs = [segment[index] for segment in added for index in range(1, len(segment) - 1, 2)]
+        ys = [segment[index] for segment in added for index in range(2, len(segment), 2)]
+        if xs:
+            box = (min(xs), min(ys), max(xs), max(ys)) if box is None else (
+                min(box[0], min(xs)), min(box[1], min(ys)), max(box[2], max(xs)), max(box[3], max(ys)))
+        self.__dict__[_MEASURED] = (path, len(path), box)
+    return box
+
+
+def _clip_to_path(self: PDFPageInterpreter) -> None:
+    """Cuts the clip of the graphics state to the box of the current path (under a matrix that turns or slants, the
+    box of that box). A path that cannot be measured leaves the clip as it was."""
+    try:
+        box = _path_box(self)
+        if box is not None:
+            x0, y0, x1, y1 = box
+            box = _box_of([(x0, y0), (x1, y0), (x0, y1), (x1, y1)], self.ctm)
+        if box is not None:
+            state = self.graphicstate
+            setattr(state, _CLIP, _cut_to(getattr(state, _CLIP, None), box))
+    except Exception:  # noqa: BLE001 — a clip that cannot be measured is one that is not followed
+        pass
+
+
+def _clipping(paint: Callable[..., None]) -> Callable[..., None]:
+    """The operator that ends a path, setting the clip first when `W` asked for it."""
+    def painted(self: PDFPageInterpreter, *args: object) -> None:
+        if self.__dict__.get(_CLIP_WANTED):
+            self.__dict__[_CLIP_WANTED] = False
+            _clip_to_path(self)
+        paint(self, *args)
+    return painted
+
+
+_init_state = PDFPageInterpreter.init_state
+_do_xobject = PDFPageInterpreter.do_Do
+
+
+def _state_inside_the_clip(self: PDFPageInterpreter, ctm: object) -> None:
+    """The graphics state a content stream starts with: that of pdfminer, with the clip its caller left for it (a
+    form XObject) or none (a page)."""
+    _init_state(self, ctm)
+    clip = getattr(self.device, _FORM_CLIP, None)
+    if clip is not None:
+        setattr(self.graphicstate, _CLIP, clip)
+
+
+def _form_inside_its_clip(self: PDFPageInterpreter, xobjid_arg: object) -> None:
+    """`Do`: a form XObject is drawn inside the clip in force cut to its own /BBox."""
+    device = self.device
+    before = getattr(device, _FORM_CLIP, None)
+    clip = getattr(self.graphicstate, _CLIP, None)
+    try:
+        xobj = resolve1(self.xobjmap.get(literal_name(xobjid_arg)))
+        if isinstance(xobj, PDFStream):
+            placed = xobj.__dict__.get(_FORM_BOX)  # read once: a form may be drawn tens of thousands of times
+            if placed is None:
+                placed = False
+                if xobj.get("Subtype") is LITERAL_FORM and "BBox" in xobj:
+                    x0, y0, x1, y1 = (float(value) for value in list_value(xobj["BBox"]))
+                    matrix = tuple(float(value) for value in list_value(xobj.get("Matrix", MATRIX_IDENTITY)))
+                    if len(matrix) == 6:
+                        placed = ([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], matrix)
+                xobj.__dict__[_FORM_BOX] = placed
+            if placed:
+                box = _box_of(placed[0], mult_matrix(placed[1], self.ctm))
+                if box is not None:
+                    clip = _cut_to(clip, box)
+    except Exception:  # noqa: BLE001 — a box that cannot be measured clips nothing
+        pass
+    setattr(device, _FORM_CLIP, clip)
+    try:
+        _do_xobject(self, xobjid_arg)
+    finally:
+        setattr(device, _FORM_CLIP, before)
+
+
+_render_string = PDFTextDevice.render_string
+_RENDER_MODE = "_opendockit_render_mode"
+_RUN = "_opendockit_clipped_run"  # on a device, for the string being drawn under a clip (`_dropped_for_its_clip`)
+_JUDGED = "_opendockit_judged"    # on a device: the font and the clip of the last glyph with an advance drawn under a clip, and whether it went
+_SHORT = "_opendockit_short"    # on an interpreter: the least and the most pdfminer placed the next string short
+_ADRIFT = "_opendockit_adrift"  # on a device: the same for the string being drawn; None: it may stand anywhere
+_REACH_LEAST = 0.5              # a /FontBBox narrower or lower than this share of the size is not the box of a font
+
+
+def _render_string_with_its_mode(self: PDFTextDevice, textstate: object, *args: object, **kwargs: object) -> None:
+    """The render mode of the string being drawn, kept on the device for `_outside_its_clip` (pdfminer does not hand
+    it to `render_char`), and a string of its own for the spaces (`_dropped_for_its_clip`)."""
+    values = self.__dict__
+    values[_RENDER_MODE] = getattr(textstate, "render", 0)
+    values[_RUN] = None
+    _render_string(self, textstate, *args, **kwargs)
+
+
+_begin_text = PDFPageInterpreter.do_BT
+_show_text = PDFPageInterpreter.do_TJ
+
+
+def _begin_text_in_place(self: PDFPageInterpreter) -> None:
+    """`BT`: no string of this text object was drawn yet, so pdfminer has placed none short (`_show_text_adrift`)."""
+    self.__dict__[_SHORT] = (0.0, 0.0)
+    _begin_text(self)
+
+
+def _show_text_adrift(self: PDFPageInterpreter, seq: object) -> None:
+    """`TJ`, and `Tj`, `'`, `"` through it: tells the device how far pdfminer may be off in placing the string
+    (`_ADRIFT`, for `_outside_its_clip`). pdfminer leaves out the character spacing after the last glyph of a string,
+    so each string of a text object starts short of where it is drawn by the spacing of every string before it, each
+    as it was set then (65pt on a real equation set with `5.354 Tc`): the string may stand anywhere between the least
+    and the most those spacings add up to (`_SHORT`, kept on the interpreter: a form drawn inside the text object
+    has its own; never taken back at `Td` or `Tm`, which only makes it wider than it need be). And pdfminer gives a
+    font of several bytes no word spacing, where a viewer adds it after a one-byte code 32: such a string is placed
+    nowhere that can be trusted (None), and neither is one whose text state cannot be read."""
+    values = self.__dict__
+    short = values.get(_SHORT, (0.0, 0.0))
+    adrift: tuple[float, float] | None = None
+    try:
+        state = self.textstate
+        font = state.font
+        spacing = float(state.charspace) * float(state.scaling) * 0.01
+        if math.isfinite(spacing):
+            values[_SHORT] = (short[0] + min(spacing, 0.0), short[1] + max(spacing, 0.0))
+            if not (state.wordspace and font is not None and font.is_multibyte()):
+                adrift = short
+        else:
+            values[_SHORT] = (-math.inf, math.inf)
+    except Exception:  # noqa: BLE001 — a text state that cannot be read places nothing that can be trusted
+        values[_SHORT] = (-math.inf, math.inf)
+    self.device.__dict__[_ADRIFT] = adrift
+    _show_text(self, seq)
+
+
+def _apart(box: _Clip, clip: _Clip) -> bool:
+    """Whether no part of the box lies inside the clip. A box at no place (not a number) is apart from nothing."""
+    return box[2] < clip[0] or box[0] > clip[2] or box[3] < clip[1] or box[1] > clip[3]
+
+
+def _reach(font: object) -> tuple[float, float, float, float] | None:
+    """How far left, below, right and above the origin of a glyph the font may put ink, in units of its size: its
+    /FontBBox, and below and above also the box pdfminer gives a character (the descent and one size above it). None
+    for a font that does not say: one whose /FontBBox is not the box of a font (none, all zeros, `[0 0 1 1]`: less
+    than `_REACH_LEAST` of the size across or upwards), a Type3 font (its glyphs are drawings in a space of their
+    own), a font written downwards. Kept on the font."""
+    reach = getattr(font, _REACH, None)
+    if reach is None:
+        reach = False
+        try:
+            if not isinstance(font, pdffont.PDFType3Font) and not font.is_vertical():
+                left, below, right, above = (float(value) for value in font.bbox)
+                left, right, below, above = left * font.hscale, right * font.hscale, below * font.vscale, above * font.vscale
+                low = float(font.get_descent())
+                if (right - left >= _REACH_LEAST and above - below >= _REACH_LEAST
+                        and all(math.isfinite(value) for value in (left, below, right, above, low))):
+                    reach = (min(left, 0.0), min(below, low), right, max(above, low + 1.0))
+        except Exception:  # noqa: BLE001 — a font whose box cannot be read does not say
+            pass
+        setattr(font, _REACH, reach)
+    return reach or None
+
+
+def _outside_its_clip(char: LTChar, device: object, font: object, fontsize: float, scaling: float, rise: float) -> bool:
+    """Whether the character was drawn to be seen and no part of it can lie inside the clip it was drawn under:
+    neither its box nor the reach of its font around its origin (`_reach`), set as far on as pdfminer may have
+    placed it short (`_ADRIFT`). A character that cannot be judged is kept: one of a font that does not say where
+    its ink is, one without a width (a font whose widths are not known: pdfminer draws the whole string on one
+    spot), one of a string pdfminer cannot place."""
+    clip = getattr(char.graphicstate, _CLIP, None)
+    if clip is None or not _apart((char.x0, char.y0, char.x1, char.y1), clip):
+        return False
+    values = device.__dict__
+    adrift = values.get(_ADRIFT)
+    if values.get(_RENDER_MODE, 0) == _INVISIBLE or adrift is None or not char.adv:
+        return False
+    behind, ahead = adrift
+    try:
+        reach = _reach(font)
+        if reach is None:
+            return False
+        across = fontsize * scaling
+        ends = (0.0, char.adv, reach[0] * across, reach[2] * across)
+        left, right = min(ends) + behind, max(ends) + ahead
+        low, high = reach[1] * fontsize + rise, reach[3] * fontsize + rise
+        box = _box_of([(left, low), (right, low), (left, high), (right, high)], char.matrix)
+    except Exception:  # noqa: BLE001 — a character whose reach cannot be measured is kept
+        return False
+    return box is not None and _apart(box, clip)
+
+
+def _dropped_for_its_clip(device: object, objs: list, char: LTChar, font: object, fontsize: float, scaling: float,
+                          rise: float) -> bool:
+    """Takes the character just drawn (the last of `objs`) off the layout when it is outside its clip, and says so.
+    A space puts no ink on the page, and a clip says nothing of it: it goes only with the glyphs it stands among. A
+    space outside the clip goes when the glyph before it in its string went; before the first glyph of the string, when
+    that glyph goes. A space after a glyph that stays is kept wherever it stands: the space that ends a line, drawn
+    past the edge of its cell, is what tells that the next line starts a new word (15 of 124 real documents saved by
+    Hangul have one)."""
+    outside = _outside_its_clip(char, device, font, fontsize, scaling, rise)
+    run = device.__dict__.get(_RUN)
+    if run is None:
+        # [whether the last glyph of the string went (None before the first), the spaces outside the clip before the first]
+        run = device.__dict__[_RUN] = [None, []]
+    if char._text.isspace():
+        if not outside or run[0] is False:
+            return False
+        if run[0] is None:
+            run[1].append(char)
+            return False
+        objs.pop()
+        return True
+    values = device.__dict__
+    clip = getattr(char.graphicstate, _CLIP, None)
+    if char.adv:
+        values[_JUDGED] = (font, clip, outside)
+    else:
+        # A glyph with no advance of its own stands on the glyph before it (a Thai vowel or tone mark): the hidden half
+        # of a real slide deck came out as its marks alone, a table of `ี ้ ิ ่`. It goes with that glyph when that glyph
+        # was the last one with an advance drawn under this same clip, in its font, and went, and when its own box, a
+        # line where it stands, is outside the clip too and it was drawn to be seen. Anything else is a glyph that
+        # cannot be judged and stays (every glyph of a font without widths; a mark after a clip that has ended).
+        judged = values.get(_JUDGED)
+        outside = (judged is not None and judged[0] is font and judged[1] == clip and judged[2] and clip is not None
+                   and values.get(_RENDER_MODE, 0) != _INVISIBLE and _apart((char.x0, char.y0, char.x1, char.y1), clip))
+    leading, run[0], run[1] = run[1], outside, []
+    if not outside:
+        return False
+    objs.pop()
+    while leading and objs and objs[-1] is leading[-1]:
+        objs.pop()
+        leading.pop()
+    page = device._stack[0] if device._stack else device.cur_item  # the page itself, from inside a form too
+    page.__dict__[_CLIPPED] = page.__dict__.get(_CLIPPED, 0) + 1
+    return True
+
+
+PDFPageInterpreter.do_W = _clip_wanted
+PDFPageInterpreter.do_W_a = _clip_wanted
+for _operator in ("do_n", "do_S", "do_f", "do_F", "do_f_a", "do_B", "do_B_a"):  # `s`, `b` and `b*` go through these
+    setattr(PDFPageInterpreter, _operator, _clipping(getattr(PDFPageInterpreter, _operator)))
+PDFPageInterpreter.init_state = _state_inside_the_clip
+PDFPageInterpreter.do_Do = _form_inside_its_clip
+PDFTextDevice.render_string = _render_string_with_its_mode
+PDFPageInterpreter.do_BT = _begin_text_in_place
+PDFPageInterpreter.do_TJ = _show_text_adrift
 
 
 _type3_font_init = pdffont.PDFType3Font.__init__
