@@ -72,6 +72,7 @@ from opendockit.extractors._pdf_artifacts import (
     _text_chars_by_middle,
     _text_view,
     _text_without_artifacts,
+    _tilted_paragraphs,
     _unmeasured,
     _view_box,
     _without_drawing_artifacts,
@@ -464,8 +465,8 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
                                 crammed.add(page.page_number)
                             placement_fit = placement_fit or read.placement_fit
                             undecoded = budget.undecoded_fonts and not read.unmeasured and bool(
-                                read.lines or read.tables or read.sideways)
-                            if (not read.lines and not read.tables and not read.sideways) or read.unmeasured or undecoded:
+                                read.lines or read.tables or read.sideways or read.tilted)
+                            if (not read.lines and not read.tables and not read.sideways and not read.tilted) or read.unmeasured or undecoded:
                                 # On some pages pdfminer silently fails to interpret a font and sees 0 characters. If pdfium
                                 # finds characters, its result is used. On a scanned page pdfium has no characters either, so
                                 # it stays an image page. A page without lines because all its characters are hidden text
@@ -626,6 +627,7 @@ def _extract_pdf(data: bytes, options: ConvertOptions, budget: _InflateBudget) -
         extraction.warnings.append(f"Of the PDF's {total} page(s), only the first {limit} were converted.")
     if options.remove_repeated_page_lines:
         _remove_repeated_margins(pages)
+        _tilted_once(pages)
     # Checked before borderless tables are taken out of the body lines. Afterwards the lines of a fragmented text layer move into
     # tables and the character area changes.
     untrusted = _untrusted_text_layer_pages(pages) if options.extract_images and not extraction.exceeded else []
@@ -794,6 +796,25 @@ def _pdfium_page_count(data: bytes) -> int:
             document.close()
 
 
+def _tilted_once(pages: list[_Page]) -> None:
+    """Keeps a paragraph of text set at an angle that stands on three pages or more, and on half of the pages or more,
+    on the first of them alone: a stamp set across every page (`DRAFT`, the name of a firm) is written once, as a line
+    repeated at the head of every page is (`_remove_repeated_margins`). `remove_repeated_page_lines=False` keeps
+    every copy. Pinned by: test_pdf_tilted_text.py::TestStampOnEveryPage"""
+    on_pages = Counter(text for page in pages for text in set(page.tilted))
+    often = {text for text, count in on_pages.items() if count >= max(3, len(pages) * _REPEAT_RATIO)}
+    seen: set[str] = set()
+    for page in pages:
+        kept = []
+        for text in page.tilted:
+            if text in often:
+                if text in seen:
+                    continue
+                seen.add(text)
+            kept.append(text)
+        page.tilted = kept
+
+
 def _solid_chars(page: _Page) -> int:
     """Number of non-space characters in the page's lines."""
     return sum(len(line.text.replace(" ", "")) for line in page.lines)
@@ -801,7 +822,7 @@ def _solid_chars(page: _Page) -> int:
 
 def _read_chars(page: _Page) -> int:
     """Number of non-space characters of a page read with pdfminer (lines, table cells, text read rotated)."""
-    return _solid_chars(page) + sum(solid_length(text) for text in [*(table.text for table in page.tables), *page.sideways])
+    return _solid_chars(page) + sum(solid_length(text) for text in [*(table.text for table in page.tables), *page.sideways, *page.tilted])
 
 
 @dataclass(slots=True)
@@ -873,7 +894,7 @@ def _countable_chars(page: _Page, tally: _EdgeTally | None = None) -> int:
             lines.extend(tally.unrepeatable(page.number, rim))
     return sum(solid_length(_LEADER_DOTS.sub("", _CID.sub("", text)))
                for text in [*(line.text for line in lines), *(table.text for table in page.tables), *page.sideways,
-                            *page.form_values])
+                            *page.tilted, *page.form_values])
 
 
 # Pages in a row that pdfium counts but cannot open, after which the document is taken to end (`_read_with_pdfium`).
@@ -1347,9 +1368,11 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
 
     view = _view_box(page)
     text_view = _text_view(page)
+    # Text set at any other angle is read the same way, along its own direction (`_tilted_paragraphs`), and written after it
+    tilted_text = [_drawn_text(text) for text in _tilted_paragraphs(tilted, [char for char in cell_chars if _is_tilted(char)])]
     sideways_text = [_drawn_text(text) for text in _sideways_paragraphs(sideways)]
     outline_points = (sum(len(curve.get("pts", ())) for curve in page.curves)
-                      if not lines and not tables and not sideways_text else 0)
+                      if not lines and not tables and not sideways_text and not tilted_text else 0)
     blank = not (page.chars or page.images or page.curves or page.rects or page.lines or dropped)
     figures = _figure_boxes(page, view)
     lookups = _TableLookups(page, figures)
@@ -1358,10 +1381,10 @@ def _read_page(page: object, placement_fit: tuple[float, float] | None = None) -
                          for bbox, rows, boxes, header in tables],
                  has_images=bool(page.images), view=view, figures=figures,
                  has_outlines=outline_points >= _OUTLINE_MIN_POINTS,
-                 placement_fit=placement_fit, placement_pending=placement_pending, sideways=sideways_text,
+                 placement_fit=placement_fit, placement_pending=placement_pending, sideways=sideways_text, tilted=tilted_text,
                  text_view=text_view[0] if text_view else None,
                  form_values=_form_values(layout_page, lines, _FORM_POSITIONS.get()),
-                 hidden_chars=hidden_chars if not lines and not tables and not sideways_text else 0,
+                 hidden_chars=hidden_chars if not lines and not tables and not sideways_text and not tilted_text else 0,
                  clipped_chars=clipped_chars,
                  undecodable=blank and _has_undecodable_contents(layout_page), unmeasured=unmeasured,
                  rules=_thin_rules(page) if lines else [], bands=_shade_bands(page) if lines else [],

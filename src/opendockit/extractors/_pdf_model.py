@@ -313,6 +313,10 @@ class _Page:
     # Paragraphs read by turning text drawn rotated by 90 degrees within the page (an identifier in the margin, a table set
     # sideways). Left out of the body flow and the table and header checks and placed at the end of the page (_sideways_paragraphs).
     sideways: list[str] = field(default_factory=list)
+    # Paragraphs of text set at any other angle, read along their own direction (`_tilted_paragraphs`) and written
+    # after the sideways text. One that stands on many pages (a stamp across every page) is kept on the first
+    # (`pdf._tilted_once`).
+    tilted: list[str] = field(default_factory=list)
     # The first copy of the lines repeated on every page that say what the rest of the text does not, at the head and at the
     # foot of the page (`_pdf_margins._keep_the_first_copy`). Left out of the body flow like every repeated line, and written
     # before and after the text of the page.

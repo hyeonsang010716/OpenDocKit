@@ -18,6 +18,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **PDF: text set at an angle is read.** Slanted text outside table cells was dropped with no warning, as a watermark
+  might be: the heads of the columns of a table set at 45 degrees, the stations of a timetable, the streets of a
+  site plan, a slogan across a corner. It is now read along its own direction and placed at the end of its page, as
+  text turned a quarter already was. A watermark (large or pale) stays out, and so do the numbers of a drawing and
+  the letters of a text set along a curve; a stamp across every page is written once.
+
 - **PDF: words and numbers no longer break where a line is drawn as several strings with character spacing.** The
   spacing (`Tc`) comes after every glyph, and the PDF library left it out after the last glyph of each string, so
   the next string stood short of its place: `$ 3 36,785` for `$ 336,785`, `availab le`, `I S BN 9 7 8 - 5` for
