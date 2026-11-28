@@ -22,7 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   might be: the heads of the columns of a table set at 45 degrees, the stations of a timetable, the streets of a
   site plan, a slogan across a corner. It is now read along its own direction and placed at the end of its page, as
   text turned a quarter already was. A watermark (large or pale) stays out, and so do the numbers of a drawing and
-  the letters of a text set along a curve; a stamp across every page is written once.
+  the letters of a text set along a curve; a stamp across every page is written once. A page of slanted text
+  alone is read as before. Of 3,258 real PDFs 39 gain lines (598) and none loses any.
 
 - **PDF: words and numbers no longer break where a line is drawn as several strings with character spacing.** The
   spacing (`Tc`) comes after every glyph, and the PDF library left it out after the last glyph of each string, so
