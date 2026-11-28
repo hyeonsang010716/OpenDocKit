@@ -19,8 +19,10 @@ That one needs no watching — the handle closes when the process dies, whatever
 
 The workers' job lets a process of its own leave it, when that process asks (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`): the guard
 that removes the folder of a LibreOffice conversion asks for it, so that a server killed outright does not end the guard
-with its workers and leave the uploaded document on disk. Nothing else asks, and LibreOffice could not: it is in a job of
-its own inside that one, which lets nothing go.
+with its workers and leave the uploaded document on disk. Nothing else asks. LibreOffice does not either: its launcher
+starts `soffice.bin` with no flag but DETACHED_PROCESS (`desktop/win32/source/loader.cxx`), and the job of its own it is put
+into inside that one lets nothing go even to a process that asks. That matters for the moment before the launcher is put
+into it, when it is in the workers' job alone.
 
 No job function raises. Where a call fails the limit is simply not applied, as `_limit_memory` does on macOS, and the callers
 do not read the answer: a worker that could not join the job runs without the memory limit that was asked for, and a
