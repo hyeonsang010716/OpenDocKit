@@ -43,7 +43,7 @@ document that justifies it.
 - A change to how structure is guessed from a PDF (headings, tables, reading order) is judged by the scorecard
   (`evals/README.md`), not by the document it was written for: it comes with the comparison against the baseline, no
   mean may fall on the benchmark, the Korean pairs, the Korean holdout or the PDF twins (tagged and untagged), and the baselines are updated in
-  the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`). The comparison also names
+  the same change. The holdout is run, not read: a rule is not written from its documents (`evals/README.md`); the same holds for the holdout half of the benchmark (`evals/pdf_benchmark_holdout.txt`), and a rule found on the other half is kept only when the holdout half does not fall. The comparison also names
   the documents whose text changed without a score moving: look at them before saying what a change did.
   A change to how DOCX, ODT, RTF, HTML or EPUB write headings, lists or tables is run against their twins the same way.
   A change to what a reader of DOCX, PPTX, XLSX, HWPX or HWP keeps or drops is run against the recall baselines

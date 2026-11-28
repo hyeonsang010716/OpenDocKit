@@ -299,6 +299,38 @@ class TestRun:
         assert against_a_document == against_markdown
         assert (tmp_path / "out" / "a.md").read_text(encoding="utf-8").startswith("Title")
 
+    def test_one_half_of_the_documents_is_scored_by_a_list_of_names(self, tmp_path):
+        """A benchmark in two halves: the documents rules may be written on, and the holdout."""
+        from evals.run import main, named, run
+
+        documents, gold = tmp_path / "documents", tmp_path / "gold"
+        documents.mkdir()
+        gold.mkdir()
+        for name in ("a", "b", "c"):
+            (documents / f"{name}.txt").write_text("Body text of the document.\n", encoding="utf-8")
+            (gold / f"{name}.md").write_text("Body text of the document.\n", encoding="utf-8")
+        listing = tmp_path / "holdout.txt"
+        listing.write_text("# the holdout\n\nb\n c \n", encoding="utf-8")
+
+        assert named(listing) == {"b", "c"}
+        assert sorted(run(gold, documents, None, None, only=named(listing))["documents"]) == ["b", "c"]
+        assert sorted(run(gold, documents, None, None, without=named(listing))["documents"]) == ["a"]
+        assert sorted(run(gold, documents, None, None)["documents"]) == ["a", "b", "c"]
+        assert main(["--documents", str(documents), "--gold", str(gold), "--only", str(listing), "--out", str(tmp_path / "out")]) == 0
+        assert sorted(path.name for path in (tmp_path / "out").iterdir()) == ["b.md", "c.md", "scores.json"]
+
+    def test_the_holdout_of_the_pdf_benchmark_is_the_half_a_hash_of_the_names_picks(self):
+        """Nobody chose the documents: of the 200 names, the hundred whose SHA-256 sorts first."""
+        import hashlib
+        from pathlib import Path
+
+        from evals.run import named
+
+        names = [f"01030000000{number:03d}" for number in range(1, 201)]
+        first = sorted(names, key=lambda name: hashlib.sha256(name.encode()).hexdigest())[:100]
+
+        assert named(Path(__file__).parent.parent / "evals" / "pdf_benchmark_holdout.txt") == set(first)
+
     def test_plain_converts_without_emphasis_and_links(self, tmp_path):
         """For a reference written without them (`make_twins.py`)."""
         from evals.run import run

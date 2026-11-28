@@ -72,12 +72,23 @@ def _means(documents: dict[str, dict[str, float | None]]) -> dict[str, dict[str,
     return means
 
 
-def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path | None, plain: bool = False) -> dict:
-    """Score every document that has a reference. Returns the scorecard."""
+def named(listing: Path) -> frozenset[str]:
+    """The document names of a list: one a line, blank lines and lines that start with `#` left out."""
+    lines = (line.strip() for line in listing.read_text(encoding="utf-8").splitlines())
+    return frozenset(line for line in lines if line and not line.startswith("#"))
+
+
+def run(gold: Path, documents: Path | None, predictions: Path | None, out: Path | None, plain: bool = False,
+        only: frozenset[str] | None = None, without: frozenset[str] = frozenset()) -> dict:
+    """Score every document that has a reference — of the names in `only` when it is given, and none of those in
+    `without` (the two halves of a benchmark: the documents rules may be written on, and the holdout). Returns the
+    scorecard."""
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
     jobs = []
     for reference in sorted(path for path in gold.iterdir() if path.is_file() and not path.name.startswith(".")):
+        if reference.stem in without or (only is not None and reference.stem not in only):
+            continue
         source = None
         if documents is not None:
             found = sorted(path for path in documents.glob(f"{reference.stem}.*") if path.suffix.lower() != ".md")
@@ -165,11 +176,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tolerance", type=float, default=0.002, help="how far the mean of a metric may fall")
     parser.add_argument("--plain", action="store_true", help="convert without emphasis and links, for a reference written without them")
     parser.add_argument("--gate", default=",".join(METRICS), help="the metrics whose fall fails the run, comma-separated (default: all)")
+    parser.add_argument("--only", type=Path, help="score only the documents named in this list, one name a line")
+    parser.add_argument("--without", type=Path, help="score no document named in this list")
     args = parser.parse_args(argv)
     if (args.documents is None) == (args.predictions is None):
         parser.error("give one of --documents and --predictions")
 
-    card = run(args.gold, args.documents, args.predictions, args.out, args.plain)
+    card = run(args.gold, args.documents, args.predictions, args.out, args.plain,
+               None if args.only is None else named(args.only), frozenset() if args.without is None else named(args.without))
     for metric in METRICS:
         mean = card["means"][metric]
         print(f"{metric:8} {'none' if mean['mean'] is None else format(mean['mean'], '.4f'):>7}  over {mean['documents']} documents")

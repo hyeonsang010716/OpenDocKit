@@ -98,6 +98,40 @@ What the first runs showed:
   still unmeasured — the reason a Korean corpus comes next.
 - **What is left in headings is precision**: about one heading in four written is not one in the reference.
 
+## The benchmark in two halves: documents to learn from, and a holdout
+
+```bash
+B=../corpus/opendataloader-bench
+uv run python -m evals.run --documents $B/pdfs --gold $B/ground-truth/markdown --without evals/pdf_benchmark_holdout.txt --baseline evals/baselines/pdf-structure-dev.json
+uv run python -m evals.run --documents $B/pdfs --gold $B/ground-truth/markdown --only evals/pdf_benchmark_holdout.txt --baseline evals/baselines/pdf-structure-holdout.json
+```
+
+The 200 documents of the benchmark are a gate: no mean may fall on them. They were not a place to write rules from,
+and a score reached by fitting rules to the documents it is measured on says little about any other document (one
+converter went from 0.67 to 0.97 on this benchmark in under four months, citing its documents by number in its
+source). To learn from the benchmark without that, it is cut in two (2026-11-28):
+
+- **the development half**, 100 documents: open them, read what the reader wrote beside the reference, find the cause;
+- **the holdout half**, 100 documents (`evals/pdf_benchmark_holdout.txt`): **run, not read.** No rule is written from
+  them, and what a change does there is read from the means and the count of documents that moved.
+
+Nobody chose the halves: the holdout is the hundred names whose SHA-256 sorts first
+(`test_evals_metrics.py::TestRun::test_the_holdout_of_the_pdf_benchmark_is_the_half_a_hash_of_the_names_picks`).
+
+| 2026-11-28 | Documents | Overall | NID | TEDS | MHS |
+|---|---|---|---|---|---|
+| Development half | 100 | 0.8983 | 0.9299 | 0.8103 (19) | 0.8236 (57) |
+| Holdout half | 100 | 0.8585 | 0.9018 | 0.7569 (23) | 0.7855 (50) |
+
+**How a change is judged with them.** A rule that came from the development half is kept when the holdout half does
+not fall and, for a rule meant to raise a score, when the holdout rises too; a rule that raises the development half
+alone has learned its documents and is dropped. The whole 200 stay the gate they were (`pdf-structure.json`).
+
+**What was known of the holdout half before the cut**, for whoever reads a later claim: the per-document scores of
+all 200 had been looked at (ours and five other converters'), the changed text of one holdout document
+(`01030000000030`) had been read when a rule moved it, and notes on the source of another converter name some forty
+benchmark documents by number with a line on each. None of it was used to pick the halves.
+
 ## Korean pairs: one document in two formats
 
 ```bash
