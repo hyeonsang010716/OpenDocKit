@@ -1,6 +1,39 @@
 import pytest
 
 
+# How execnet starts a worker of pytest-xdist: the worker runs this line, and the line evaluates the one it reads from its
+# standard input, which `gateway_bootstrap.sendexec` writes. Every reader in execnet 2.1.2 evaluates it so (popen, ssh,
+# vagrant and its socket server).
+EXECNET_WORKER_LINE = "import sys;exec(eval(sys.stdin.readline()))"
+
+
+def send_execnet_code_as_ascii() -> bool:
+    """Have execnet write the code it sends a new worker as ASCII, so that a worker reads it right in any code page.
+
+    `sendexec` writes the `repr` of the code as UTF-8, and the worker reads it from a pipe in the locale encoding. In code
+    page 949, the default of Korean Windows, the path of this checkout's `.venv` came out wrong when it held Hangul (the
+    Desktop that OneDrive keeps as `바탕 화면`): the worker ended at once with a UnicodeEncodeError, and `pytest -n auto`
+    stopped before a test ran (`EOFError: expected 1 bytes, got 0`; execnet 2.1.2, the newest release). Written with
+    `ascii`, the line holds escapes in place of those characters, reads the same in every code page and evaluates to the
+    same code. For code that is ASCII, as it is under an ASCII path, `ascii` and `repr` write the same bytes: nothing
+    changes there. Left alone, returning False, where execnet is not installed or starts its workers with another line.
+
+    Here, with no import of the suite, because `test_timing.py` runs a copy of this file on its own.
+    """
+    try:
+        from execnet import gateway_bootstrap, gateway_io
+    except ImportError:
+        return False
+    if getattr(gateway_io, "popen_bootstrapline", None) != EXECNET_WORKER_LINE or not hasattr(gateway_bootstrap, "sendexec"):
+        return False
+
+    def sendexec(io, *sources: str) -> None:
+        io.write((ascii("\n".join(sources)) + "\n").encode("ascii"))
+
+    gateway_bootstrap.sendexec = sendexec
+    return True
+
+
 # A failed timing test is run up to twice more, a second apart, and passes if one of the runs does: a stall of the shared CI runner
 # fails one run, code that became slow fails all three. Only a timing test, and not one marked `no_rerun` (it starts processes
 # or threads and checks how they end): elsewhere a second chance would hide a real bug that shows up only sometimes. At most 10
@@ -13,6 +46,9 @@ TIMING_MAX_RERUNS = 10
 
 
 def pytest_configure(config):
+    # Before pytest-xdist starts its workers (`pytest_sessionstart`): their code is sent as ASCII, so that they start
+    # under a path that is not ASCII in any code page (Pinned by: test_xdist_workers.py::TestXdistWorkers).
+    send_execnet_code_as_ascii()
     if config.pluginmanager.hasplugin("rerunfailures"):
         if config.option.max_suite_reruns is None:
             config.option.max_suite_reruns = TIMING_MAX_RERUNS
