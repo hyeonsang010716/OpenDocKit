@@ -252,6 +252,16 @@ class TestReadAsItIsWritten:
         assert written in (["Welcome to the Summer Market"], [])
         assert written or size > 16
 
+    @pytest.mark.parametrize("shift", [0.0, 0.3])
+    def test_a_label_made_bold_by_drawing_it_twice_is_read_once(self, shift):
+        """The second drawing is removed from the page as a copy: it is not what a watermark's letter is."""
+        def draw(pdf, index):
+            _body(pdf)
+            _aslant(pdf, 150, 300, 30, "Bold head of a column")
+            _aslant(pdf, 150 + shift, 300, 30, "Bold head of a column")
+
+        assert _text(draw).count("Bold head of a column") == 1
+
     def test_a_label_that_stands_a_few_times_on_a_page_is_written_each_time(self):
         def draw(pdf, index):
             _body(pdf)

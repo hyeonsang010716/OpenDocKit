@@ -304,6 +304,9 @@ _TILTED_FLAT = 20.0
 _TILTED_TILES = 5
 _TILTED_OPEN = 32
 _TILTED_SPACING = 0.5
+# A character removed from the page is the copy of one that stays when that one is the same character no farther along
+# than this share of the size (the shadow of `_is_shadow_copy` is within 0.15)
+_TILTED_COPY = 0.2
 # A text set along a curve: each letter turned against the one drawn before it by less than this many degrees, and
 # no farther from it than this many sizes. Its letters share a direction only by twos and threes, and those pieces
 # (`ndell`, `cent Dr` of a street on a real map) are not written.
@@ -328,7 +331,8 @@ def _tilted_paragraphs(chars: list[dict], held: list[dict] | tuple[dict, ...] = 
     characters inside table cells, which stay the text of their cells — of a name a grid cut through only the end
     outside the cells would be read — and those removed from the page before, one by one: the box of a turned glyph
     is as high as the glyph is wide, so of a slogan one and a half times the size of the text the wide letters went
-    as a watermark's and the rest was written, `elco e to the Su er arket`. Neither is a piece that begins or ends amid a text set along a curve
+    as a watermark's and the rest was written, `elco e to the Su er arket`. (A character removed as the copy of one
+    that stays, the second drawing of a bold label, holds nothing.) Neither is a piece that begins or ends amid a text set along a curve
     (`_on_a_curve`).
     Pinned by: test_pdf_tilted_text.py"""
     placed = []
@@ -459,8 +463,15 @@ def _paragraphs_of_one_direction(placed: list[tuple[float, float, float, dict]],
                 pieces.append([])
             pieces[-1].append(item)
         for piece in pieces:
+            apart = [item for item in piece if id(item[3]) in in_cells]
+            if apart:
+                # A character removed as the copy of one that stays (a label made bold by drawing it twice, a shadow) holds
+                # nothing: it goes, and the piece is read from the characters that stay
+                piece = [item for item in piece if id(item[3]) not in in_cells]
+                if not all(any(other[3]["text"] == item[3]["text"] and abs(other[1] - item[1]) <= _TILTED_COPY * item[3]["size"]
+                               for other in piece) for item in apart):
+                    continue
             if (sum(1 for item in piece if item[2] and item[3]["text"].strip()) < _TILTED_MIN_CHARS
-                    or any(id(item[3]) in in_cells for item in piece)
                     or _on_a_curve(piece[0][3], drawn, in_order) or _on_a_curve(piece[-1][3], drawn, in_order)):
                 continue
             text = _tilted_line_text(piece)
