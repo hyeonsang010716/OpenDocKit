@@ -18,6 +18,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **PDF: the number of a section set apart from its title stays with it.** A book and a paper set the number a tab
+  before the title with no mark after it. `12   Conclusion` came out as `12` and `# Conclusion`, `B.4  Instruction
+  Tuning` as two headings. A bold number before a bold title at its size is now one heading, `# 12 Conclusion`.
+
 - **PDF: text set at an angle is read.** Slanted text outside table cells was dropped with no warning, as a watermark
   might be: the heads of the columns of a table set at 45 degrees, the stations of a timetable, the streets of a
   site plan, a slogan across a corner. It is now read along its own direction and placed at the end of its page, as

@@ -30,6 +30,14 @@ _LIST_NUMBER = re.compile(r"^(?:\(?(?:\d{1,3}|[가나다라마바사아자차카
                           r"|\((?:\d{1,3}|[가나다라마바사아자차카타파하])\)|[①-⑳Ⅰ-Ⅻ])$")
 
 
+# The number of a section set a gap before its title on the same line, with no mark after it: '12', '4.3.1', 'B.4',
+# 'IV' (`_marker_rows`, `_heads_a_title`). A number with its mark ('3.') is a list number above. A roman numeral is one
+# from I to XXXIX as it is written: any run of the letters took 'CIVIL', 'XL' and 'C' (a grade) for numbers.
+_SECTION_NUMBER = re.compile(r"^(?:[1-9]\d{0,2}(?:\.\d{1,3}){0,4}|[A-Z](?:\.\d{1,3}){1,4}|(?=[IVX])X{0,3}(?:IX|IV|V?I{0,3}))$")
+# The title such a number heads: it starts with a capital letter or a letter that has no case, and is this long at most
+_SECTION_TITLE_MAX = 120
+
+
 _EQUATION_NUMBER = re.compile(r"^\(\d{1,3}(?:[.\-]\d{1,3})?[a-z]?\)$")  # equation number '(1)', '(2.3)', '(4a)'
 
 
@@ -238,14 +246,21 @@ def _marker_rows(lines: list[_Line], used: set[int]) -> list[list[_Line]]:
     def is_marker(line: _Line) -> bool:
         return bool(_LIST_NUMBER.match(line.text) or _LONE_BULLET.match(line.text) or _BARE_NUMBER.match(line.text))
 
-    markers = [line for line in lines if id(line) not in used and is_marker(line)]
+    # A bold line that is the number of a section may head a title (`_heads_a_title`). It is looked at before the other
+    # markers and stays a line like any other when it heads none: as a marker whatever stood beside it, 'IV' and 'XL'
+    # were no longer the items of the bullets before them.
+    numbers = [line for line in lines if id(line) not in used and not is_marker(line) and line.bold and _SECTION_NUMBER.match(line.text)]
+    markers = [*numbers, *(line for line in lines if id(line) not in used and is_marker(line))]
     texts = sorted((line for line in lines if id(line) not in used and not is_marker(line)) if markers else (),
                    key=lambda line: line.top)
     tops = [line.top for line in texts]
     found: list[list[_Line]] = []
     taken: set[int] = set()
+    heading = {id(line) for line in numbers}
 
     for marker in markers:
+        if id(marker) in taken:
+            continue
         middle = (marker.top + marker.bottom) / 2
         # Excludes lines more than 10 times the marker height
         near = texts[bisect_left(tops, middle - marker.height * 6):bisect_right(tops, middle + marker.height)]
@@ -259,11 +274,29 @@ def _marker_rows(lines: list[_Line], used: set[int]) -> list[list[_Line]]:
                         and marker.x0 - marker.height * _MARKER_GAP_RATIO <= line.x1 <= marker.x0 + 1
                         and abs((line.top + line.bottom) / 2 - middle) <= min(line.height, marker.height) / 2),
                        key=lambda line: line.x1, default=None)
-        if item is None or (_BARE_NUMBER.match(marker.text) and not _numbered_in_turn(marker, lines)):
+        if item is None or (not _heads_a_title(marker, item) and (
+                id(marker) in heading or _BARE_NUMBER.match(marker.text) and not _numbered_in_turn(marker, lines))):
             continue
+        taken.add(id(marker))
         found.append([marker, item])
         taken.add(id(item))
     return found
+
+
+def _heads_a_title(marker: _Line, item: _Line) -> bool:
+    """Whether `marker` is the number of a section set a gap before its title `item`: both in bold at one size, the
+    title short and starting like one.
+
+    A book and a paper set the number of a section a tab or an em before its title, with no mark after it: '12
+    Conclusion', 'B.4  Instruction Tuning'. pdfminer reads the two as lines of their own, and the number came out as
+    a paragraph of its own before a heading that had lost it ('12' and '# Conclusion'), or as a heading of its own
+    ('# B.4' and '# Instruction Tuning'): six of the 57 documents with headings of the half of the benchmark that may
+    be read. A number with its mark ('3.') was joined already (`_LIST_NUMBER`). Only in bold: a number in the weight
+    of the body beside a line is the tick of an axis, a value beside its label, a line number
+    (Pinned by: test_pdf_headings.py::TestSectionNumberSetApart)."""
+    title = item.text.lstrip()
+    return bool(_SECTION_NUMBER.match(marker.text) and marker.bold and item.bold and abs(marker.size - item.size) <= 0.5
+                and title and len(title) <= _SECTION_TITLE_MAX and title[0].isalpha() and title[0] == title[0].upper())
 
 
 def _numbered_in_turn(marker: _Line, lines: list[_Line]) -> bool:
