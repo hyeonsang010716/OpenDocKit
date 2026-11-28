@@ -337,6 +337,11 @@ class TestTextThatCannotBeJudgedIsKept:
         assert drawn(b"-80 Tc (a) Tj 0 Tc (b) Tj") == ""                      # drawn further left still
         assert drawn(b"80 Tc (a) ' 0 Tc (b) Tj") == "b"                       # every operator that shows text
 
+    def test_a_string_may_stand_further_back_too(self, monkeypatch):
+        content = b"q 60 690 40 30 re W n BT /F1 12 Tf 1 0 0 1 150 700 Tm -80 Tc (a) Tj 0 Tc (b) Tj ET Q"   # 150 + 6.7 - 80
+
+        assert _drawn(monkeypatch, content) == "b"
+
     def test_word_spacing_in_a_font_of_several_bytes_is_not_judged(self):
         """pdfminer gives such a font no word spacing; a viewer adds it after the one-byte code 32."""
         cid = (b"<< /Type /Font /Subtype /Type0 /BaseFont /Malgun /Encoding /KSCms-UHC-H /DescendantFonts [<< /Type /Font "
@@ -384,6 +389,34 @@ class TestMarksWithoutAdvance:
         content = b"q 72 690 100 30 re W n " + _at(80, 700, b"a") + _at(85, 700, b"x") + _at(300, 700, b"c") + _at(305, 700, b"x") + b"Q"
 
         assert self._drawn(monkeypatch, content) == "ax"
+
+    def test_a_mark_that_is_shown_does_not_go_with_a_letter_hidden_before_it(self, monkeypatch):
+        """What became of a glyph says nothing of a mark under another clip, or of one that stands inside its own."""
+        hidden = b"q 72 690 100 30 re W n " + _at(300, 700, b"c") + b"Q "
+
+        def drawn(after: bytes) -> str:
+            return self._drawn(monkeypatch, hidden + after)
+
+        assert drawn(b"q 72 600 100 30 re W n " + _at(80, 610, b"xyz") + b"Q") == "xyz"                       # another clip
+        assert drawn(_at(80, 650, b"abc") + b"q 72 600 100 30 re W n " + _at(80, 610, b"xyz") + b"Q") == "abcxyz"
+        assert drawn(b"q 72 600 100 30 re W n BT /F1 30 Tf 1 0 0 1 80 605 Tm (xyz) Tj ET Q") == "xyz"         # another size
+        assert sorted(drawn(b"q 72 600 100 30 re W n " + _at(80, 610, b"x") + b"Q " + _at(80, 500, b"word"))) == sorted("xword")
+
+    def test_a_mark_inside_the_clip_stays_though_the_letter_before_it_went(self, monkeypatch):
+        """`c` left of the clip goes; the mark, moved on into the clip by the string itself, is shown."""
+        content = b"q 100 690 100 30 re W n BT /F1 12 Tf 1 0 0 1 60 700 Tm [(c) -5000 (x)] TJ ET Q"
+
+        assert self._drawn(monkeypatch, content) == "x"
+
+    def test_a_shown_letter_between_ends_what_a_hidden_one_began(self, monkeypatch):
+        content = b"q 72 690 100 30 re W n " + _at(300, 700, b"c") + _at(80, 700, b"a") + _at(300, 650, b"x") + b"Q"
+
+        assert self._drawn(monkeypatch, content) == "ax"
+
+    def test_an_invisible_mark_stays(self, monkeypatch):
+        content = b"q 72 690 100 30 re W n " + _at(300, 700, b"c") + _at(305, 700, b"xyz", b"3 Tr") + b"Q"
+
+        assert self._drawn(monkeypatch, content) == "xyz"
 
     def test_a_string_of_a_font_without_widths_does_not_go_with_a_hidden_letter_of_another_font(self, monkeypatch):
         """Every glyph of such a font has no advance: none is a mark on a letter of another font."""

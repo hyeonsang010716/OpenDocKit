@@ -1851,10 +1851,10 @@ def _note_clip(self: PDFPageInterpreter) -> None:
 # of its frame is read by anybody (the last line of a notice, on a real page), and a sliver of a letter kept is what
 # was kept before.
 #
-# A character that cannot be judged is kept: one of a font that does not say where its ink is (no /FontBBox of an
-# area, a Type3 font, a font written downwards), one without a width (pdfminer draws a whole string of a font without
-# widths on one spot), and one pdfminer may have placed wrong, which is judged as far on as it may stand or not at
-# all (`_show_text_adrift`).
+# A character that cannot be judged is kept: one of a font that does not say where its ink is (a /FontBBox that is
+# not the box of a font, a Type3 font, a font written downwards), one without an advance unless it is a mark on a
+# glyph that went (`_dropped_for_its_clip`; pdfminer draws a whole string of a font without widths on one spot), and
+# one pdfminer may have placed wrong, which is judged as far on as it may stand or not at all (`_show_text_adrift`).
 #
 # A space puts no ink on the page: it goes only with the glyphs it stands among (`_dropped_for_its_clip`). Text in
 # the invisible render mode (`3 Tr`) is kept: it is the text layer of a scan, never shown, and a clip says nothing
@@ -1868,6 +1868,7 @@ def _note_clip(self: PDFPageInterpreter) -> None:
 _CLIP = "_opendockit_clip"
 _REACH = "_opendockit_reach"  # on a pdfminer font: (`_reach`)
 _FORM_CLIP = "_opendockit_form_clip"
+_FORM_BOX = "_opendockit_form_box"  # on the stream of a form: the corners of its /BBox and its /Matrix, or False
 _CLIP_WANTED = "_opendockit_clip_wanted"  # on an interpreter: `W` came and the path is not ended yet
 _MEASURED = "_opendockit_measured_path"  # on an interpreter (`_path_box`)
 _CLIPPED = "_opendockit_clipped"  # on the layout of a page: how many characters that are no space were dropped
@@ -1964,11 +1965,18 @@ def _form_inside_its_clip(self: PDFPageInterpreter, xobjid_arg: object) -> None:
     clip = getattr(self.graphicstate, _CLIP, None)
     try:
         xobj = resolve1(self.xobjmap.get(literal_name(xobjid_arg)))
-        if isinstance(xobj, PDFStream) and xobj.get("Subtype") is LITERAL_FORM and "BBox" in xobj:
-            x0, y0, x1, y1 = (float(value) for value in list_value(xobj["BBox"]))
-            matrix = tuple(float(value) for value in list_value(xobj.get("Matrix", MATRIX_IDENTITY)))
-            if len(matrix) == 6:
-                box = _box_of([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], mult_matrix(matrix, self.ctm))
+        if isinstance(xobj, PDFStream):
+            placed = xobj.__dict__.get(_FORM_BOX)  # read once: a form may be drawn tens of thousands of times
+            if placed is None:
+                placed = False
+                if xobj.get("Subtype") is LITERAL_FORM and "BBox" in xobj:
+                    x0, y0, x1, y1 = (float(value) for value in list_value(xobj["BBox"]))
+                    matrix = tuple(float(value) for value in list_value(xobj.get("Matrix", MATRIX_IDENTITY)))
+                    if len(matrix) == 6:
+                        placed = ([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], matrix)
+                xobj.__dict__[_FORM_BOX] = placed
+            if placed:
+                box = _box_of(placed[0], mult_matrix(placed[1], self.ctm))
                 if box is not None:
                     clip = _cut_to(clip, box)
     except Exception:  # noqa: BLE001 — a box that cannot be measured clips nothing
@@ -1983,7 +1991,7 @@ def _form_inside_its_clip(self: PDFPageInterpreter, xobjid_arg: object) -> None:
 _render_string = PDFTextDevice.render_string
 _RENDER_MODE = "_opendockit_render_mode"
 _RUN = "_opendockit_clipped_run"  # on a device, for the string being drawn under a clip (`_dropped_for_its_clip`)
-_JUDGED = "_opendockit_judged"    # on a device: the font of the last glyph with an advance drawn under a clip, and whether it went
+_JUDGED = "_opendockit_judged"    # on a device: the font and the clip of the last glyph with an advance drawn under a clip, and whether it went
 _SHORT = "_opendockit_short"    # on an interpreter: the least and the most pdfminer placed the next string short
 _ADRIFT = "_opendockit_adrift"  # on a device: the same for the string being drawn; None: it may stand anywhere
 _REACH_LEAST = 0.5              # a /FontBBox narrower or lower than this share of the size is not the box of a font
@@ -2114,14 +2122,18 @@ def _dropped_for_its_clip(device: object, objs: list, char: LTChar, font: object
         objs.pop()
         return True
     values = device.__dict__
+    clip = getattr(char.graphicstate, _CLIP, None)
     if char.adv:
-        values[_JUDGED] = (font, outside)
+        values[_JUDGED] = (font, clip, outside)
     else:
-        # A glyph with no advance of its own stands on the glyph before it (a Thai vowel or tone mark; a font without
-        # widths has none with one, and is kept). It goes when that glyph went: the hidden half of a real slide
-        # deck came out as its marks alone, a table of `ี ้ ิ ่`.
+        # A glyph with no advance of its own stands on the glyph before it (a Thai vowel or tone mark): the hidden half
+        # of a real slide deck came out as its marks alone, a table of `ี ้ ิ ่`. It goes with that glyph when that glyph
+        # was the last one with an advance drawn under this same clip, in its font, and went, and when its own box, a
+        # line where it stands, is outside the clip too and it was drawn to be seen. Anything else is a glyph that
+        # cannot be judged and stays (every glyph of a font without widths; a mark after a clip that has ended).
         judged = values.get(_JUDGED)
-        outside = judged is not None and judged[0] is font and judged[1]
+        outside = (judged is not None and judged[0] is font and judged[1] == clip and judged[2] and clip is not None
+                   and values.get(_RENDER_MODE, 0) != _INVISIBLE and _apart((char.x0, char.y0, char.x1, char.y1), clip))
     leading, run[0], run[1] = run[1], outside, []
     if not outside:
         return False
