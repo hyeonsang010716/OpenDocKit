@@ -3,6 +3,7 @@
 from io import BytesIO
 from types import SimpleNamespace
 
+from pdfminer import pdffont
 import pytest
 
 from opendockit import convert
@@ -153,8 +154,8 @@ class TestTextOutsideItsClip:
             return SimpleNamespace(get_descent=lambda: descent, bbox=bbox, hscale=0.001, vscale=0.001, is_vertical=lambda: False, **more)
 
         def outside(font: object, x: float, y: float, width: float = 6.0, size: float = 10.0, rise: float = 0.0,
-                    adrift: float | None = 0.0) -> bool:
-            low = y + rise + font.get_descent() * size
+                    adrift: tuple[float, float] | None = (0.0, 0.0)) -> bool:
+            low = y + font.get_descent() * size   # the box as it would stand without the rise: the reach must add it
             char = SimpleNamespace(graphicstate=state, x0=x, x1=x + width, y0=low, y1=low + size, adv=width, matrix=(1, 0, 0, 1, x, y))
             device = SimpleNamespace(**{_pdf_pdfminer._ADRIFT: adrift})
             return _pdf_pdfminer._outside_its_clip(char, device, font, size, 1.0, rise)
@@ -168,13 +169,19 @@ class TestTextOutsideItsClip:
         # upwards: the box is under the clip, the glyph of a deep font is not
         deep = font(-3.0, (0, -3000, 1000, 950))
         assert outside(plain, 80.0, 725.0) and not outside(deep, 80.0, 725.0) and outside(deep, 80.0, 760.0)
-        assert outside(plain, 80.0, 660.0, rise=22.0) is False and outside(plain, 80.0, 660.0, rise=-22.0) is True
+        assert not outside(plain, 80.0, 660.0, rise=22.0) and outside(plain, 80.0, 660.0, rise=-22.0)
+        assert outside(plain, 80.0, 660.0)
         # pdfminer may have placed the string short: it is judged as far on as it may stand
-        assert outside(plain, 20.0, 700.0) and not outside(plain, 20.0, 700.0, adrift=65.0) and outside(plain, 20.0, 700.0, adrift=-65.0)
-        assert not outside(plain, 300.0, 700.0, adrift=-150.0) and not outside(plain, 300.0, 700.0, adrift=None)
+        assert outside(plain, 20.0, 700.0) and not outside(plain, 20.0, 700.0, adrift=(0.0, 65.0))
+        assert outside(plain, 20.0, 700.0, adrift=(-65.0, 0.0)) and outside(plain, 20.0, 700.0, adrift=(0.0, 30.0))
+        assert not outside(plain, 300.0, 700.0, adrift=(-150.0, 0.0)) and not outside(plain, 300.0, 700.0, adrift=None)
         # a character that cannot be judged is kept
         assert not outside(plain, 300.0, 700.0, width=0.0)                                   # a font whose widths are not known
         assert not outside(font(bbox=None), 300.0, 700.0) and not outside(font(bbox=(0, 0, 0, 0)), 300.0, 700.0)
+        assert not outside(font(bbox=(0, 0, 1, 1)), 300.0, 700.0) and not outside(font(bbox=(0, -200, 400, 900)), 300.0, 700.0)
+        type3 = object.__new__(pdffont.PDFType3Font)
+        type3.__dict__.update(bbox=(0, -200, 1000, 900), hscale=0.001, vscale=0.001, descent=-200, vertical=False)
+        assert not outside(type3, 300.0, 700.0)
         assert not outside(font(bbox=(0, 900, 1000, -200)), 300.0, 700.0) and not outside(font(bbox=("a", 0, 1, 1)), 300.0, 700.0)
         assert not outside(font(bbox=(0, -200, float("inf"), 900)), 300.0, 700.0)
         assert not outside(SimpleNamespace(get_descent=lambda: -0.2, bbox=(0, -200, 1000, 900), hscale=0.001, vscale=0.001,
@@ -319,6 +326,17 @@ class TestTextThatCannotBeJudgedIsKept:
 
         assert _drawn(monkeypatch, content) == "b"
 
+    def test_the_spacing_that_counts_is_the_one_each_string_before_was_set_with(self, monkeypatch):
+        """A run set wide, then a word set as usual: the word stands where the run before it ends."""
+        def drawn(text: bytes) -> str:
+            return _drawn(monkeypatch, b"q 100 690 100 30 re W n BT /F1 12 Tf 1 0 0 1 20 700 Tm " + text + b" ET Q")
+
+        assert drawn(b"80 Tc (a) Tj 0 Tc (b) Tj") == "b"                       # 20 + 6.7 + 80
+        assert drawn(b"40 Tc (a) Tj (a) Tj 0 Tc (b) Tj") == "b"               # 20 + 2 x (6.7 + 40)
+        assert drawn(b"40 Tc 50 Tz (a) Tj (a) Tj 100 Tz 0 Tc (b) Tj") == ""   # 20 + 2 x (3.3 + 20): short of the clip
+        assert drawn(b"-80 Tc (a) Tj 0 Tc (b) Tj") == ""                      # drawn further left still
+        assert drawn(b"80 Tc (a) ' 0 Tc (b) Tj") == "b"                       # every operator that shows text
+
     def test_word_spacing_in_a_font_of_several_bytes_is_not_judged(self):
         """pdfminer gives such a font no word spacing; a viewer adds it after the one-byte code 32."""
         cid = (b"<< /Type /Font /Subtype /Type0 /BaseFont /Malgun /Encoding /KSCms-UHC-H /DescendantFonts [<< /Type /Font "
@@ -330,6 +348,50 @@ class TestTextThatCannotBeJudgedIsKept:
 
         assert "END" in convert(_page(with_spacing, font=cid), "a.pdf").text
         assert "END" not in convert(_page(without, font=cid), "a.pdf").text
+
+
+class TestMarksWithoutAdvance:
+    """A glyph with no advance of its own (a Thai vowel or tone mark) stands on the glyph drawn before it and goes
+    with it: the hidden half of a real slide deck came out as its marks alone."""
+
+    _MARKED = (b"<< /Type /Font /Subtype /TrueType /BaseFont /Marked /FirstChar 32 /LastChar 122 /Widths [%s] "
+               b"/FontDescriptor << /Type /FontDescriptor /FontName /Marked /Flags 32 /FontBBox [0 -200 1000 900] /Ascent 900 "
+               b"/Descent -200 /CapHeight 700 /ItalicAngle 0 /StemV 80 >> >>") % b" ".join(
+                   b"0" if code == ord("x") else b"500" for code in range(32, 123))
+
+    def _drawn(self, monkeypatch: pytest.MonkeyPatch, content: bytes, font: bytes | None = None) -> str:
+        seen: list[str] = []
+        read_page = pdf_module._read_page
+
+        def noting(page: object, *args: object) -> object:
+            seen.append("".join(char["text"] for char in page.chars))
+            return read_page(page, *args)
+
+        monkeypatch.setattr(pdf_module, "_read_page", noting)
+        data = _raw_pdf({
+            1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
+            4: _stream(content), 5: self._MARKED, 6: font or _FONT})
+        convert(data, "a.pdf")
+        return seen[0]
+
+    def test_the_marks_of_hidden_letters_go_with_them(self, monkeypatch):
+        content = b"q 72 690 100 30 re W n " + _at(80, 700, b"axbx") + _at(300, 700, b"cxdx") + b"Q"
+
+        assert self._drawn(monkeypatch, content) == "axbx"
+
+    def test_a_mark_drawn_in_a_string_of_its_own_goes_with_the_letter_before_it(self, monkeypatch):
+        content = b"q 72 690 100 30 re W n " + _at(80, 700, b"a") + _at(85, 700, b"x") + _at(300, 700, b"c") + _at(305, 700, b"x") + b"Q"
+
+        assert self._drawn(monkeypatch, content) == "ax"
+
+    def test_a_string_of_a_font_without_widths_does_not_go_with_a_hidden_letter_of_another_font(self, monkeypatch):
+        """Every glyph of such a font has no advance: none is a mark on a letter of another font."""
+        unmeasured = b"<< /Type /Font /Subtype /TrueType /BaseFont /Foo >>"
+        content = (b"q 72 690 100 30 re W n " + _at(300, 700, b"c")
+                   + b"BT /F2 12 Tf 1 0 0 1 300 650 Tm (kept) Tj ET Q")
+
+        assert self._drawn(monkeypatch, content, unmeasured) == "kept"
 
 
 def _characters(data: bytes) -> str:
@@ -458,6 +520,15 @@ class TestClipPathMeasuredOnce:
     def test_a_path_without_a_point_has_no_box(self):
         assert _pdf_pdfminer._path_box(SimpleNamespace(curpath=[])) is None
         assert _pdf_pdfminer._path_box(SimpleNamespace(curpath=[("h",)])) is None
+
+    def test_under_a_matrix_that_turns_the_clip_is_the_box_of_all_four_corners(self):
+        turned = (0.7071, 0.7071, -0.7071, 0.7071, 0.0, 0.0)   # an eighth of a turn
+        interpreter = SimpleNamespace(curpath=[("m", 0.0, 0.0), ("l", 100.0, 0.0), ("l", 100.0, 20.0), ("l", 0.0, 20.0), ("h",)],
+                                      ctm=turned, graphicstate=SimpleNamespace())
+
+        _pdf_pdfminer._clip_to_path(interpreter)
+
+        assert [round(value, 1) for value in getattr(interpreter.graphicstate, _pdf_pdfminer._CLIP)] == [-14.1, 0.0, 70.7, 84.9]
 
     def test_the_clip_of_a_path_that_grew_is_the_box_of_all_of_it(self):
         """After `F` the path stays as it was for pdfminer, so the next clip is measured with it: a box larger than the
