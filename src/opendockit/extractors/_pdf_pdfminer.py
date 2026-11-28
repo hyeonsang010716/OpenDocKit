@@ -1854,7 +1854,7 @@ def _note_clip(self: PDFPageInterpreter) -> None:
 # A character that cannot be judged is kept: one of a font that does not say where its ink is (a /FontBBox that is
 # not the box of a font, a Type3 font, a font written downwards), one without an advance unless it is a mark on a
 # glyph that went (`_dropped_for_its_clip`; pdfminer draws a whole string of a font without widths on one spot), and
-# one pdfminer may have placed wrong, which is judged as far on as it may stand or not at all (`_show_text_adrift`).
+# one of a string pdfminer does not place where it is drawn (`_placed`).
 #
 # A space puts no ink on the page: it goes only with the glyphs it stands among (`_dropped_for_its_clip`). Text in
 # the invisible render mode (`3 Tr`) is kept: it is the text layer of a scan, never shown, and a clip says nothing
@@ -1992,56 +1992,69 @@ _render_string = PDFTextDevice.render_string
 _RENDER_MODE = "_opendockit_render_mode"
 _RUN = "_opendockit_clipped_run"  # on a device, for the string being drawn under a clip (`_dropped_for_its_clip`)
 _JUDGED = "_opendockit_judged"    # on a device: the font and the clip of the last glyph with an advance drawn under a clip, and whether it went
-_SHORT = "_opendockit_short"    # on an interpreter: the least and the most pdfminer placed the next string short
-_ADRIFT = "_opendockit_adrift"  # on a device: the same for the string being drawn; None: it may stand anywhere
+_PLACED = "_opendockit_placed"  # on a device: whether pdfminer places the string being drawn where it is drawn (`_placed`)
 _REACH_LEAST = 0.5              # a /FontBBox narrower or lower than this share of the size is not the box of a font
 
 
 def _render_string_with_its_mode(self: PDFTextDevice, textstate: object, *args: object, **kwargs: object) -> None:
-    """The render mode of the string being drawn, kept on the device for `_outside_its_clip` (pdfminer does not hand
-    it to `render_char`), and a string of its own for the spaces (`_dropped_for_its_clip`)."""
+    """Draws the string with the character spacing pdfminer leaves out (`_spacing_left_out`), and keeps on the device
+    what `_outside_its_clip` and `_dropped_for_its_clip` need of the string and pdfminer does not hand to
+    `render_char`: its render mode, whether it is placed where it is drawn, a run of its own for the spaces."""
     values = self.__dict__
     values[_RENDER_MODE] = getattr(textstate, "render", 0)
     values[_RUN] = None
+    values[_PLACED] = _placed(textstate)
+    spacing, leading = _spacing_left_out(textstate, args[0] if args else kwargs.get("seq"))
+    if leading:
+        _move_on(textstate, -spacing)
     _render_string(self, textstate, *args, **kwargs)
+    if spacing:
+        _move_on(textstate, spacing)
 
 
-_begin_text = PDFPageInterpreter.do_BT
-_show_text = PDFPageInterpreter.do_TJ
-
-
-def _begin_text_in_place(self: PDFPageInterpreter) -> None:
-    """`BT`: no string of this text object was drawn yet, so pdfminer has placed none short (`_show_text_adrift`)."""
-    self.__dict__[_SHORT] = (0.0, 0.0)
-    _begin_text(self)
-
-
-def _show_text_adrift(self: PDFPageInterpreter, seq: object) -> None:
-    """`TJ`, and `Tj`, `'`, `"` through it: tells the device how far pdfminer may be off in placing the string
-    (`_ADRIFT`, for `_outside_its_clip`). pdfminer leaves out the character spacing after the last glyph of a string,
-    so each string of a text object starts short of where it is drawn by the spacing of every string before it, each
-    as it was set then (65pt on a real equation set with `5.354 Tc`): the string may stand anywhere between the least
-    and the most those spacings add up to (`_SHORT`, kept on the interpreter: a form drawn inside the text object
-    has its own; never taken back at `Td` or `Tm`, which only makes it wider than it need be). And pdfminer gives a
-    font of several bytes no word spacing, where a viewer adds it after a one-byte code 32: such a string is placed
-    nowhere that can be trusted (None), and neither is one whose text state cannot be read."""
-    values = self.__dict__
-    short = values.get(_SHORT, (0.0, 0.0))
-    adrift: tuple[float, float] | None = None
+def _spacing_left_out(textstate: object, seq: object) -> tuple[float, bool]:
+    """The character spacing pdfminer leaves out of a string, and whether it also adds one too early. The spacing
+    (`Tc`) comes after every glyph. pdfminer adds it before every glyph but the first of a string, so the string ends
+    one spacing short and the next string of the line starts that much short of where it is drawn: 65pt on a real
+    equation set with `5.354 Tc`, 47pt in a real paper, a quarter of a point or more for 149,000 characters of 132
+    among 3,258 real documents. And when a number of a `TJ` array comes before the first glyph, it adds the spacing
+    before that glyph too, so the whole string stands one spacing on. (0.0, False) for a string with no glyph, no
+    spacing, or a text state that cannot be read.
+    Pinned by: test_pdf_string_spacing.py (docs/decisions/pdf-rows.md)"""
     try:
-        state = self.textstate
-        font = state.font
-        spacing = float(state.charspace) * float(state.scaling) * 0.01
-        if math.isfinite(spacing):
-            values[_SHORT] = (short[0] + min(spacing, 0.0), short[1] + max(spacing, 0.0))
-            if not (state.wordspace and font is not None and font.is_multibyte()):
-                adrift = short
-        else:
-            values[_SHORT] = (-math.inf, math.inf)
-    except Exception:  # noqa: BLE001 — a text state that cannot be read places nothing that can be trusted
-        values[_SHORT] = (-math.inf, math.inf)
-    self.device.__dict__[_ADRIFT] = adrift
-    _show_text(self, seq)
+        spacing = float(textstate.charspace) * float(textstate.scaling) * 0.01
+        font = textstate.font
+        if not spacing or not math.isfinite(spacing) or font is None:
+            return 0.0, False
+        leading = False
+        for piece in seq:
+            if isinstance(piece, bytes):
+                if piece and next(iter(font.decode(piece)), None) is not None:  # one byte of a two-byte font is no glyph
+                    return spacing, leading
+            elif isinstance(piece, int | float):
+                leading = True
+    except Exception:  # noqa: BLE001 — a string that cannot be read is drawn as pdfminer draws it
+        pass
+    return 0.0, False
+
+
+def _placed(textstate: object) -> bool:
+    """Whether pdfminer places the string where it is drawn. It gives a font of several bytes no word spacing, where
+    a viewer adds it after a one-byte code 32, and a spacing that is no finite number places nothing: such a string
+    is not judged against its clip (`_outside_its_clip`), and neither is one whose text state cannot be read."""
+    try:
+        font = textstate.font
+        return (math.isfinite(float(textstate.charspace) * float(textstate.scaling))
+                and not (textstate.wordspace and font is not None and font.is_multibyte()))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _move_on(textstate: object, by: float) -> None:
+    """Moves the place the next glyph of the line is drawn at along its line: across, or for a font written downwards
+    along the height, where pdfminer counts the advance of such a font (a positive spacing raises the number)."""
+    x, y = textstate.linematrix
+    textstate.linematrix = (x, y + by) if textstate.font.is_vertical() else (x + by, y)
 
 
 def _apart(box: _Clip, clip: _Clip) -> bool:
@@ -2074,25 +2087,22 @@ def _reach(font: object) -> tuple[float, float, float, float] | None:
 
 def _outside_its_clip(char: LTChar, device: object, font: object, fontsize: float, scaling: float, rise: float) -> bool:
     """Whether the character was drawn to be seen and no part of it can lie inside the clip it was drawn under:
-    neither its box nor the reach of its font around its origin (`_reach`), set as far on as pdfminer may have
-    placed it short (`_ADRIFT`). A character that cannot be judged is kept: one of a font that does not say where
-    its ink is, one without a width (a font whose widths are not known: pdfminer draws the whole string on one
-    spot), one of a string pdfminer cannot place."""
+    neither its box nor the reach of its font around its origin (`_reach`). A character that cannot be judged is
+    kept: one of a font that does not say where its ink is, one without a width (a font whose widths are not known:
+    pdfminer draws the whole string on one spot), one of a string pdfminer cannot place (`_placed`)."""
     clip = getattr(char.graphicstate, _CLIP, None)
     if clip is None or not _apart((char.x0, char.y0, char.x1, char.y1), clip):
         return False
     values = device.__dict__
-    adrift = values.get(_ADRIFT)
-    if values.get(_RENDER_MODE, 0) == _INVISIBLE or adrift is None or not char.adv:
+    if values.get(_RENDER_MODE, 0) == _INVISIBLE or not values.get(_PLACED, True) or not char.adv:
         return False
-    behind, ahead = adrift
     try:
         reach = _reach(font)
         if reach is None:
             return False
         across = fontsize * scaling
         ends = (0.0, char.adv, reach[0] * across, reach[2] * across)
-        left, right = min(ends) + behind, max(ends) + ahead
+        left, right = min(ends), max(ends)
         low, high = reach[1] * fontsize + rise, reach[3] * fontsize + rise
         box = _box_of([(left, low), (right, low), (left, high), (right, high)], char.matrix)
     except Exception:  # noqa: BLE001 — a character whose reach cannot be measured is kept
@@ -2153,8 +2163,6 @@ for _operator in ("do_n", "do_S", "do_f", "do_F", "do_f_a", "do_B", "do_B_a"):  
 PDFPageInterpreter.init_state = _state_inside_the_clip
 PDFPageInterpreter.do_Do = _form_inside_its_clip
 PDFTextDevice.render_string = _render_string_with_its_mode
-PDFPageInterpreter.do_BT = _begin_text_in_place
-PDFPageInterpreter.do_TJ = _show_text_adrift
 
 
 _type3_font_init = pdffont.PDFType3Font.__init__

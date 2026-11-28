@@ -18,6 +18,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **PDF: words and numbers no longer break where a line is drawn as several strings with character spacing.** The
+  spacing (`Tc`) comes after every glyph, and the PDF library left it out after the last glyph of each string, so
+  the next string stood short of its place: `$ 3 36,785` for `$ 336,785`, `availab le`, `I S BN 9 7 8 - 5` for
+  `ISBN 978-5`. The strings are now drawn where a viewer draws them. Of 3,258 real PDFs 132 have characters out of
+  place this way and 43 read otherwise now; set against pdfium, 12,600 more characters stand where it draws them.
+
 - **PDF: text drawn outside its clipping path is no longer read.** A spreadsheet draws the whole of a long cell and
   clips it to the cell; a layout program leaves the text of a frame that was cropped away in the content stream.
   Nobody sees that text, and it came out as words of the document: the end of one cell among the letters of the
