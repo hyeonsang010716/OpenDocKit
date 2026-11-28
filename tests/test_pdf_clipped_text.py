@@ -1,5 +1,6 @@
 """Text drawn outside the clipping path in force is not on the page, and is not read."""
 
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
@@ -147,23 +148,37 @@ class TestTextOutsideItsClip:
 
     def test_a_character_is_judged_by_its_box_and_the_reach_of_its_font(self):
         state = SimpleNamespace(**{_pdf_pdfminer._CLIP: (72.0, 690.0, 172.0, 720.0)})
-        plain = SimpleNamespace(get_descent=lambda: -0.2, bbox=(0, -200, 1000, 900), vscale=0.001)
-        deep = SimpleNamespace(get_descent=lambda: -3.0, bbox=(0, -3000, 1000, 950), vscale=0.001)
-        boxless = SimpleNamespace(get_descent=lambda: -0.2, bbox=None, vscale=0.001)
 
-        def outside(font: object, x: float, y: float, width: float = 6.0, size: float = 10.0) -> bool:
-            low = y + font.get_descent() * size
+        def font(descent: float = -0.2, bbox: object = (0, -200, 1000, 900), **more: object) -> object:
+            return SimpleNamespace(get_descent=lambda: descent, bbox=bbox, hscale=0.001, vscale=0.001, is_vertical=lambda: False, **more)
+
+        def outside(font: object, x: float, y: float, width: float = 6.0, size: float = 10.0, rise: float = 0.0,
+                    adrift: float | None = 0.0) -> bool:
+            low = y + rise + font.get_descent() * size
             char = SimpleNamespace(graphicstate=state, x0=x, x1=x + width, y0=low, y1=low + size, adv=width, matrix=(1, 0, 0, 1, x, y))
-            return _pdf_pdfminer._outside_its_clip(char, object(), font, size, 0.0)
+            device = SimpleNamespace(**{_pdf_pdfminer._ADRIFT: adrift})
+            return _pdf_pdfminer._outside_its_clip(char, device, font, size, 1.0, rise)
 
+        plain = font()
         assert not outside(plain, 80.0, 700.0) and outside(plain, 300.0, 700.0) and outside(plain, 80.0, 600.0)
-        # a font without widths: the glyph is drawn somewhere within a size of where the character stands
-        assert not outside(plain, 80.0, 700.0, width=0.0) and outside(plain, 300.0, 700.0, width=0.0)
-        assert not outside(plain, 65.0, 700.0, width=0.0) and not outside(plain, 178.0, 700.0, width=0.0)
-        assert outside(plain, 60.0, 700.0, width=0.0) and outside(plain, 184.0, 700.0, width=0.0)
-        assert not outside(plain, 171.0, 700.0) and outside(plain, 173.0, 700.0)                         # across: the box alone
-        assert outside(plain, 80.0, 725.0) and not outside(deep, 80.0, 725.0)       # the box is under the clip, the glyph is not
-        assert outside(deep, 80.0, 760.0) and outside(boxless, 80.0, 725.0)
+        # across: the ink of a glyph may be wider than its advance, as wide as the box of the font (10pt at this size)
+        assert not outside(plain, 171.0, 700.0) and outside(plain, 173.0, 700.0)
+        assert not outside(plain, 64.0, 700.0) and outside(plain, 61.0, 700.0)
+        assert outside(font(bbox=(-300, -200, 1000, 900)), 176.0, 700.0) and not outside(font(bbox=(-300, -200, 1000, 900)), 174.0, 700.0)
+        # upwards: the box is under the clip, the glyph of a deep font is not
+        deep = font(-3.0, (0, -3000, 1000, 950))
+        assert outside(plain, 80.0, 725.0) and not outside(deep, 80.0, 725.0) and outside(deep, 80.0, 760.0)
+        assert outside(plain, 80.0, 660.0, rise=22.0) is False and outside(plain, 80.0, 660.0, rise=-22.0) is True
+        # pdfminer may have placed the string short: it is judged as far on as it may stand
+        assert outside(plain, 20.0, 700.0) and not outside(plain, 20.0, 700.0, adrift=65.0) and outside(plain, 20.0, 700.0, adrift=-65.0)
+        assert not outside(plain, 300.0, 700.0, adrift=-150.0) and not outside(plain, 300.0, 700.0, adrift=None)
+        # a character that cannot be judged is kept
+        assert not outside(plain, 300.0, 700.0, width=0.0)                                   # a font whose widths are not known
+        assert not outside(font(bbox=None), 300.0, 700.0) and not outside(font(bbox=(0, 0, 0, 0)), 300.0, 700.0)
+        assert not outside(font(bbox=(0, 900, 1000, -200)), 300.0, 700.0) and not outside(font(bbox=("a", 0, 1, 1)), 300.0, 700.0)
+        assert not outside(font(bbox=(0, -200, float("inf"), 900)), 300.0, 700.0)
+        assert not outside(SimpleNamespace(get_descent=lambda: -0.2, bbox=(0, -200, 1000, 900), hscale=0.001, vscale=0.001,
+                                           is_vertical=lambda: True), 300.0, 700.0)
         assert not outside(plain, float("nan"), 700.0) and not outside(plain, 80.0, float("nan"))
 
     def test_invisible_text_is_kept(self):
@@ -184,9 +199,12 @@ class TestTextOutsideItsClip:
 
     def test_a_path_that_cannot_be_placed_clips_nothing(self):
         """Numbers past what a float holds give a box that is no box: the clip is left as it was."""
-        content = b"q 1e39 0 0 1e39 0 0 cm 0 0 10 10 re W n Q q 1e39 0 0 1 0 0 cm 0 0 10 10 re W n 1e-39 0 0 1 0 0 cm Q " + _at(80, 700, b"Shown")
+        huge = b"1" + b"0" * 400
+        content = b"q " + huge + b" 0 0 1 0 0 cm 0 0 10 10 re W n " + _at(80, 700, b"Shown") + b"Q"
 
-        assert _words(content) == ["Shown"]
+        assert _pdf_pdfminer._box_of([(0.0, 0.0), (1.0, 1.0)], (float("inf"), 0, 0, 1, 0, 0)) is None
+        assert _pdf_pdfminer._box_of([(1.0, 1.0)], (float("nan"), 0, 0, 1, 0, 0)) is None
+        assert "Hidden" not in convert(_page(content), "a.pdf").text   # and nothing raises
 
     def test_a_clip_far_from_the_page_hides_the_text(self):
         content = b"q 1e30 1e30 10 10 re W n " + _at(80, 700, b"Hidden") + b"Q " + _at(80, 600, b"Shown")
@@ -249,6 +267,82 @@ def _drawn(monkeypatch: pytest.MonkeyPatch, content: bytes) -> str:
     monkeypatch.setattr(pdf_module, "_read_page", noting)
     convert(_page(content), "a.pdf")
     return seen[0]
+
+
+class TestTextThatCannotBeJudgedIsKept:
+    """What pdfminer says of a character is not always where a viewer draws it. Where it cannot be trusted the
+    character stays, as before the clip was followed."""
+
+    def test_a_string_in_a_font_without_widths_is_kept_whole(self):
+        """pdfminer draws every glyph of such a font on the origin of its string: a line that starts outside its clip
+        and ends inside went whole, the shown end too."""
+        font = b"<< /Type /Font /Subtype /TrueType /BaseFont /Foo >>"
+        content = b"q 172 690 300 30 re W n " + _at(72, 700, b"The start is hidden but the end is Shown") + b"Q"
+
+        assert "Shown" in convert(_page(content, font=font), "a.pdf").text
+
+    def test_a_glyph_of_a_type3_font_is_kept(self):
+        """Its glyphs are drawings in a space of their own, and its /FontBBox may be left all zeros."""
+        glyph = b"1000 0 0 0 750 750 d1 0 0 750 750 re f"
+        font = (b"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 0 0] /FontMatrix [0.012 0 0 0.012 0 0] /CharProcs << /a 7 0 R >> "
+                b"/Encoding << /Type /Encoding /Differences [97 /a] >> /FirstChar 97 /LastChar 97 /Widths [1000] >>")
+        data = _raw_pdf({1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                         3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
+                         4: _stream(b"q 72 704 400 100 re W n BT /F2 1 Tf 1 0 0 1 72 700 Tm (aaa) Tj ET Q " + _at(72, 600, b"Body")),
+                         5: _FONT, 6: font, 7: _stream(glyph)})
+        seen = _characters(data)
+
+        assert seen.count("a") == 3
+
+    def test_a_font_whose_box_says_nothing_is_not_judged(self):
+        font = (b"<< /Type /Font /Subtype /TrueType /BaseFont /Foo /FirstChar 32 /LastChar 122 /Widths [%s] "
+                b"/FontDescriptor << /Type /FontDescriptor /FontName /Foo /Flags 32 /FontBBox [0 0 0 0] /Ascent 0 /Descent -900 "
+                b"/CapHeight 0 /ItalicAngle 0 /StemV 80 >> >>") % b" ".join([b"500"] * 91)
+        content = b"q 72 704 400 100 re W n " + _at(72, 700, b"Last line of a notice") + b"Q"
+
+        assert _words(content, font=font) == "Last line of a notice".split()
+
+    def test_a_glyph_wider_than_its_advance_cut_by_the_edge_is_kept(self):
+        """/Widths may say less than the glyph is wide: the letter the edge of the clip runs through stays."""
+        font = (b"<< /Type /Font /Subtype /TrueType /BaseFont /Foo /FirstChar 32 /LastChar 122 /Widths [%s] "
+                b"/FontDescriptor << /Type /FontDescriptor /FontName /Foo /Flags 32 /FontBBox [0 -200 1000 900] /Ascent 900 "
+                b"/Descent -200 /CapHeight 700 /ItalicAngle 0 /StemV 80 >> >>") % b" ".join([b"10"] * 91)
+        content = b"q 84 690 300 30 re W n BT /F1 12 Tf 1 0 0 1 80 700 Tm [(S) -650 (h) -650 (o) -650 (w) -650 (n)] TJ ET Q"
+
+        assert "".join(_words(content, font=font)) == "Shown"
+
+    def test_a_string_after_others_set_with_character_spacing_is_judged_where_it_may_stand(self, monkeypatch):
+        """pdfminer leaves out the spacing after the last glyph of a string: the next string of the text object stands
+        one spacing short of where it is drawn (65pt on a real equation), outside a clip it is drawn inside."""
+        content = (b"q 100 690 100 30 re W n BT /F1 12 Tf 80 Tc 1 0 0 1 20 700 Tm (a) Tj (b) Tj ET "
+                   b"BT /F1 12 Tf 0 Tc 1 0 0 1 20 650 Tm (c) Tj (d) Tj ET Q")
+
+        assert _drawn(monkeypatch, content) == "b"
+
+    def test_word_spacing_in_a_font_of_several_bytes_is_not_judged(self):
+        """pdfminer gives such a font no word spacing; a viewer adds it after the one-byte code 32."""
+        cid = (b"<< /Type /Font /Subtype /Type0 /BaseFont /Malgun /Encoding /KSCms-UHC-H /DescendantFonts [<< /Type /Font "
+               b"/Subtype /CIDFontType2 /BaseFont /Malgun /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> "
+               b"/DW 1000 /FontDescriptor << /Type /FontDescriptor /FontName /Malgun /Flags 4 /FontBBox [0 -200 1000 900] "
+               b"/Ascent 900 /Descent -200 /CapHeight 700 /ItalicAngle 0 /StemV 80 >> >>] >>")
+        with_spacing = b"q 72 690 200 30 re W n BT /F1 12 Tf -6 Tw 1 0 0 1 72 700 Tm (AA AA AA AA AA AA END) Tj ET Q"
+        without = with_spacing.replace(b"-6 Tw", b"0 Tw")
+
+        assert "END" in convert(_page(with_spacing, font=cid), "a.pdf").text
+        assert "END" not in convert(_page(without, font=cid), "a.pdf").text
+
+
+def _characters(data: bytes) -> str:
+    """Every character the reader keeps of the first page, as pdfminer names it."""
+    import pdfplumber
+
+    from opendockit import ConvertOptions  # noqa: F401 — the reader is imported, and with it its changes to pdfminer
+    token = _pdf_pdfminer._INFLATE_BUDGET.set(_pdf_pdfminer._InflateBudget(1 << 30))
+    try:
+        with pdfplumber.open(BytesIO(data)) as pdf:
+            return "".join(char["text"] for char in pdf.pages[0].chars)
+    finally:
+        _pdf_pdfminer._INFLATE_BUDGET.reset(token)
 
 
 class TestSpacesOutsideTheClip:
@@ -330,6 +424,50 @@ class TestTheClipIsThePathAsItIsEnded:
         assert _words(content) == ["Shown"]
 
 
+class TestClipPathMeasuredOnce:
+    def test_a_path_that_comes_again_grown_is_not_measured_from_its_start(self):
+        """pdfminer does not end the path at `F`: `re W F` over and over builds one path, and measuring it whole each
+        time cost the square of its length (10,000 lines took over a minute)."""
+        looked = []
+
+        class Path(list):
+            def __getitem__(self, key: object) -> object:
+                found = super().__getitem__(key)
+                looked.append(len(found) if isinstance(key, slice) else 1)
+                return found
+
+            def __iter__(self) -> object:
+                raise AssertionError("the whole path was walked")
+
+        interpreter = SimpleNamespace(curpath=Path([("m", 5.0, 5.0)]))
+        for step in range(1000):
+            interpreter.curpath.append(("l", float(step), -float(step)))
+            assert _pdf_pdfminer._path_box(interpreter) == (0.0, -float(step), max(5.0, float(step)), 5.0)
+        assert _pdf_pdfminer._path_box(interpreter) == (0.0, -999.0, 999.0, 5.0)   # nothing added: nothing looked at
+
+        assert sum(looked) <= 1001
+
+    def test_another_path_is_measured_from_its_start(self):
+        interpreter = SimpleNamespace(curpath=[("m", 0.0, 0.0), ("l", 10.0, 10.0)])
+        assert _pdf_pdfminer._path_box(interpreter) == (0.0, 0.0, 10.0, 10.0)
+
+        interpreter.curpath = [("m", 50.0, 50.0), ("c", 60.0, 70.0, 80.0, 90.0, 55.0, 65.0), ("h",)]
+
+        assert _pdf_pdfminer._path_box(interpreter) == (50.0, 50.0, 80.0, 90.0)
+
+    def test_a_path_without_a_point_has_no_box(self):
+        assert _pdf_pdfminer._path_box(SimpleNamespace(curpath=[])) is None
+        assert _pdf_pdfminer._path_box(SimpleNamespace(curpath=[("h",)])) is None
+
+    def test_the_clip_of_a_path_that_grew_is_the_box_of_all_of_it(self):
+        """After `F` the path stays as it was for pdfminer, so the next clip is measured with it: a box larger than the
+        clip (the first word is kept though a viewer hides it), never smaller."""
+        content = (b"q 1 g 60 690 400 30 re W F 290 690 100 30 re W F 0 g "
+                   + _at(80, 700, b"Kept") + _at(300, 700, b"Shown") + _at(500, 700, b"Hidden") + b"Q")
+
+        assert _words(content) == ["Kept", "Shown"]
+
+
 class TestClipOnAPageThatIsTurnedOrMoved:
     def test_on_a_page_whose_box_does_not_start_at_zero(self):
         content = b"q 172 790 100 30 re W n " + _at(180, 800, b"Shown") + _at(400, 800, b"Hidden") + b"Q"
@@ -379,6 +517,15 @@ class TestClipAndFormXObjects:
         outer = _stream(b"/Y Do", b"/Type /XObject /Subtype /Form /BBox [0 0 100 30] /Resources << /XObject << /Y 7 0 R >> >>")
 
         assert _words(b"q 1 0 0 1 72 690 cm /X Do Q " + _at(72, 600, b"Body"), forms={b"X": outer, b"Y": inner}) == ["Inside", "Body"]
+
+    def test_a_page_whose_text_is_hidden_inside_a_form_is_not_handed_to_the_other_reader(self):
+        """The dropped characters are counted on the page, from inside a form too."""
+        form = _form(b"BT /F1 12 Tf 300 10 Td (Hidden words in a form of the page) Tj ET")
+
+        result = convert(_page(b"q 1 0 0 1 72 690 cm /X Do Q", forms={b"X": form}), "a.pdf")
+
+        assert "Hidden" not in result.text
+        assert not any("simple extraction" in warning for warning in result.warnings)
 
     def test_a_form_whose_box_cannot_be_measured_clips_nothing(self):
         form = _form(b"BT /F1 12 Tf 0 10 Td (Inside) Tj 300 0 Td (Further) Tj ET", box=b"[0 0 (wide) 30]")
