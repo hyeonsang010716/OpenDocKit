@@ -799,16 +799,18 @@ def _pdfium_page_count(data: bytes) -> int:
 def _tilted_once(pages: list[_Page]) -> None:
     """Keeps a paragraph of text set at an angle that stands on three pages or more, and on half of the pages or more,
     on the first of them alone: a stamp set across every page (`DRAFT`, the name of a firm) is written once, as a line
-    repeated at the head of every page is (`_remove_repeated_margins`). `remove_repeated_page_lines=False` keeps
-    every copy. Pinned by: test_pdf_tilted_text.py::TestStampOnEveryPage"""
+    repeated at the head of every page is (`_remove_repeated_margins`). A page that holds nothing else keeps its copy:
+    four pages of a stamp alone became one page. `remove_repeated_page_lines=False` keeps every copy.
+    Pinned by: test_pdf_tilted_text.py::TestStampOnEveryPage"""
     on_pages = Counter(text for page in pages for text in set(page.tilted))
     often = {text for text, count in on_pages.items() if count >= max(3, len(pages) * _REPEAT_RATIO)}
     seen: set[str] = set()
     for page in pages:
+        alone = not (page.lines or page.tables or page.sideways or page.form_values)  # a page of nothing but its stamp keeps it
         kept = []
         for text in page.tilted:
             if text in often:
-                if text in seen:
+                if text in seen and not alone:
                     continue
                 seen.add(text)
             kept.append(text)

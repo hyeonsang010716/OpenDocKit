@@ -101,6 +101,128 @@ class TestTextSetAtAnAngle:
         assert "Left label" in lines and "Right label" in lines
 
 
+class TestReadAsItIsWritten:
+    """What an independent review found the first form writing wrong."""
+
+    def test_text_of_a_negative_size_is_read_the_way_its_glyphs_advance(self):
+        """With a negative size or scaling the glyphs advance against the text matrix: it read `redro ni daer sdroW`."""
+        from tests.test_pdf_clipped_text import _page
+
+        def tilted(before: bytes) -> str:
+            content = (b"BT /F1 11 Tf 1 0 0 1 72 760 Tm (Body line of the page, set along it as usual.) Tj ET "
+                       b"BT " + before + b" 0.866 0.5 -0.5 0.866 300 400 Tm (Words read in order) Tj ET")
+            return convert(_page(content), "a.pdf", ConvertOptions(page_markers=False)).text
+
+        assert "Words read in order" in tilted(b"/F1 9 Tf")
+        assert "Words read in order" in tilted(b"/F1 -9 Tf")
+        assert "Words read in order" in tilted(b"/F1 9 Tf -100 Tz")
+
+    def test_two_blocks_side_by_side_are_two_paragraphs(self):
+        """A line joined only the line read just before it, which was the other block's: every line was a paragraph
+        and the two blocks came out line about."""
+        def draw(pdf, index):
+            _body(pdf)
+            pdf.saveState()
+            pdf.translate(120, 250)
+            pdf.rotate(8)
+            pdf.setFont("Helvetica", 10)
+            for line in range(6):
+                pdf.drawString(0, 200 - line * 13, f"Left line {line + 1} of this block.")
+                pdf.drawString(220, 200 - line * 13, f"Right line {line + 1} of this block.")
+            pdf.restoreState()
+
+        text = _text(draw)
+        left = "\n".join(f"Left line {line + 1} of this block." for line in range(6))
+        right = "\n".join(f"Right line {line + 1} of this block." for line in range(6))
+
+        assert f"{left}\n\n{right}" in text
+
+    @pytest.mark.parametrize("spacing", [0.5, 1.5, 6])
+    def test_a_label_set_with_wide_character_spacing_keeps_its_words(self, spacing):
+        """Every gap of such a label is wide: it read `Wo rds read in o rde r`, and set wider still was not written."""
+        def draw(pdf, index):
+            _body(pdf)
+            pdf.saveState()
+            pdf.translate(150, 300)
+            pdf.rotate(30)
+            wide = pdf.beginText(0, 0)
+            wide.setFont("Helvetica", 9)
+            wide.setCharSpace(spacing)
+            wide.textOut("Words read in order")
+            pdf.drawText(wide)
+            pdf.restoreState()
+
+        assert "Words read in order" in _text(draw).split("\n")
+
+    @pytest.mark.parametrize("angle, apart", [(45, 60), (45, 14), (-45, 60), (-45, 14), (60, 14), (-60, 20)])
+    def test_heads_rising_or_falling_close_or_far_are_read_from_left_to_right(self, angle, apart):
+        heads = ["Stockholm culture", "Stockholm teaching", "Country culture", "Abroad, all of them"]
+
+        def draw(pdf, index):
+            _body(pdf)
+            for column, head in enumerate(heads):
+                _aslant(pdf, 150 + column * apart, 500, angle, head)
+
+        assert [line for line in _text(draw).split("\n") if line in heads] == heads
+
+    def test_a_stamp_set_all_over_one_page_is_written_once(self):
+        def draw(pdf, index):
+            _body(pdf)
+            for row in range(4):
+                for column in range(3):
+                    _aslant(pdf, 80 + column * 170, 150 + row * 120, 30, "Do not copy", size=10)
+
+        assert _text(draw).count("Do not copy") == 1
+
+    def test_a_string_of_a_font_without_widths_is_not_read(self):
+        """pdfminer draws the whole string on one spot: a line of eighty letters came out as `word an`."""
+        from tests.test_pdf_clipped_text import _page
+
+        content = (b"BT /F1 11 Tf 1 0 0 1 72 760 Tm (Body line of the page, set along it as usual.) Tj ET "
+                   b"BT /F1 9 Tf 0.866 0.5 -0.5 0.866 200 300 Tm (Tilted words of a font without widths) Tj ET")
+        unmeasured = b"<< /Type /Font /Subtype /TrueType /BaseFont /Foo >>"
+        measured = convert(_page(b"BT /F1 9 Tf 0.866 0.5 -0.5 0.866 200 300 Tm (Tilted words of a font with widths) Tj ET"), "a.pdf")
+
+        assert "Tilted words of a font with widths" in measured.text
+        assert _pdf_artifacts._tilted_paragraphs([{"text": letter, "x0": 100.0, "x1": 100.0, "top": 500.0, "bottom": 510.0, "size": 10.0,
+                                                   "adv": 0.0, "matrix": (0.866, 0.5, -0.5, 0.866, 100.0, 500.0)} for letter in "Label"]) == []
+        assert convert(_page(content, font=unmeasured), "a.pdf") is not None   # and nothing raises
+
+    def test_a_page_of_tilted_text_alone_is_read_and_not_handed_to_the_other_reader(self):
+        def draw(pdf, index):
+            _aslant(pdf, 150, 400, 30, "The only text of this page is set at an angle", size=11)
+
+        result = convert(_korean_pdf(draw), "a.pdf", ConvertOptions(page_markers=False))
+
+        assert result.text == "The only text of this page is set at an angle"
+        assert not any("simple extraction" in warning for warning in result.warnings)
+
+    def test_tilted_text_is_written_after_text_turned_a_quarter(self):
+        def draw(pdf, index):
+            _body(pdf)
+            _aslant(pdf, 300, 500, 30, "Set at an angle")
+            _aslant(pdf, 40, 300, 90, "Turned a quarter in the margin", size=12)
+
+        text = _text(draw)
+
+        assert text.index("Turned a quarter in the margin") < text.index("Set at an angle")
+
+    def test_a_label_part_of_which_a_ruled_cell_holds_is_left_as_it_was(self):
+        def draw(table: bool) -> object:
+            def drawing(pdf, index):
+                _body(pdf)
+                if table:
+                    for row in range(4):
+                        for column in range(3):
+                            pdf.rect(100 + column * 100, 400 - row * 30, 100, 30)
+                            pdf.drawString(105 + column * 100, 410 - row * 30, f"cell {row}{column}")
+                _aslant(pdf, 380, 415, 30, "Label running out of the table")
+            return drawing
+
+        assert "Label running out of the table" in _text(draw(False)).split("\n")
+        assert "Label running out of the table" not in _text(draw(True)).split("\n")
+
+
 class TestWhatIsNotRead:
     def test_a_large_watermark_is_not_read(self):
         def draw(pdf, index):
@@ -179,6 +301,23 @@ class TestStampOnEveryPage:
     def test_every_copy_stays_when_repeated_lines_are_kept(self):
         assert _text(self._stamped, pages=4, remove_repeated_page_lines=False).count("Draft for review") == 4
 
+    def test_a_page_that_holds_nothing_but_the_stamp_keeps_it(self):
+        """Four pages of a stamp alone became one page."""
+        def draw(pdf, index):
+            _aslant(pdf, 200, 400, 30, "Draft for review", size=14)
+
+        result = convert(_korean_pdf(draw, pages=4), "a.pdf")
+
+        assert result.text.count("Draft for review") == 4 and "<!-- Page 4 -->" in result.text
+
+    def test_a_stamp_on_fewer_than_half_of_the_pages_stays_on_each(self):
+        def draw(pdf, index):
+            _body(pdf)
+            if index in (0, 3, 6):
+                _aslant(pdf, 400, 300, 30, "Draft for review", size=11)
+
+        assert _text(draw, pages=8).count("Draft for review") == 3
+
     def test_on_two_pages_both_copies_stay(self):
         assert _text(self._stamped, pages=2).count("Draft for review") == 2
 
@@ -210,6 +349,32 @@ class TestTiltedParagraphs:
 
         assert _pdf_artifacts._tilted_paragraphs(chars) == ["Label"]
 
+    def test_letters_written_from_right_to_left_are_put_into_the_order_of_reading(self):
+        """A writer sets Hebrew glyph by glyph from the left: along the page it was read `\u05e9\u05dc\u05d5\u05dd`, aslant backwards."""
+        drawn = "\u05dd\u05dc\u05d5\u05e2 \u05dd\u05d5\u05dc\u05e9"   # the glyphs of `shalom olam` as they stand from the left
+
+        assert _pdf_artifacts._tilted_paragraphs(self._run(drawn)) == ["\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd"]
+
+    def test_a_character_at_no_place_does_not_spoil_the_line_it_would_stand_in(self):
+        chars = self._run("Label")
+        chars.insert(2, {**self._char("x", 105.0, 495.0), "x0": float("nan"), "x1": float("nan")})
+        chars.insert(3, {**self._char("y", 105.0, 495.0), "adv": float("nan")})
+
+        assert _pdf_artifacts._tilted_paragraphs(chars) == ["Label"]
+
+    def test_paragraphs_are_written_from_the_top_down_and_rows_from_left_to_right(self):
+        steep = [*self._run("Lower", x=100.0, top=600.0, angle=45.0), *self._run("Upperright", x=300.0, top=200.0, angle=45.0),
+                 *self._run("Upperleft", x=100.0, top=200.0, angle=45.0), *self._run("Middle", x=200.0, top=400.0, angle=45.0)]
+
+        assert _pdf_artifacts._tilted_paragraphs(steep) == ["Upperleft", "Upperright", "Middle", "Lower"]
+
+    def test_the_direction_of_a_group_is_that_of_its_middle(self):
+        """Characters within the span of one direction are turned by the direction of the middle one."""
+        chars = [*self._run("Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", angle=30.0),
+                 *self._run("Bbb", x=100.0, top=300.0, angle=31.4)]
+
+        assert sorted(_pdf_artifacts._tilted_paragraphs(chars)) == ["Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Bbb"]
+
     def test_a_piece_a_table_cell_holds_part_of_is_left_to_the_cell(self):
         run = self._run("Crescent")
 
@@ -233,11 +398,11 @@ class TestTiltedParagraphs:
 
         chars = through("Firstroadofthemap", 10.0) + through("Otherroadcrossing", 16.0)
         for step, angle in enumerate((11.2, 12.4, 13.6, 14.8)):   # roads elsewhere, at the angles between
-            chars += through("Elsewhere", angle, x=100.0 + step * 120, top=100.0)
+            chars += through(f"Elsewhere{'abcd'[step]}", angle, x=100.0 + step * 120, top=100.0)
 
         read = _pdf_artifacts._tilted_paragraphs(chars)
 
-        assert "Firstroadofthemap" in read and "Otherroadcrossing" in read and read.count("Elsewhere") == 4
+        assert sorted(read) == ["Elsewherea", "Elsewhereb", "Elsewherec", "Elsewhered", "Firstroadofthemap", "Otherroadcrossing"]
 
     def test_pieces_of_a_text_set_along_a_curve_are_not_read(self):
         """Each letter drawn after the last, beside it and turned a little against it."""
