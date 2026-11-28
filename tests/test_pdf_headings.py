@@ -644,3 +644,53 @@ class TestLargeCaptions:
         text = convert(self._pdf(["Table of Contents", "Figures and their sources"]), "a.pdf").text
 
         assert "# Table of Contents" in text and "# Figures and their sources" in text
+
+
+class TestSectionNumberSetApart:
+    """A book and a paper set the number of a section a tab or an em before its title, with no mark after it. pdfminer
+    reads the two as lines of their own: the number came out as a paragraph before a heading that had lost it ('12'
+    and '# Conclusion'), or as a heading of its own ('# B.4' and '# Instruction Tuning')."""
+
+    @staticmethod
+    def _page(number: str, title: str, gap: float, font: str = "Times-Bold", number_font: str | None = None, size: float = 11,
+              number_size: float | None = None) -> str:
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        number_font, number_size = number_font or font, number_size or size
+        start = 72 + stringWidth(number, number_font, number_size) + gap
+        lines = [*((y, text, size, f, 72) for y, text, size, f in _body(80, 11)),
+                 (165, number, number_size, number_font, 72), (165, title, size, font, start),
+                 *((y, text, size, f, 72) for y, text, size, f in _body(195, 11))]
+        return convert(_pdf_at(lines), "a.pdf").sections[0].text
+
+    @pytest.mark.parametrize("number, title, gap", [
+        ("12", "Conclusion", 26), ("7", "Variants of the Observer Models", 30), ("B.4", "Instruction Tuning", 11),
+        ("4.3.1", "Instruction Tuning", 11), ("IV", "Discussion of the Results", 18), ("2", "Related work", 11),
+    ])
+    def test_a_bold_number_before_a_bold_title_is_one_heading(self, number, title, gap):
+        text = self._page(number, title, gap)
+
+        assert f"# {number} {title}\n\nThe next step" in text
+        assert f"\n{number}\n" not in text
+
+    def test_a_number_in_the_weight_of_the_body_is_left_where_it_was(self):
+        """The tick of an axis, a value beside its label, a line number."""
+        plain = self._page("12", "Conclusion of the matter", 26, font="Times-Roman")
+        mixed = self._page("12", "Conclusion", 26, number_font="Times-Roman")
+
+        assert "12 Conclusion" not in plain and "12 Conclusion" not in mixed
+
+    def test_a_number_of_another_size_is_left_where_it_was(self):
+        assert "40 Conclusion" not in self._page("40", "Conclusion", 26, number_size=16)
+
+    def test_a_number_far_from_the_line_is_left_where_it_was(self):
+        assert "12 Conclusion" not in self._page("12", "Conclusion", 60)
+
+    def test_a_bold_line_that_starts_small_is_no_title_of_the_number(self):
+        """'3  per cent of the total' in a bold row of figures."""
+        assert "# 3 per cent" not in self._page("3", "per cent of the total", 20)
+
+    def test_a_long_bold_line_is_no_title_of_the_number(self):
+        long = "This bold line runs on and on to say a great many things about the matter at hand and then some more of it too"
+
+        assert "# 3 This bold" not in self._page("3", long + " " + long[:20], 20, size=7)
