@@ -25,6 +25,7 @@ Text flow:
 - A Korean word that a PDF made by Hangul broke across two lines is written as one word again.
 - Repeated page headers and page numbers are removed. A header or footer that holds a word found nowhere else in the document (the title of a long list, the name of a journal) is written once, with the first page that has it.
 - Printer's marks outside the trim area (outside the CropBox) are removed, except on rotated pages.
+- Text set at an angle (the slanted heads of a table, the names on a map) is read along its own direction and placed at the end of its page; large or pale slanted text is taken for a watermark and left out.
 - Text drawn outside the clipping path in force is removed: the end of a cell cut off in a spreadsheet, the text of a frame cropped away in a layout program. Invisible text (the text layer of a scan) is kept.
 - Diagonal watermarks, fake bold and shadow duplicates are removed.
 - Word spacing is restored for text that was placed word by word without space characters.

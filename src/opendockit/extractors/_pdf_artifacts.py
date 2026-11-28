@@ -3,8 +3,10 @@ text drawn outside the page view, and sideways text set apart to be read in its 
 """
 
 from bisect import bisect_left, bisect_right
+from collections import Counter
 from collections.abc import Callable, Iterator
 import math
+import re
 import statistics
 
 from pdfminer.layout import LTContainer, LTFigure, LTTextLineHorizontal
@@ -13,6 +15,7 @@ from pdfminer.pdftypes import (
     resolve1,
 )
 
+from opendockit.extractors._pdf_bidi import _logical
 from opendockit.extractors._pdf_chars import _text_from_chars
 from opendockit.extractors._pdf_model import _fill_colour, _inside_any
 from opendockit.extractors._pdf_pdfminer import _LAPARAMS
@@ -274,6 +277,232 @@ def _sideways_line_text(line: list[tuple]) -> str:
         parts.append(text)
         previous = end
     return " ".join("".join(parts).split())
+
+
+# Text set at an angle (`_tilted_paragraphs`): characters whose directions lie within this many degrees are of one
+# direction (from the first of them: the labels of a map stand at every angle, and taken neighbour by neighbour they
+# were all one direction); a line holds the characters whose middles lie within this share of their size of each other across
+# the direction of writing, and ends where the next character starts more than this many sizes on. A piece of fewer
+# characters than `_TILTED_MIN_CHARS` is not written: the letters of a text set along a curve each have a direction of
+# their own, and came out as lines of one letter. A page with more tilted characters than `_TILTED_MAX_CHARS` is a
+# drawing (a map of ten thousand street names) and is left as before.
+_TILTED_ANGLE = 1.5
+_TILTED_LINE = 0.4
+_TILTED_GAP = 3.0
+_TILTED_MIN_CHARS = 3
+_TILTED_WORD = re.compile(r"[^\W\d_]{2}")  # two letters together: the heights of a map and the measures of a drawing say nothing alone
+_TILTED_MAX_CHARS = 20_000
+# A line belongs to the paragraph before it when it lies no more than this many sizes on across the direction and
+# starts within this share of the size of where the line before starts; text within this many
+# degrees of the page's own direction is ordered as a page turned straight (`_paragraphs_of_one_direction`).
+_TILTED_LEADING = 2.0
+_TILTED_ALIGNED = 0.5
+_TILTED_FLAT = 20.0
+# A paragraph that stands this often on one page is a stamp set all over it and is written once; a line is tried against
+# this many paragraphs at most (the loop over them cost the square of the pieces of a page of short labels); the gaps of
+# a piece are its character spacing without more ado when they are no wider than this share of the size.
+_TILTED_TILES = 5
+_TILTED_OPEN = 32
+_TILTED_SPACING = 0.5
+# A character removed from the page is the copy of one that stays when that one is the same character no farther along
+# than this share of the size (the shadow of `_is_shadow_copy` is within 0.15)
+_TILTED_COPY = 0.2
+# A text set along a curve: each letter turned against the one drawn before it by less than this many degrees, and
+# no farther from it than this many sizes. Its letters share a direction only by twos and threes, and those pieces
+# (`ndell`, `cent Dr` of a street on a real map) are not written.
+_CURVE_TURN = 30.0
+_CURVE_REACH = 2.0
+
+
+def _tilted_paragraphs(chars: list[dict], held: list[dict] | tuple[dict, ...] = ()) -> list[str]:
+    """The text of the characters set at an angle (`_is_tilted`), read along their own direction: one paragraph for
+    each run of lines of one direction that follow each other, each paragraph once.
+
+    Such text was dropped from the page: the column heads of a table set aslant (27 words of a real table, one of them
+    in the output), the names of the streets of a map, a slogan across the corner of a leaflet. It is read as text
+    turned a quarter is (`_sideways_paragraphs`): each character is given its place along the direction of writing and
+    across it, lines are the characters at one place across, words end at a space or a gap. The direction of writing
+    is the way the glyphs advance: against the text matrix when the size or the scaling is negative.
+    Not read: a watermark (large ones never reach this function, `_without_drawing_artifacts`; a pale one is left out
+    here, by the measure of `_faint_watermark`), pieces shorter than `_TILTED_MIN_CHARS` or without two letters
+    together (`_TILTED_WORD`: 180 heights of the contours of a real map) — counting only glyphs with an advance: a font
+    without widths draws a whole string on one spot, while a mark with none stands on its letter and is read with it —,
+    characters at no place, and a piece one of whose characters is not the page's to write (`held`): the tilted
+    characters inside table cells, which stay the text of their cells — of a name a grid cut through only the end
+    outside the cells would be read — and those removed from the page before, one by one: the box of a turned glyph
+    is as high as the glyph is wide, so of a slogan one and a half times the size of the text the wide letters went
+    as a watermark's and the rest was written, `elco e to the Su er arket`. (A character removed as the copy of one
+    that stays, the second drawing of a bold label, holds nothing.) Neither is a piece that begins or ends amid a text set along a curve
+    (`_on_a_curve`).
+    Pinned by: test_pdf_tilted_text.py"""
+    placed = []
+    in_cells = {id(char) for char in held}
+    for char in (*chars, *held):
+        a, b = (char.get("matrix") or (1.0, 0.0))[:2]
+        advance = char.get("adv") or 0.0
+        size, x, y = char["size"], (char["x0"] + char["x1"]) / 2, -(char["top"] + char["bottom"]) / 2
+        if not (math.isfinite(a) and math.isfinite(b) and math.isfinite(x) and math.isfinite(y) and math.isfinite(size) and size > 0
+                and math.isfinite(advance)):
+            continue
+        colour = _fill_colour(char.get("non_stroking_color"))
+        if colour is not None and min(colour) >= _WATERMARK_LIGHT_MIN:
+            continue
+        if advance < 0:
+            a, b = -a, -b
+        placed.append((math.degrees(math.atan2(b, a)), x, y, char))
+    if len(placed) == sum(1 for item in placed if id(item[3]) in in_cells) or len(placed) > _TILTED_MAX_CHARS:
+        return []
+    # The characters as they were drawn: a letter drawn right before or after another, beside it and turned a little
+    # against it, is the next letter of a text set along a curve (`_on_a_curve`)
+    drawn = {id(item[3]): number for number, item in enumerate(placed)}
+    in_order = list(placed)
+    placed.sort(key=lambda item: item[0])
+    groups: list[tuple[float, list[str]]] = []  # (how far down the page it starts, its paragraphs in order) of each direction
+    start = 0
+    for index in range(1, len(placed) + 1):
+        if index == len(placed) or placed[index][0] - placed[start][0] > _TILTED_ANGLE:
+            found = _paragraphs_of_one_direction(placed[start:index], in_cells, drawn, in_order)
+            if found:
+                groups.append((min(top for top, _ in found), [text for _, text in found]))
+            start = index
+    groups.sort(key=lambda group: group[0])
+    texts = [text for _, found in groups for text in found]
+    often = {text for text, count in Counter(texts).items() if count >= _TILTED_TILES}  # a stamp set all over a page is one stamp
+    return [text for number, text in enumerate(texts) if text not in often or text not in texts[:number]]
+
+
+def _on_a_curve(char: dict, drawn: dict[int, int], in_order: list[tuple[float, float, float, dict]]) -> bool:
+    """Whether the character drawn right before or right after `char` stands beside it, turned against it by more
+    than `_TILTED_ANGLE` and less than `_CURVE_TURN`: the two are letters of one text set along a curve (the name of
+    a street along its bend, of a river along its course)."""
+    number = drawn[id(char)]
+    angle, x, y, _ = in_order[number]
+    for other in (number - 1, number + 1):
+        if 0 <= other < len(in_order):
+            turned, beside_x, beside_y, neighbour = in_order[other]
+            turn = abs((turned - angle + 180) % 360 - 180)
+            if (_TILTED_ANGLE < turn < _CURVE_TURN and neighbour["text"].strip()
+                    and math.hypot(beside_x - x, beside_y - y) <= _CURVE_REACH * max(char["size"], neighbour["size"])):
+                return True
+    return False
+
+
+def _tilted_line_text(piece: list[tuple]) -> str:
+    """The text of a piece of a tilted line, its characters (across, along, half the advance, character) in the
+    order they stand along it. A space is a space; a gap is one when it is wider than the gaps of the piece by the
+    measure of `_sideways_line_text`: of a label set with wide character spacing every gap is wide, and it read
+    `Wo rds read in o rde r` or, wider still, not at all. A piece with letters written from right to left is put into
+    the order of reading (`_logical`), as a line along the page is."""
+    glyphs = [item for item in piece if item[3]["text"].strip() and item[2]]
+    gaps = sorted(right[1] - right[2] - (left[1] + left[2]) for left, right in zip(glyphs, glyphs[1:], strict=False))
+    spacing = 0.0
+    if len(gaps) >= _TILTED_MIN_CHARS:
+        middle = gaps[len(gaps) // 2]
+        # every gap wide is character spacing when the gaps are small against the letters, or when the piece shows
+        # where its words end besides (a space, a gap clearly wider): letters set apart one by one are not one word
+        size = glyphs[0][3]["size"]
+        if 0 < middle <= size * _TILTED_SPACING or (middle > 0 and (len(glyphs) < len([item for item in piece if item[2]])
+                                                                       or gaps[-1] >= 1.8 * middle)):
+            spacing = middle
+    units: list[str] = []
+    previous = None
+    for _, along, half, char in piece:
+        if not char["text"].strip():
+            if units and units[-1] != " ":
+                units.append(" ")
+            previous = None
+            continue
+        if not half:  # a mark set on the letter before it
+            units.append(char["text"])
+            continue
+        if previous is not None and along - half - previous - spacing > _LAPARAMS["word_margin"] * max(2 * half, char["size"]):
+            units.append(" ")
+        units.append(char["text"])
+        previous = along + half
+    return " ".join(_logical(units).split())
+
+
+def _paragraphs_of_one_direction(placed: list[tuple[float, float, float, dict]], in_cells: set[int], drawn: dict[int, int],
+                                 in_order: list[tuple[float, float, float, dict]]) -> list[tuple[float, str]]:
+    """(how far down the page it starts, text) of the paragraphs the characters of one direction make, in the order
+    they are written (`_tilted_paragraphs`).
+
+    A line joins the paragraph whose last line lies right before it across the direction and overlaps it along it:
+    two blocks of lines set side by side are two paragraphs. Of steep text it must also start where that line starts
+    (`_TILTED_ALIGNED`): the heads of the columns of a table, each starting a little further on than the one before,
+    are one each (two of four heads that happened to end at one place were one paragraph, in the wrong order), and so
+    are the lines of a steep paragraph set centred. The order: of text set nearly along the page (within `_TILTED_FLAT` degrees: a page laid a little
+    askew, a note across a corner) as on a page turned straight, from its top down and at one height from left to
+    right; of steeper text by where each paragraph starts on the page, from the top down and at one height from left
+    to right (the heads of columns, rising or falling)."""
+    angle_in_degrees = placed[len(placed) // 2][0]
+    angle = math.radians(angle_in_degrees)
+    flat = abs((angle_in_degrees + 90) % 180 - 90) <= _TILTED_FLAT
+    cos, sin = math.cos(angle), math.sin(angle)
+    turned = []  # (across from the first line down, along, half the advance, character)
+    for _, x, y, char in placed:
+        a, b = (char.get("matrix") or (1.0, 0.0))[:2]
+        turned.append((x * sin - y * cos, x * cos + y * sin, abs(char.get("adv") or 0.0) * math.hypot(a, b) / 2, char))
+    turned.sort(key=lambda item: item[0])
+    lines: list[list[tuple]] = []
+    for item in turned:
+        if lines and item[0] - lines[-1][-1][0] <= item[3]["size"] * _TILTED_LINE:
+            lines[-1].append(item)
+        else:
+            lines.append([item])
+    # [across and along of its start, of its first character on the page (top, left), size, its lines, the last line's
+    #  across, start and end]
+    paragraphs: list[list] = []
+    open_from = 0  # paragraphs before this one end too far back to be joined
+    for line in lines:
+        line.sort(key=lambda item: item[1])
+        pieces = [[line[0]]]
+        for item in line[1:]:
+            before = pieces[-1][-1]
+            if item[1] - item[2] - (before[1] + before[2]) > _TILTED_GAP * item[3]["size"]:
+                pieces.append([])
+            pieces[-1].append(item)
+        for piece in pieces:
+            apart = [item for item in piece if id(item[3]) in in_cells]
+            if apart:
+                # A character removed as the copy of one that stays (a label made bold by drawing it twice, a shadow) holds
+                # nothing: it goes, and the piece is read from the characters that stay
+                piece = [item for item in piece if id(item[3]) not in in_cells]
+                if not all(any(other[3]["text"] == item[3]["text"] and abs(other[1] - item[1]) <= _TILTED_COPY * item[3]["size"]
+                               for other in piece) for item in apart):
+                    continue
+            if (sum(1 for item in piece if item[2] and item[3]["text"].strip()) < _TILTED_MIN_CHARS
+                    or _on_a_curve(piece[0][3], drawn, in_order) or _on_a_curve(piece[-1][3], drawn, in_order)):
+                continue
+            text = _tilted_line_text(piece)
+            if not _TILTED_WORD.search(text):
+                continue
+            first = piece[0][3]
+            across, begin, end, size = piece[0][0], piece[0][1] - piece[0][2], piece[-1][1] + piece[-1][2], first["size"]
+            while open_from < len(paragraphs) and across - paragraphs[open_from][6] > size * _TILTED_LEADING:
+                open_from += 1
+            near = size * _TILTED_ALIGNED
+            for paragraph in reversed(paragraphs[max(open_from, len(paragraphs) - _TILTED_OPEN):]):
+                last, last_begin, last_end = paragraph[6:9]
+                if (across - last > size * _TILTED_LINE and across - last <= size * _TILTED_LEADING and begin < last_end and last_begin < end
+                        and (flat or abs(begin - last_begin) <= near)):
+                    paragraph[5].append(text)
+                    paragraph[6:9] = across, begin, end
+                    break
+            else:
+                paragraphs.append([across, begin, (first["top"] + first["bottom"]) / 2, (first["x0"] + first["x1"]) / 2, size,
+                                   [text], across, begin, end])
+    key = (lambda paragraph: (paragraph[0], paragraph[1])) if flat else (lambda paragraph: (paragraph[2], paragraph[3]))
+    paragraphs.sort(key=lambda paragraph: key(paragraph)[0])
+    ordered: list[tuple[float, str]] = []
+    row: list[list] = []
+    for paragraph in [*paragraphs, None]:
+        if row and (paragraph is None or key(paragraph)[0] - key(row[0])[0] > row[0][4]):
+            ordered.extend((item[2], "\n".join(item[5])) for item in sorted(row, key=lambda item: key(item)[1]))
+            row = []
+        if paragraph is not None:
+            row.append(paragraph)
+    return ordered
 
 
 # Filled shapes of the size of a letter standing in the lines of text of a page, where no character stands: from this many

@@ -305,6 +305,7 @@ def _left(page: _Page, drop: set[int]) -> Iterator[str]:
     for table in page.tables:
         yield table.text
     yield from page.sideways
+    yield from page.tilted
     yield from page.form_values
 
 
